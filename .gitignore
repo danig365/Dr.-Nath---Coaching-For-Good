@@ -1,0 +1,35 @@
+# Python virtual environment
+backend/Lib/
+backend/Scripts/
+backend/Include/
+backend/pyvenv.cfg
+backend/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node
+node_modules/
+frontend/node_modules/
+dist/
+build/
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# DB
+*.sqlite3
+db.sqlite3
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
