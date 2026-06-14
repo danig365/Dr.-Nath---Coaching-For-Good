@@ -1,0 +1,144 @@
+@import '@fontsource/playfair-display/400.css';
+@import '@fontsource/playfair-display/600.css';
+@import '@fontsource/playfair-display/700.css';
+@import '@fontsource/playfair-display/400-italic.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* ── Dr. Nath brand palette (navy + gold + cream, from logo) ── */
+  --navy: #1B2B4A;          /* primary navy (logo lettering) */
+  --navy-deep: #14213D;     /* deep navy for footer */
+  --navy-soft: #233A63;     /* lighter navy for accents/cards on dark */
+  --gold: #C8A951;          /* logo gold */
+  --gold-light: #E8C96A;    /* gold highlight */
+  --gold-deep: #A9863A;     /* darker gold for text on cream */
+  --cream: #FAF6EC;         /* logo paper/cream */
+  --cream-warm: #F3ECD9;    /* warmer cream section bg */
+  --ink: #1B2B4A;           /* body heading text = navy */
+  --slate: #4A5568;         /* body mid text */
+  --slate-light: #7A8699;   /* muted text */
+
+  /* legacy aliases (kept so older pages don't break) */
+  --hero-bg: #1B2B4A;
+  --off-white: #FAF6EC;
+}
+
+.font-serif-display {
+  font-family: 'Playfair Display', Georgia, serif;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-12px); }
+}
+
+@keyframes ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, #C8A951, #F0D98C, #C8A951);
+  background-size: 200% auto;
+  animation: shimmer 2.5s linear infinite;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+.animate-ticker {
+  animation: ticker 30s linear infinite;
+}
+
+.gold-btn {
+  background: linear-gradient(135deg, #C8A951, #E8C96A);
+  color: #2C1810;
+  font-weight: 700;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(200,169,81,0.3);
+}
+
+.gold-btn:hover {
+  background: linear-gradient(135deg, #E8C96A, #C8A951);
+  box-shadow: 0 6px 25px rgba(200,169,81,0.5);
+  transform: translateY(-2px);
+}
+
+/* Solid navy pill button */
+.navy-btn {
+  background: #1B2B4A;
+  color: #FAF6EC;
+  font-weight: 700;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(27,43,74,0.25);
+}
+
+.navy-btn:hover {
+  background: #233A63;
+  box-shadow: 0 6px 25px rgba(27,43,74,0.4);
+  transform: translateY(-2px);
+}
+
+/* Outline button on light backgrounds */
+.outline-btn {
+  border: 1.5px solid rgba(27,43,74,0.25);
+  color: #1B2B4A;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.outline-btn:hover {
+  border-color: #C8A951;
+  background: rgba(200,169,81,0.08);
+  transform: translateY(-2px);
+}
+
+/* Status badges */
+.status-badge {
+  @apply rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide;
+}
+
+.status-badge.confirmed {
+  @apply bg-green-100 text-green-800;
+}
+
+.status-badge.pending {
+  @apply bg-yellow-100 text-yellow-800;
+}
+
+.status-badge.completed {
+  @apply bg-blue-100 text-blue-800;
+}
+
+.status-badge.cancelled {
+  @apply bg-red-100 text-red-800;
+}
+
+/* Action buttons */
+.action-button {
+  @apply flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-200;
+}
+
+.action-button.primary {
+  @apply bg-indigo-600 text-white shadow-sm hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow;
+}
+
+.action-button.secondary {
+  @apply border border-slate-300 bg-white text-slate-700 hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700;
+}
+
+.action-button.danger {
+  @apply border border-red-300 bg-white text-red-700 hover:-translate-y-0.5 hover:bg-red-50;
+}
