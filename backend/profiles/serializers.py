@@ -8,7 +8,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'role', 'bio', 'photo', 'specialties', 'certifications',
             'hourly_rate', 'years_experience', 'languages', 'industries',
             'approval_status', 'is_verified', 'organisation', 'job_title',
-            'coaching_goals'
+            'coaching_goals', 'timezone', 'booking_horizon_days', 'min_notice_hours'
         ]
         read_only_fields = ['approval_status', 'is_verified']
 

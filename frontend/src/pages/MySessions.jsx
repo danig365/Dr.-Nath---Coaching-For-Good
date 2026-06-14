@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   FiCalendar, FiClock, FiMessageSquare, FiX,
   FiVideo, FiDollarSign, FiUpload, FiCheck,
-  FiSearch, FiFilter, FiChevronDown,
+  FiSearch, FiFilter, FiChevronDown, FiLink,
 } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
@@ -60,10 +60,10 @@ const ActionBtn = ({ onClick, icon: Icon, label, badge, variant = "default" }) =
   );
 };
 
-// ─── Session Card ─────────────────────────────────────────────────────────────
-const SessionCard = ({ session, activeTab, onCancel, onUploadNotes, onJoin, navigate, index }) => {
+// ─── Session Card (compact) ────────────────────────────────────────────────────
+const SessionCard = ({ session, activeTab, onCancel, onSetMeetingLink, onUploadNotes, onJoin, navigate, index }) => {
   const date = new Date(session.session_date).toLocaleDateString("en-US", {
-    weekday: "long", month: "short", day: "numeric", year: "numeric",
+    weekday: "short", month: "short", day: "numeric",
   });
   const time = new Date(`2000-01-01T${session.session_time}`).toLocaleTimeString("en-US", {
     hour: "2-digit", minute: "2-digit", hour12: true,
@@ -72,28 +72,40 @@ const SessionCard = ({ session, activeTab, onCancel, onUploadNotes, onJoin, navi
   const accentColor = session.status === "accepted" || session.status === "confirmed"
     ? "#34A853" : session.status === "pending" ? "#F59E0B" : "#C8A951";
 
+  const sessionEnd = new Date(
+    new Date(`${session.session_date}T${session.session_time}`).getTime() +
+    session.duration * 60 * 1000
+  );
+  const expired = sessionEnd < new Date();
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 16 }}
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: index * 0.05 }}
+      transition={{ duration: 0.25, delay: index * 0.04 }}
       className="rounded-2xl overflow-hidden"
-      style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)", boxShadow: "0 2px 16px rgba(27,43,74,0.05)" }}
+      style={{ background: "white", border: "1px solid rgba(200,169,81,0.18)", boxShadow: "0 2px 12px rgba(27,43,74,0.06)" }}
     >
-      {/* Top accent */}
-      <div className="h-1" style={{ background: `linear-gradient(90deg, ${accentColor}, ${accentColor}88)` }} />
+      {/* Left accent bar + content */}
+      <div className="flex">
+        <div className="w-1.5 shrink-0" style={{ background: `linear-gradient(180deg, ${accentColor}, ${accentColor}55)` }} />
 
-      <div className="p-6">
-        {/* Header */}
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
-          <div>
-            <h3 className="text-xl font-normal text-[#1B2B4A] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
-              {session.skill_title}
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
-                {session.duration} mins
-              </span>
+        <div className="flex-1 px-5 py-4">
+          {/* Row 1: avatar · client + skill · tags · status */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "#C8A951", color: "#14213D" }}>
+              {session.learner_username?.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-xs font-semibold" style={{ color: "#A9863A" }}>{session.learner_username}</span>
+              <span className="text-base font-normal text-[#1B2B4A] truncate" style={{ fontFamily: "'Playfair Display', serif" }}>{session.skill_title}</span>
+            </div>
+            <div className="flex items-center gap-2 ml-auto flex-wrap">
+              {session.duration && (
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(200,169,81,0.1)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
+                  {session.duration} min
+                </span>
+              )}
               {session.price && (
                 <span className="text-xs font-semibold px-2.5 py-1 rounded-full flex items-center gap-1" style={{ background: "#F3ECD9", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
                   <FiDollarSign size={10} />{session.price}
@@ -104,105 +116,73 @@ const SessionCard = ({ session, activeTab, onCancel, onUploadNotes, onJoin, navi
                   {session.skill_level}
                 </span>
               )}
+              <StatusBadge status={session.status} />
             </div>
           </div>
-          <StatusBadge status={session.status} />
-        </div>
 
-        {/* Learner info */}
-        <div className="flex items-center gap-3 rounded-xl px-4 py-3 mb-4" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.15)" }}>
-          <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "#C8A951", color: "#14213D" }}>
-            {session.learner_username?.charAt(0).toUpperCase()}
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-[#1B2B4A]">{session.learner_username}</p>
-            {session.objectives?.length > 0 && (
-              <p className="text-xs text-[#4A5568] mt-0.5">{session.objectives.join(", ")}</p>
-            )}
-          </div>
-        </div>
+          {/* Divider */}
+          <div className="mt-3 mb-3" style={{ borderTop: "1px solid rgba(200,169,81,0.1)" }} />
 
-        {/* Date + Time */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-          <div className="flex items-center gap-2.5 rounded-xl px-4 py-3" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.15)" }}>
-            <FiCalendar size={13} style={{ color: "#C8A951" }} />
-            <span className="text-sm font-medium text-[#1B2B4A]">{date}</span>
-          </div>
-          <div className="flex items-center gap-2.5 rounded-xl px-4 py-3" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.15)" }}>
-            <FiClock size={13} style={{ color: "#C8A951" }} />
-            <span className="text-sm font-medium text-[#1B2B4A]">{time}</span>
-          </div>
-        </div>
+          {/* Row 2: date · time · actions */}
+          <div className="flex items-center gap-5 flex-wrap">
+            <span className="flex items-center gap-1.5 text-sm text-[#4A5568]">
+              <FiCalendar size={13} style={{ color: "#C8A951" }} />{date}
+            </span>
+            <span className="flex items-center gap-1.5 text-sm text-[#4A5568]">
+              <FiClock size={13} style={{ color: "#C8A951" }} />{time}
+            </span>
 
-        {/* Actions */}
-        <div className="flex flex-wrap gap-2 pt-4" style={{ borderTop: "1px solid rgba(200,169,81,0.12)" }}>
-          {activeTab === "upcoming" && (() => {
-            const sessionEnd = new Date(
-              new Date(`${session.session_date}T${session.session_time}`).getTime() +
-              session.duration * 60 * 1000
-            );
-            const expired = sessionEnd < new Date();
-            return (
-              <>
-                {session.status === "accepted" ? (
-                  <ActionBtn
-                    onClick={() => !expired && navigate(`/session/${session.id}`)}
-                    icon={FiVideo}
-                    label={expired ? "Session Expired" : "Join Session"}
-                    variant={expired ? "default" : "primary"}
-                  />
-                ) : (
-                  <ActionBtn onClick={() => {}} icon={FiVideo} label="Awaiting Acceptance" variant="default" />
-                )}
-                <ActionBtn onClick={() => onCancel(session.id)} icon={FiX} label="Cancel" variant="danger" />
-                {session.status === "accepted" && (
-                  <ActionBtn
-                    onClick={() => navigate(`/chat/${session.id}`)}
-                    icon={FiMessageSquare}
-                    label="Chat"
-                    badge={<UnreadBadge count={session.unread_messages} />}
-                  />
-                )}
-              </>
-            );
-          })()}
+            <div className="flex items-center gap-2 ml-auto flex-wrap">
+              {activeTab === "upcoming" && (
+                <>
+                  {session.status === "accepted" ? (
+                    <ActionBtn onClick={() => !expired && navigate(`/session/${session.id}`)} icon={FiVideo}
+                      label={expired ? "Expired" : "Join"} variant={expired ? "default" : "primary"} />
+                  ) : (
+                    <ActionBtn onClick={() => {}} icon={FiVideo} label="Pending" variant="default" />
+                  )}
+                  {!expired && <ActionBtn onClick={() => onCancel(session)} icon={FiX} label="Cancel" variant="danger" />}
+                  {session.status === "accepted" && (
+                    <>
+                      <ActionBtn onClick={() => navigate(`/chat/${session.id}`)} icon={FiMessageSquare} label="Chat"
+                        badge={<UnreadBadge count={session.unread_messages} />} />
+                      <ActionBtn onClick={() => onSetMeetingLink(session)} icon={FiLink}
+                        label={session.meeting_link ? "Update Link" : "Add Link"} />
+                    </>
+                  )}
+                </>
+              )}
+              {activeTab === "past" && (
+                <>
+                  <ActionBtn onClick={() => onUploadNotes(session.id, !!session.notes_file)}
+                    icon={session.notes_file ? FiCheck : FiUpload}
+                    label={session.notes_file ? "Notes ✓" : "Upload Notes"} />
+                  <ActionBtn onClick={() => navigate(`/chat/${session.id}`)} icon={FiMessageSquare} label="Chat"
+                    badge={<UnreadBadge count={session.unread_messages} />} />
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Feedback (past only) */}
           {activeTab === "past" && (
-            <>
-              <ActionBtn
-                onClick={() => onUploadNotes(session.id, !!session.notes_file)}
-                icon={session.notes_file ? FiCheck : FiUpload}
-                label={session.notes_file ? "Notes Uploaded ✓" : "Upload Notes"}
-              />
-              <ActionBtn
-                onClick={() => navigate(`/chat/${session.id}`)}
-                icon={FiMessageSquare}
-                label="Chat"
-                badge={<UnreadBadge count={session.unread_messages} />}
-              />
-            </>
+            <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(200,169,81,0.1)" }}>
+              {session.feedback ? (
+                <SessionFeedbackCard
+                  title="Student review"
+                  subtitle={session.feedback.student_name}
+                  badgeLabel="Published"
+                  rating={session.feedback.rating}
+                  comment={session.feedback.comment}
+                  date={new Date(session.feedback.created_at).toLocaleDateString()}
+                  tone="gold"
+                />
+              ) : (
+                <p className="text-xs text-center" style={{ color: "rgba(74,85,104,0.5)" }}>No feedback yet.</p>
+              )}
+            </div>
           )}
         </div>
-
-        {/* Feedback */}
-        {activeTab === "past" && (
-          <div className="mt-4">
-            {session.feedback ? (
-              <SessionFeedbackCard
-                title="Student review"
-                subtitle={session.feedback.student_name}
-                badgeLabel="Published"
-                rating={session.feedback.rating}
-                comment={session.feedback.comment}
-                date={new Date(session.feedback.created_at).toLocaleDateString()}
-                tone="gold"
-              />
-            ) : (
-              <div className="rounded-xl px-4 py-3 text-xs text-center" style={{ background: "#FAF6EC", border: "1px dashed rgba(200,169,81,0.3)", color: "rgba(74,85,104,0.6)" }}>
-                No feedback submitted for this session yet.
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </motion.div>
   );
@@ -293,14 +273,32 @@ const MySessions = () => {
     return s.status === "completed" || (s.status === "accepted" && dt <= now);
   });
 
-  const handleCancel = async (id) => {
-    if (!window.confirm("Cancel this session?")) return;
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const handleCancel = async () => {
+    if (!cancelTarget) return;
     try {
-      await api.patch(`/bookings/${id}/`, { status: "declined" });
+      await api.patch(`/bookings/${cancelTarget.id}/coach-cancel/`);
       await fetchSessions();
-      toast.success("Session cancelled.");
+      toast.success("Session cancelled. The client has been refunded.");
     } catch {
       toast.error("Failed to cancel session.");
+    } finally {
+      setCancelTarget(null);
+    }
+  };
+
+  const [meetingTarget, setMeetingTarget] = useState(null);
+  const [meetingLink, setMeetingLink] = useState("");
+  const handleSaveMeetingLink = async () => {
+    try {
+      await api.patch(`/bookings/${meetingTarget.id}/`, { meeting_link: meetingLink });
+      await fetchSessions();
+      toast.success("Meeting link saved.");
+    } catch {
+      toast.error("Failed to save meeting link.");
+    } finally {
+      setMeetingTarget(null);
+      setMeetingLink("");
     }
   };
 
@@ -542,7 +540,8 @@ const MySessions = () => {
                   session={session}
                   index={i}
                   activeTab={activeTab}
-                  onCancel={handleCancel}
+                  onCancel={setCancelTarget}
+                  onSetMeetingLink={(s) => { setMeetingTarget(s); setMeetingLink(s.meeting_link || ""); }}
                   onUploadNotes={handleUploadNotes}
                   onJoin={joinSession}
                   navigate={navigate}
@@ -553,6 +552,77 @@ const MySessions = () => {
         </AnimatePresence>
         <Pagination page={page} totalPages={totalPages} onChange={setPage} />
       </div>
+
+      {/* ── Cancel Confirmation Modal ────────────────────── */}
+      <AnimatePresence>
+        {cancelTarget && (
+          <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setCancelTarget(null)} />
+            <motion.div
+              className="relative rounded-2xl p-8 w-full max-w-sm text-center z-10"
+              style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.2)" }}
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            >
+              <p className="text-4xl mb-4">⚠️</p>
+              <h3 className="text-xl font-normal text-[#1B2B4A] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>Cancel Session</h3>
+              <p className="text-sm text-[#4A5568] mb-6">
+                Cancel your session with <strong>{cancelTarget.learner_username}</strong>? The time slot reopens and the client is refunded.
+              </p>
+              <div className="flex gap-3">
+                <button onClick={() => setCancelTarget(null)} className="flex-1 py-2.5 rounded-full text-sm font-semibold border" style={{ borderColor: "rgba(200,169,81,0.3)", color: "#4A5568" }}>
+                  Keep It
+                </button>
+                <button onClick={handleCancel} className="flex-1 py-2.5 rounded-full text-sm font-bold text-white" style={{ background: "#DC2626" }}>
+                  Cancel Session
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Meeting Link Modal ───────────────────────────── */}
+      <AnimatePresence>
+        {meetingTarget && (
+          <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setMeetingTarget(null)} />
+            <motion.div
+              className="relative rounded-2xl p-8 w-full max-w-md z-10"
+              style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.2)" }}
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ background: "rgba(200,169,81,0.15)" }}>
+                <FiLink size={20} style={{ color: "#C8A951" }} />
+              </div>
+              <h3 className="text-xl font-normal text-[#1B2B4A] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>Meeting Link</h3>
+              <p className="text-sm text-[#4A5568] mb-5">Add a Zoom, Google Meet, or Jitsi link for this session.</p>
+              <input
+                type="url"
+                placeholder="https://meet.jit.si/your-room"
+                value={meetingLink}
+                onChange={e => setMeetingLink(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl text-sm focus:outline-none mb-5"
+                style={{ background: "white", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }}
+                onFocus={e => e.target.style.borderColor = "#C8A951"}
+                onBlur={e => e.target.style.borderColor = "rgba(200,169,81,0.3)"}
+              />
+              <div className="flex gap-3">
+                <button onClick={() => setMeetingTarget(null)} className="flex-1 py-2.5 rounded-full text-sm font-semibold border" style={{ borderColor: "rgba(200,169,81,0.3)", color: "#4A5568" }}>
+                  Cancel
+                </button>
+                <button onClick={handleSaveMeetingLink} className="flex-1 gold-btn py-2.5 rounded-full text-sm font-bold">
+                  Save Link
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

@@ -287,13 +287,10 @@ export default function Milestones() {
 
   return (
     <div className="min-h-screen pt-28 pb-16 px-6" style={{ background: "#FAF6EC" }}>
-      {/* Header (flat, matches dashboard pages) */}
-      <div className="max-w-5xl mx-auto">
-        <button onClick={() => navigate(-1)}
-          className="flex items-center gap-2 text-xs font-semibold mb-6 transition-colors hover:text-[#C8A951]"
-          style={{ color: "#A9863A" }}>
-        </button>
-        <div className="flex items-center justify-between gap-4">
+      {/* Header */}
+      <motion.div className="max-w-5xl mx-auto"
+        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: "easeOut" }}>
+        <div className="flex items-center justify-between gap-4 mb-8">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
               style={{ background: "rgba(200,169,81,0.15)" }}>
@@ -334,9 +331,10 @@ export default function Milestones() {
             </div>
           </div>
         )}
-      </div>
+      </motion.div>
 
-      <div className="max-w-5xl mx-auto py-8">
+      <motion.div className="max-w-5xl mx-auto py-8"
+        initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: "easeOut", delay: 0.1 }}>
         {/* Filters */}
         <div className="flex flex-wrap gap-2 mb-6">
           {[
@@ -415,7 +413,7 @@ export default function Milestones() {
             </AnimatePresence>
           </div>
         )}
-      </div>
+      </motion.div>
 
       {/* Modal */}
       <AnimatePresence>

@@ -1,9 +1,10 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import SessionBookingViewSet, ReviewViewSet, CreatePaymentIntentView, ConfirmBookingPaymentView, UploadNotesView, MilestoneView, MilestoneDetailView
+from .views import SessionBookingViewSet, ReviewViewSet, CreatePaymentIntentView, ConfirmBookingPaymentView, UploadNotesView, MilestoneView, MilestoneDetailView, TimeSlotViewSet
 
 router = DefaultRouter()
 router.register(r'reviews', ReviewViewSet, basename='review')
+router.register(r'slots', TimeSlotViewSet, basename='slot')
 router.register(r'', SessionBookingViewSet, basename='booking')
 
 urlpatterns = [

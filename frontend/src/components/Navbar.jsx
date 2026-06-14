@@ -26,19 +26,22 @@ const Navbar = () => {
   }, []);
 
   const [pendingCount, setPendingCount] = useState(0);
+  const [upcomingCount, setUpcomingCount] = useState(0);
   const pollRef = useRef(null);
 
   useEffect(() => {
-    if (!isAuthenticated) { setPendingCount(0); return; }
-    const fetch = () =>
+    if (!isAuthenticated) { setPendingCount(0); setUpcomingCount(0); return; }
+    const fetchCounts = () =>
       api.get("/bookings/")
         .then(res => {
           const all = Array.isArray(res.data) ? res.data : (res.data.results ?? []);
+          const now = new Date();
           setPendingCount(all.filter(b => b.status === "pending").length);
+          setUpcomingCount(all.filter(b => b.status === "accepted" && new Date(b.session_date) >= now).length);
         })
         .catch(() => {});
-    fetch();
-    pollRef.current = setInterval(fetch, 30000);
+    fetchCounts();
+    pollRef.current = setInterval(fetchCounts, 30000);
     return () => clearInterval(pollRef.current);
   }, [isAuthenticated]);
 
@@ -46,8 +49,6 @@ const Navbar = () => {
     ? "rgba(38,56,92,0.97)"
     : "rgba(38,56,92,0.90)";
 
-  // badge: coach sees count on Bookings, client sees count on My Learning
-  const badgeTo = isCoach() ? "/mentor-bookings" : "/my-learning";
 
   const desktopLinks = !isAuthenticated
     ? [
@@ -67,8 +68,9 @@ const Navbar = () => {
       ]
     : [
         { to: isCoach() ? "/my-skills" : "/skills", label: isCoach() ? "My Skills" : "Browse Skills" },
-        ...(isCoach() ? [{ to: "/add-skill", label: "Add Skill" }, { to: "/mentor-bookings", label: "Bookings" }] : []),
-        { to: isCoach() ? "/my-sessions" : "/my-learning", label: isCoach() ? "My Sessions" : "My Learning" },
+        ...(isCoach() ? [{ to: "/add-skill", label: "Add Skill" }, { to: "/my-availability", label: "Availability" }] : []),
+        { to: isCoach() ? "/my-sessions" : "/my-learning", label: isCoach() ? "My Sessions" : "My Learning", badge: upcomingCount },
+
         { to: "/milestones", label: "Milestones" },
         { to: "/coaches", label: "Coaches" },
         ...(!isCoach() ? [{ to: "/match", label: "Find Match" }] : []),
@@ -114,24 +116,27 @@ const Navbar = () => {
 
             {/* Desktop Nav */}
             <div className="hidden md:flex items-center gap-1">
-              {desktopLinks.map(link => (
-                <Link
-                  key={link.to}
-                  to={link.to}
-                  className="relative px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 hover:text-[#C8A951] hover:bg-white/5"
-                  style={{ color: link.to === currentFull ? "#C8A951" : "rgba(255,255,255,0.8)" }}
-                >
-                  {link.label}
-                  {link.to === badgeTo && pendingCount > 0 && (
-                    <span
-                      className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] flex items-center justify-center rounded-full text-[10px] font-bold px-1"
-                      style={{ background: "#C8A951", color: "#14213D", lineHeight: 1 }}
-                    >
-                      {pendingCount > 99 ? "99+" : pendingCount}
-                    </span>
-                  )}
-                </Link>
-              ))}
+              {desktopLinks.map(link => {
+                const badgeNum = link.badge || 0;
+                return (
+                  <Link
+                    key={link.to}
+                    to={link.to}
+                    className="relative px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 hover:text-[#C8A951] hover:bg-white/5"
+                    style={{ color: link.to === currentFull ? "#C8A951" : "rgba(255,255,255,0.8)" }}
+                  >
+                    {link.label}
+                    {badgeNum > 0 && (
+                      <span
+                        className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] flex items-center justify-center rounded-full text-[10px] font-bold px-1"
+                        style={{ background: "#C8A951", color: "#14213D", lineHeight: 1 }}
+                      >
+                        {badgeNum > 99 ? "99+" : badgeNum}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
 
               {isAuthenticated ? (
                 <button
@@ -182,25 +187,28 @@ const Navbar = () => {
               style={{ background: "rgba(15,25,46,0.98)", borderTop: "1px solid rgba(200,169,81,0.15)" }}
             >
               <div className="px-4 py-4 space-y-1">
-                {desktopLinks.map(link => (
-                  <Link
-                    key={link.to}
-                    to={link.to}
-                    onClick={() => setIsOpen(false)}
-                    className="relative flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 hover:text-[#C8A951] hover:bg-white/5"
-                    style={{ color: "rgba(255,255,255,0.8)" }}
-                  >
-                    {link.label}
-                    {link.to === badgeTo && pendingCount > 0 && (
-                      <span
-                        className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-bold px-1"
-                        style={{ background: "#C8A951", color: "#14213D" }}
-                      >
-                        {pendingCount > 99 ? "99+" : pendingCount}
-                      </span>
-                    )}
-                  </Link>
-                ))}
+                {desktopLinks.map(link => {
+                  const badgeNum = link.badge || 0;
+                  return (
+                    <Link
+                      key={link.to}
+                      to={link.to}
+                      onClick={() => setIsOpen(false)}
+                      className="relative flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 hover:text-[#C8A951] hover:bg-white/5"
+                      style={{ color: "rgba(255,255,255,0.8)" }}
+                    >
+                      {link.label}
+                      {badgeNum > 0 && (
+                        <span
+                          className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-bold px-1"
+                          style={{ background: "#C8A951", color: "#14213D" }}
+                        >
+                          {badgeNum > 99 ? "99+" : badgeNum}
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
 
                 <div className="pt-2">
                   {isAuthenticated ? (

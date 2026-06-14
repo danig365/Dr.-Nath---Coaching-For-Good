@@ -62,10 +62,10 @@ const ActionBtn = ({ onClick, icon: Icon, label, badge, variant = "default", dis
   );
 };
 
-// ─── Session Card ─────────────────────────────────────────────────────────────
+// ─── Session Card (compact) ────────────────────────────────────────────────────
 const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, navigate, index }) => {
   const date = new Date(session.session_date).toLocaleDateString("en-US", {
-    weekday: "long", month: "short", day: "numeric",
+    weekday: "short", month: "short", day: "numeric",
   });
   const time = new Date(`2000-01-01T${session.session_time}`).toLocaleTimeString("en-US", {
     hour: "2-digit", minute: "2-digit", hour12: true,
@@ -75,27 +75,39 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, nav
     ? (session.status === "accepted" ? "#34A853" : "#F59E0B")
     : "#C8A951";
 
+  const sessionEnd = new Date(
+    new Date(`${session.session_date}T${session.session_time}`).getTime() +
+    session.duration * 60 * 1000
+  );
+  const expired = sessionEnd < new Date();
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 16 }}
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: index * 0.05 }}
+      transition={{ duration: 0.25, delay: index * 0.04 }}
       className="rounded-2xl overflow-hidden"
-      style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)", boxShadow: "0 2px 16px rgba(27,43,74,0.05)" }}
+      style={{ background: "white", border: "1px solid rgba(200,169,81,0.18)", boxShadow: "0 2px 12px rgba(27,43,74,0.06)" }}
     >
-      <div className="h-1" style={{ background: `linear-gradient(90deg, ${accentColor}, ${accentColor}88)` }} />
+      <div className="flex">
+        <div className="w-1.5 shrink-0" style={{ background: `linear-gradient(180deg, ${accentColor}, ${accentColor}55)` }} />
 
-      <div className="p-6">
-        {/* Header */}
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
-          <div>
-            <h3 className="text-xl font-normal text-[#1B2B4A] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
-              {session.skill_title}
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
-                {session.duration} mins
-              </span>
+        <div className="flex-1 px-5 py-4">
+          {/* Row 1: avatar · coach + skill · tags · status */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "#C8A951", color: "#14213D" }}>
+              {session.mentor_username?.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-xs font-semibold" style={{ color: "#A9863A" }}>{session.mentor_username}</span>
+              <span className="text-base font-normal text-[#1B2B4A] truncate" style={{ fontFamily: "'Playfair Display', serif" }}>{session.skill_title}</span>
+            </div>
+            <div className="flex items-center gap-2 ml-auto flex-wrap">
+              {session.duration && (
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(200,169,81,0.1)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
+                  {session.duration} min
+                </span>
+              )}
               {session.price && (
                 <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "#F3ECD9", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
                   ${session.price}
@@ -106,93 +118,68 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, nav
                   {session.skill_level}
                 </span>
               )}
+              <StatusBadge status={session.status} />
             </div>
           </div>
-          <StatusBadge status={session.status} />
-        </div>
 
-        {/* Mentor info */}
-        <div className="flex items-center gap-3 rounded-xl px-4 py-3 mb-4" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.15)" }}>
-          <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "#C8A951", color: "#14213D" }}>
-            {session.mentor_username?.charAt(0).toUpperCase()}
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-[#1B2B4A]">{session.mentor_username}</p>
-            <p className="text-xs text-[#4A5568]">Your coach for this session</p>
-          </div>
-        </div>
+          {/* Divider */}
+          <div className="mt-3 mb-3" style={{ borderTop: "1px solid rgba(200,169,81,0.1)" }} />
 
-        {/* Date + Time */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-          <div className="flex items-center gap-2.5 rounded-xl px-4 py-3" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.15)" }}>
-            <FiCalendar size={13} style={{ color: "#C8A951" }} />
-            <span className="text-sm font-medium text-[#1B2B4A]">{date}</span>
-          </div>
-          <div className="flex items-center gap-2.5 rounded-xl px-4 py-3" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.15)" }}>
-            <FiClock size={13} style={{ color: "#C8A951" }} />
-            <span className="text-sm font-medium text-[#1B2B4A]">{time} · {session.duration} mins</span>
-          </div>
-        </div>
+          {/* Row 2: date · time · actions */}
+          <div className="flex items-center gap-5 flex-wrap">
+            <span className="flex items-center gap-1.5 text-sm text-[#4A5568]">
+              <FiCalendar size={13} style={{ color: "#C8A951" }} />{date}
+            </span>
+            <span className="flex items-center gap-1.5 text-sm text-[#4A5568]">
+              <FiClock size={13} style={{ color: "#C8A951" }} />{time}
+            </span>
 
-        {/* Actions */}
-        <div className="flex flex-wrap gap-2 pt-4" style={{ borderTop: "1px solid rgba(200,169,81,0.12)" }}>
-          {activeTab === "upcoming" && (
-            <>
-              {session.status === "accepted" ? (() => {
-                const sessionEnd = new Date(
-                  new Date(`${session.session_date}T${session.session_time}`).getTime() +
-                  session.duration * 60 * 1000
-                );
-                const expired = sessionEnd < new Date();
-                return (
-                  <ActionBtn
-                    onClick={() => navigate(`/session/${session.id}`)}
-                    icon={FiVideo}
-                    label={expired ? "Session Expired" : "Join Session"}
-                    variant={expired ? "muted" : "primary"}
-                    disabled={expired}
-                  />
-                );
-              })() : (
-                <ActionBtn icon={FiVideo} label="Awaiting Acceptance" disabled />
+            <div className="flex items-center gap-2 ml-auto flex-wrap">
+              {activeTab === "upcoming" && (
+                <>
+                  {session.status === "accepted" ? (
+                    <ActionBtn onClick={() => navigate(`/session/${session.id}`)} icon={FiVideo}
+                      label={expired ? "Expired" : "Join Session"} variant={expired ? "muted" : "primary"} disabled={expired} />
+                  ) : (
+                    <ActionBtn icon={FiVideo} label="Awaiting" disabled />
+                  )}
+                  {session.status === "accepted" && !expired && (
+                    <ActionBtn onClick={() => navigate(`/chat/${session.id}`)} icon={FiMessageSquare} label="Chat"
+                      badge={<UnreadBadge count={session.unread_messages} />} />
+                  )}
+                  {!expired && <ActionBtn onClick={() => onCancel(session.id)} icon={FiXCircle} label="Cancel" variant="danger" />}
+                  {session.notes_file && <ActionBtn onClick={() => onDownload(session)} icon={FiDownload} label="Notes" />}
+                </>
               )}
-              {session.status === "accepted" && (
-                <ActionBtn onClick={() => navigate(`/chat/${session.id}`)} icon={FiMessageSquare} label="Chat Coach" badge={<UnreadBadge count={session.unread_messages} />} />
+              {activeTab === "past" && (
+                <>
+                  {!session.feedback && (
+                    <ActionBtn onClick={() => onFeedback(session.id)} icon={FiStar} label="Leave Feedback" variant="primary" />
+                  )}
+                  <ActionBtn onClick={() => navigate(`/chat/${session.id}`)} icon={FiMessageSquare} label="Chat"
+                    badge={<UnreadBadge count={session.unread_messages} />} />
+                  {session.notes_file && <ActionBtn onClick={() => onDownload(session)} icon={FiDownload} label="Notes" />}
+                  <ActionBtn onClick={() => navigate("/skills")} icon={FiArrowRight} label="Book Again" />
+                </>
               )}
-              <ActionBtn onClick={() => onCancel(session.id)} icon={FiXCircle} label="Cancel" variant="danger" />
-              {session.notes_file && (
-                <ActionBtn onClick={() => onDownload(session)} icon={FiDownload} label="Notes" />
-              )}
-            </>
-          )}
-          {activeTab === "past" && (
-            <>
-              {!session.feedback && (
-                <ActionBtn onClick={() => onFeedback(session.id)} icon={FiStar} label="Leave Feedback" variant="primary" />
-              )}
-              <ActionBtn onClick={() => navigate(`/chat/${session.id}`)} icon={FiMessageSquare} label="Chat Coach" badge={<UnreadBadge count={session.unread_messages} />} />
-              {session.notes_file && (
-                <ActionBtn onClick={() => onDownload(session)} icon={FiDownload} label="Download Notes" />
-              )}
-              <ActionBtn onClick={() => navigate("/skills")} icon={FiArrowRight} label="Book Again" />
-            </>
+            </div>
+          </div>
+
+          {/* Feedback display (past only) */}
+          {activeTab === "past" && session.feedback && (
+            <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(200,169,81,0.1)" }}>
+              <SessionFeedbackCard
+                title="Your review"
+                subtitle={`Shared with ${session.mentor_username}`}
+                badgeLabel="Submitted"
+                rating={session.feedback.rating}
+                comment={session.feedback.comment}
+                date={new Date(session.feedback.created_at).toLocaleDateString()}
+                tone="gold"
+              />
+            </div>
           )}
         </div>
-
-        {/* Feedback display */}
-        {activeTab === "past" && session.feedback && (
-          <div className="mt-4">
-            <SessionFeedbackCard
-              title="Your review"
-              subtitle={`Shared with ${session.mentor_username}`}
-              badgeLabel="Submitted"
-              rating={session.feedback.rating}
-              comment={session.feedback.comment}
-              date={new Date(session.feedback.created_at).toLocaleDateString()}
-              tone="gold"
-            />
-          </div>
-        )}
       </div>
     </motion.div>
   );

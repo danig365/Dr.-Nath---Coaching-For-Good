@@ -1,7 +1,32 @@
 from rest_framework import serializers
-from .models import SessionBooking, Review
+from .models import SessionBooking, Review, TimeSlot
 from profiles.models import CustomUser, UserProfile
 from skills.models import Skill
+
+
+class TimeSlotSerializer(serializers.ModelSerializer):
+    coach_username = serializers.CharField(source='coach.user.username', read_only=True)
+    skill_title = serializers.CharField(source='skill.name', read_only=True)
+    duration_minutes = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = TimeSlot
+        fields = [
+            'id', 'coach', 'coach_username', 'skill', 'skill_title',
+            'start_datetime', 'end_datetime', 'duration_minutes',
+            'status', 'source', 'held_until', 'created_at',
+        ]
+        read_only_fields = ['id', 'coach', 'source', 'held_until', 'created_at']
+
+    def validate(self, attrs):
+        start = attrs.get('start_datetime', getattr(self.instance, 'start_datetime', None))
+        end = attrs.get('end_datetime', getattr(self.instance, 'end_datetime', None))
+        if start and end:
+            if end <= start:
+                raise serializers.ValidationError("Slot end time must be after its start time.")
+            if (end - start).total_seconds() > 60 * 60:
+                raise serializers.ValidationError("A slot can be at most 60 minutes long.")
+        return attrs
 
 class SessionBookingSerializer(serializers.ModelSerializer):
     learner_username = serializers.CharField(source='learner.username', read_only=True)

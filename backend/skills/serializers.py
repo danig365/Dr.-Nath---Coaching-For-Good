@@ -51,9 +51,14 @@ class AvailabilitySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Availability
-        fields = ['id', 'mentor', 'day_of_week', 'start_time', 'end_time', 'is_available']
+        fields = ['id', 'mentor', 'day_of_week', 'start_time', 'end_time', 'is_available', 'slot_duration', 'buffer_minutes']
         # 'mentor' is set by the view's perform_create/update
         read_only_fields = ['id', 'mentor']
+
+    def validate_slot_duration(self, value):
+        if value < 1 or value > 60:
+            raise serializers.ValidationError("Slot duration must be between 1 and 60 minutes.")
+        return value
 
     def create(self, validated_data):
         request = self.context.get('request', None)
@@ -61,8 +66,11 @@ class AvailabilitySerializer(serializers.ModelSerializer):
             user_profile = request.user.profile
             if user_profile.role not in ('coach', 'admin'):
                 raise serializers.ValidationError("Only coaches/admin can add availability.")
-            # Ensure the availability is linked to the current mentor's profile
-            return Availability.objects.create(mentor=user_profile, **validated_data)
+            # Ensure the availability is linked to the current mentor's profile.
+            # The view's perform_create may also pass mentor via save(); override
+            # it here so we never end up with a duplicate 'mentor' kwarg.
+            validated_data['mentor'] = user_profile
+            return Availability.objects.create(**validated_data)
         raise serializers.ValidationError("User not authenticated or profile not found.")
 
     def update(self, instance, validated_data):

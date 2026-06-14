@@ -2,6 +2,16 @@
 from django.contrib import admin
 from .models import SessionBooking
 from .models import Review
+from .models import TimeSlot
+
+
+@admin.register(TimeSlot)
+class TimeSlotAdmin(admin.ModelAdmin):
+    list_display = ('coach', 'skill', 'start_datetime', 'end_datetime', 'status', 'source')
+    list_filter = ('status', 'source', 'start_datetime')
+    search_fields = ('coach__user__username', 'skill__name')
+    readonly_fields = ('created_at', 'updated_at')
+    date_hierarchy = 'start_datetime'
 
 @admin.register(SessionBooking)
 class SessionBookingAdmin(admin.ModelAdmin):

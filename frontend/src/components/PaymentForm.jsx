@@ -28,10 +28,11 @@ export default function PaymentForm({ clientSecret, amount, bookingData, onSucce
           payment_intent_id: paymentIntent.id,
           booking_data: bookingData,
         });
-        toast.success("Payment successful! Booking request sent.");
+        toast.success("Payment successful! Your session is confirmed.");
         onSuccess();
       } catch (err) {
-        toast.error("Payment succeeded but booking failed. Contact support.");
+        const msg = err.response?.data?.error || "Payment succeeded but booking failed. Contact support.";
+        toast.error(msg);
       }
     }
     setProcessing(false);

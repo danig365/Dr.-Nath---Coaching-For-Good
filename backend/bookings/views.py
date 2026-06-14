@@ -6,14 +6,49 @@ from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_400_BAD_
 from rest_framework.exceptions import ValidationError as DRFValidationError # Use DRF's ValidationError for API responses
 
 # Import all models used in this file
-from .models import SessionBooking, Review, Milestone
+from .models import SessionBooking, Review, Milestone, TimeSlot
 # Import models from other apps
 from profiles.models import UserProfile, CustomUser
 # Import all serializers used in this file
-from .serializers import ReviewSerializer, SessionBookingSerializer
+from .serializers import ReviewSerializer, SessionBookingSerializer, TimeSlotSerializer
+from .services import generate_slots_for_coach, release_expired_holds, HOLD_MINUTES
 from django.shortcuts import get_object_or_404
+from django.db import transaction
+from django.utils import timezone as dj_tz
+from datetime import timedelta
 # Note: DjangoValidationError is not directly used in this file's logic, but can be kept if needed elsewhere.
 # from django.core.exceptions import ValidationError as DjangoValidationError
+
+
+def cancel_booking(booking, new_status='declined', refund=True):
+    """
+    Cancel a booking: free its slot back to 'open' and refund payment if any.
+    Shared by client and coach cancellation paths. Returns the booking.
+    """
+    with transaction.atomic():
+        # Release the linked slot so it becomes bookable again.
+        slot = booking.slot
+        if slot:
+            if slot.status in ('booked', 'held'):
+                slot.status = 'open'
+                slot.held_until = None
+                slot.save(update_fields=['status', 'held_until', 'updated_at'])
+            # Release the OneToOne link so the reopened slot can be re-booked.
+            booking.slot = None
+
+        # Refund a paid session (best-effort; never block cancellation on Stripe).
+        if refund and booking.payment_status == 'paid' and booking.payment_intent_id:
+            try:
+                import stripe as _stripe
+                _stripe.api_key = settings.STRIPE_SECRET_KEY
+                _stripe.Refund.create(payment_intent=booking.payment_intent_id)
+                booking.payment_status = 'refunded'
+            except Exception as e:
+                print(f"Refund failed for booking {booking.id}: {e}")
+
+        booking.status = new_status
+        booking.save()
+    return booking
 
 
 class SessionBookingViewSet(viewsets.ModelViewSet):
@@ -82,8 +117,11 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
                 raise DRFValidationError(f"Cannot update field: {field}")
         
         try:
-            # Save the instance with the updated data
-            serializer.save()
+            # If a coach declines a booking that occupies a slot, free the slot + refund.
+            if serializer.validated_data.get('status') == 'declined' and booking.slot:
+                cancel_booking(booking, new_status='declined')
+            else:
+                serializer.save()
         except Exception as e:
             print(f"Error during perform_update save: {e}") # Keep this print for server-side debugging
             raise DRFValidationError({'detail': f"Error updating booking: {str(e)}"})
@@ -127,14 +165,166 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
         # Security Check 3: Only allow cancellation of pending or accepted bookings
         if booking.status not in ['pending', 'accepted']:
             return Response({'detail': 'This booking cannot be cancelled.'}, status=HTTP_400_BAD_REQUEST)
-        
-        # Update the status to 'declined'
-        booking.status = 'declined'
-        booking.save()
-        
-        # Return the updated serialized data
+
+        # Release the slot and refund, then mark declined.
+        cancel_booking(booking, new_status='declined')
+
         serializer = self.get_serializer(booking)
         return Response(serializer.data, status=HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='coach-cancel')
+    def coach_cancel(self, request, pk=None):
+        """Coach cancels a confirmed session: releases the slot and refunds the client."""
+        booking = self.get_object()
+        user = request.user
+
+        if user.profile.role != 'coach':
+            return Response({'detail': 'Only a coach can cancel here.'}, status=HTTP_403_FORBIDDEN)
+        if booking.mentor != user.profile:
+            return Response({'detail': 'You can only cancel your own sessions.'}, status=HTTP_403_FORBIDDEN)
+        if booking.status not in ['pending', 'accepted']:
+            return Response({'detail': 'This session cannot be cancelled.'}, status=HTTP_400_BAD_REQUEST)
+
+        cancel_booking(booking, new_status='declined')
+
+        serializer = self.get_serializer(booking)
+        return Response(serializer.data, status=HTTP_200_OK)
+
+
+class TimeSlotViewSet(viewsets.ModelViewSet):
+    """
+    Coach-managed bookable time slots.
+
+    Coaches see and manage only their own slots. Auto-generation from recurring
+    availability is exposed via the `generate` action. Slots that are booked or
+    held cannot be edited or deleted.
+    """
+    serializer_class = TimeSlotSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated or not hasattr(user, 'profile'):
+            return TimeSlot.objects.none()
+        if user.profile.role in ('coach', 'admin'):
+            return TimeSlot.objects.filter(coach=user.profile)
+        return TimeSlot.objects.none()
+
+    def _ensure_coach(self):
+        user = self.request.user
+        if not hasattr(user, 'profile') or user.profile.role not in ('coach', 'admin'):
+            raise DRFValidationError("Only coaches can manage time slots.")
+        return user.profile
+
+    def perform_create(self, serializer):
+        profile = self._ensure_coach()
+        serializer.save(coach=profile, source='manual')
+
+    def perform_update(self, serializer):
+        self._ensure_coach()
+        slot = serializer.instance
+        if slot.coach.user != self.request.user:
+            raise DRFValidationError("You can only manage your own slots.")
+        if slot.status in ('booked', 'held'):
+            raise DRFValidationError("A booked or held slot cannot be modified.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._ensure_coach()
+        if instance.coach.user != self.request.user:
+            raise DRFValidationError("You can only delete your own slots.")
+        if instance.status in ('booked', 'held'):
+            raise DRFValidationError("A booked or held slot cannot be deleted.")
+        instance.delete()
+
+    @action(detail=True, methods=['patch'])
+    def block(self, request, pk=None):
+        """Close an open slot (e.g. for time off) without deleting it."""
+        slot = self.get_object()
+        if slot.status not in ('open', 'blocked'):
+            return Response({'detail': 'Only open slots can be blocked.'}, status=HTTP_400_BAD_REQUEST)
+        slot.status = 'blocked'
+        slot.save(update_fields=['status', 'updated_at'])
+        return Response(self.get_serializer(slot).data)
+
+    @action(detail=True, methods=['patch'])
+    def unblock(self, request, pk=None):
+        """Re-open a previously blocked slot."""
+        slot = self.get_object()
+        if slot.status != 'blocked':
+            return Response({'detail': 'Only blocked slots can be unblocked.'}, status=HTTP_400_BAD_REQUEST)
+        slot.status = 'open'
+        slot.save(update_fields=['status', 'updated_at'])
+        return Response(self.get_serializer(slot).data)
+
+    @action(detail=False, methods=['post'])
+    def generate(self, request):
+        """Generate open slots from the coach's recurring availability windows."""
+        profile = self._ensure_coach()
+        horizon = request.data.get('horizon_days')
+        result = generate_slots_for_coach(
+            profile,
+            horizon_days=int(horizon) if horizon else None,
+        )
+        return Response(result, status=HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def available(self, request):
+        """
+        Public (authenticated) listing of bookable slots for a coach or skill.
+        Clients use this to pick a slot. Only future, open slots are returned.
+        """
+        release_expired_holds()
+        coach_id = request.query_params.get('coach')
+        skill_id = request.query_params.get('skill')
+
+        qs = TimeSlot.objects.filter(status='open', start_datetime__gt=dj_tz.now())
+        if skill_id:
+            from skills.models import Skill
+            try:
+                skill = Skill.objects.select_related('profile').get(id=skill_id)
+            except Skill.DoesNotExist:
+                return Response({'detail': 'Skill not found.'}, status=status.HTTP_404_NOT_FOUND)
+            # Slots tied to this coach, restricted to this skill or skill-agnostic.
+            from django.db.models import Q
+            qs = qs.filter(coach=skill.profile).filter(Q(skill=skill) | Q(skill__isnull=True))
+        elif coach_id:
+            qs = qs.filter(coach_id=coach_id)
+        else:
+            return Response({'detail': 'A coach or skill query param is required.'}, status=HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def hold(self, request, pk=None):
+        """Temporarily reserve an open slot while the client completes checkout."""
+        release_expired_holds()
+        with transaction.atomic():
+            try:
+                slot = TimeSlot.objects.select_for_update().get(pk=pk)
+            except TimeSlot.DoesNotExist:
+                return Response({'detail': 'Slot not found.'}, status=status.HTTP_404_NOT_FOUND)
+            if slot.status != 'open':
+                return Response({'detail': 'This slot is no longer available.'}, status=HTTP_400_BAD_REQUEST)
+            slot.status = 'held'
+            slot.held_until = dj_tz.now() + timedelta(minutes=HOLD_MINUTES)
+            slot.save(update_fields=['status', 'held_until', 'updated_at'])
+        return Response(self.get_serializer(slot).data, status=HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def release(self, request, pk=None):
+        """Release a held slot back to open (e.g. client abandoned checkout)."""
+        with transaction.atomic():
+            try:
+                slot = TimeSlot.objects.select_for_update().get(pk=pk)
+            except TimeSlot.DoesNotExist:
+                return Response({'detail': 'Slot not found.'}, status=status.HTTP_404_NOT_FOUND)
+            if slot.status == 'held':
+                slot.status = 'open'
+                slot.held_until = None
+                slot.save(update_fields=['status', 'held_until', 'updated_at'])
+        return Response(self.get_serializer(slot).data, status=HTTP_200_OK)
 
 
 class ReviewViewSet(viewsets.ModelViewSet):
@@ -231,27 +421,58 @@ class ConfirmBookingPaymentView(APIView):
 
         # Create the booking now that payment is confirmed
         from skills.models import Skill
-        from profiles.models import UserProfile
 
+        slot_id = booking_data.get('slot_id')
         try:
-            skill = Skill.objects.get(id=booking_data['skill'])
-            mentor_profile = skill.profile
+            with transaction.atomic():
+                skill = Skill.objects.get(id=booking_data['skill'])
+                mentor_profile = skill.profile
 
-            booking = SessionBooking.objects.create(
-                learner=request.user,
-                mentor=mentor_profile,
-                skill=skill,
-                session_date=booking_data['session_date'],
-                session_time=booking_data['session_time'],
-                duration=booking_data['duration'],
-                skill_level=booking_data.get('skill_level', 'Beginner'),
-                message=booking_data.get('message', ''),
-                status='pending',
-                payment_intent_id=payment_intent_id,
-                payment_status='paid',
-                amount_paid=intent.amount / 100,
-            )
+                slot = None
+                if slot_id:
+                    # Lock the slot and verify it is still ours to book.
+                    slot = TimeSlot.objects.select_for_update().get(id=slot_id)
+                    if slot.status == 'booked':
+                        return Response(
+                            {'error': 'This time slot was just booked by someone else. Please pick another.'},
+                            status=status.HTTP_409_CONFLICT,
+                        )
+                    if slot.coach_id != mentor_profile.id:
+                        return Response({'error': 'Slot does not belong to this coach.'},
+                                        status=status.HTTP_400_BAD_REQUEST)
+                    session_date = slot.start_datetime.date()
+                    session_time = slot.start_datetime.time()
+                    duration = slot.duration_minutes
+                else:
+                    # Legacy free-datetime fallback (kept for backward compatibility).
+                    session_date = booking_data['session_date']
+                    session_time = booking_data['session_time']
+                    duration = booking_data['duration']
+
+                booking = SessionBooking.objects.create(
+                    learner=request.user,
+                    mentor=mentor_profile,
+                    skill=skill,
+                    session_date=session_date,
+                    session_time=session_time,
+                    duration=duration,
+                    skill_level=booking_data.get('skill_level', 'Beginner'),
+                    message=booking_data.get('message', ''),
+                    status='accepted',  # slot booking is auto-confirmed
+                    payment_intent_id=payment_intent_id,
+                    payment_status='paid',
+                    amount_paid=intent.amount / 100,
+                    slot=slot,
+                )
+
+                if slot:
+                    slot.status = 'booked'
+                    slot.held_until = None
+                    slot.save(update_fields=['status', 'held_until', 'updated_at'])
+
             return Response({'booking_id': booking.id, 'status': 'paid'})
+        except TimeSlot.DoesNotExist:
+            return Response({'error': 'Selected slot no longer exists.'}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 from rest_framework.parsers import MultiPartParser, FormParser

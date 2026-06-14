@@ -32,5 +32,15 @@ class Availability(models.Model):
     end_time = models.TimeField()
     is_available = models.BooleanField(default=True)
 
+    # Slot generation config for this recurring window
+    slot_duration = models.PositiveIntegerField(
+        default=60,
+        help_text="Length of each generated slot, in minutes."
+    )
+    buffer_minutes = models.PositiveIntegerField(
+        default=0,
+        help_text="Gap left between consecutive slots, in minutes."
+    )
+
     def __str__(self):
         return f"{self.mentor.username} - {self.day_of_week} {self.start_time} - {self.end_time}"

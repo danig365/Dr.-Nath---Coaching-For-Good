@@ -4,12 +4,11 @@ from rest_framework.routers import DefaultRouter
 from .views import SkillViewSet, AvailabilityViewSet, PublicSkillListView # <-- All three views must be imported
 
 router = DefaultRouter()
-# This registers the URLs for mentor management at the root of /api/skills/
-# Correctly registers the ViewSet
-router.register(r'', SkillViewSet, basename='skill')
-# This registers the URLs for mentor's availability
-# Correctly registers the ViewSet
+# Specific routes MUST be registered before the empty-prefix SkillViewSet,
+# otherwise its detail pattern ^(?P<pk>)/$ swallows 'availabilities/'.
 router.register(r'availabilities', AvailabilityViewSet, basename='availability')
+# Mentor skill management at the root of /api/skills/
+router.register(r'', SkillViewSet, basename='skill')
 
 
 urlpatterns = [

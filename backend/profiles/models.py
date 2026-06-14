@@ -22,6 +22,20 @@ class UserProfile(models.Model):
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='client')
     bio = models.TextField(blank=True, null=True)
     photo = models.ImageField(upload_to='coach_photos/', blank=True, null=True)
+    timezone = models.CharField(
+        max_length=64,
+        default='UTC',
+        help_text="IANA timezone name, e.g. 'America/New_York'. Used to display slots."
+    )
+    # Coach booking policy (used when generating bookable slots)
+    booking_horizon_days = models.PositiveIntegerField(
+        default=30,
+        help_text="How many days into the future clients may book."
+    )
+    min_notice_hours = models.PositiveIntegerField(
+        default=12,
+        help_text="Minimum lead time, in hours, required before a session can start."
+    )
 
     # Coach-specific
     specialties = models.JSONField(default=list, blank=True)   # ["Leadership", "Executive"]

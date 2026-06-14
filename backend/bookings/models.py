@@ -51,6 +51,13 @@ class SessionBooking(models.Model):
     ])
     amount_paid = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     notes_file = models.FileField(upload_to='session_notes/', blank=True, null=True)
+    slot = models.OneToOneField(
+        'TimeSlot',
+        on_delete=models.SET_NULL,
+        related_name='booking',
+        null=True, blank=True,
+        help_text="The bookable time slot this session occupies (slot-based booking)."
+    )
     def clean(self):
         super().clean() # Always call the parent's clean method first
 
@@ -102,6 +109,80 @@ class SessionBooking(models.Model):
         learner_username = self.learner.username if self.learner else 'N/A Learner'
         skill_name = self.skill.name if self.skill else 'N/A Skill'
         return f"{learner_username} booked {skill_name} with {mentor_username}"
+
+class TimeSlot(models.Model):
+    """
+    A concrete, bookable block of time on a coach's calendar.
+
+    Slots are the source of truth for what a client can book. They are either
+    auto-generated from a coach's recurring availability rules, or created
+    manually as one-off slots. A booking binds to exactly one slot.
+
+    All datetimes are stored in UTC; display conversion happens per-user using
+    UserProfile.timezone.
+    """
+    STATUS_CHOICES = (
+        ('open', 'Open'),          # available for a client to book
+        ('held', 'Held'),          # temporarily reserved during checkout
+        ('booked', 'Booked'),      # confirmed booking attached
+        ('blocked', 'Blocked'),    # coach closed this slot (vacation, etc.)
+    )
+    SOURCE_CHOICES = (
+        ('auto', 'Auto-generated'),  # minted from recurring availability rules
+        ('manual', 'Manual'),        # one-off slot created by the coach
+    )
+
+    coach = models.ForeignKey(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name='time_slots',
+        limit_choices_to={'role': 'coach'}
+    )
+    skill = models.ForeignKey(
+        Skill,
+        on_delete=models.CASCADE,
+        related_name='time_slots',
+        null=True, blank=True,
+        help_text="Optional: restrict this slot to a specific skill. Null = any skill."
+    )
+    start_datetime = models.DateTimeField()
+    end_datetime = models.DateTimeField()
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='open')
+    source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default='auto')
+
+    # Set while status == 'held' so abandoned checkouts can be reclaimed.
+    held_until = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['start_datetime']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['coach', 'start_datetime', 'end_datetime'],
+                name='unique_coach_slot'
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['coach', 'status', 'start_datetime']),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.end_datetime <= self.start_datetime:
+            raise ValidationError("Slot end time must be after its start time.")
+        if self.skill and self.skill.profile != self.coach:
+            raise ValidationError("The selected skill is not offered by this coach.")
+
+    @property
+    def duration_minutes(self):
+        return int((self.end_datetime - self.start_datetime).total_seconds() // 60)
+
+    def __str__(self):
+        coach_username = self.coach.user.username if self.coach and hasattr(self.coach, 'user') else 'N/A'
+        return f"{coach_username} · {self.start_datetime:%Y-%m-%d %H:%M} ({self.status})"
+
 
 class Milestone(models.Model):
     booking = models.ForeignKey(
