@@ -30,13 +30,15 @@ class JWTAuthMiddleware(BaseMiddleware):
         scope['user'] = await get_user_from_token(token) if token else AnonymousUser()
         return await super().__call__(scope, receive, send)
 
-from messages.consumers import ChatConsumer
+from messages.consumers import ChatConsumer, GroupCallConsumer, GroupChatConsumer
 
 application = ProtocolTypeRouter({
     'http': django_asgi_app,
     'websocket': JWTAuthMiddleware(
         URLRouter([
             re_path(r'ws/chat/(?P<booking_id>\d+)/$', ChatConsumer.as_asgi()),
+            re_path(r'ws/group-call/(?P<session_id>\d+)/$', GroupCallConsumer.as_asgi()),
+            re_path(r'ws/group-chat/(?P<session_id>\d+)/$', GroupChatConsumer.as_asgi()),
         ])
     ),
 })

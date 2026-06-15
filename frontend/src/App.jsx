@@ -24,6 +24,9 @@ import EditSkill from "./pages/EditSkill";
 import SessionCallPage from "./pages/SessionCallPage";
 import Milestones from "./pages/Milestones";
 import MyAvailability from "./pages/MyAvailability";
+import GroupSessions from "./pages/GroupSessions";
+import GroupCallPage from "./pages/GroupCallPage";
+import GroupChatPage from "./pages/GroupChatPage";
 
 export default function App() {
   return (
@@ -51,6 +54,9 @@ export default function App() {
 <Route path="/session/:bookingId" element={<SessionCallPage />} />
 <Route path="/milestones" element={<Milestones />} />
 <Route path="/my-availability" element={<MyAvailability />} />
+<Route path="/group-sessions" element={<GroupSessions />} />
+<Route path="/group-session/:id/call" element={<GroupCallPage />} />
+<Route path="/group-chat/:id" element={<GroupChatPage />} />
         </Routes>
         <ToastContainer /> {/* Add this line for the Toast notifications */}
       </AuthProvider>

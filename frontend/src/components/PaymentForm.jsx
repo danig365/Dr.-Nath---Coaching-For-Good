@@ -3,7 +3,14 @@ import { CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { toast } from "react-toastify";
 import { api } from "../utils/auth";
 
-export default function PaymentForm({ clientSecret, amount, bookingData, onSuccess }) {
+export default function PaymentForm({
+  clientSecret,
+  amount,
+  bookingData,
+  onSuccess,
+  confirmUrl = '/bookings/confirm-payment/',
+  buildConfirmPayload,
+}) {
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
@@ -24,10 +31,10 @@ export default function PaymentForm({ clientSecret, amount, bookingData, onSucce
 
     if (paymentIntent.status === 'succeeded') {
       try {
-        await api.post('/bookings/confirm-payment/', {
-          payment_intent_id: paymentIntent.id,
-          booking_data: bookingData,
-        });
+        const payload = buildConfirmPayload
+          ? buildConfirmPayload(paymentIntent.id)
+          : { payment_intent_id: paymentIntent.id, booking_data: bookingData };
+        await api.post(confirmUrl, payload);
         toast.success("Payment successful! Your session is confirmed.");
         onSuccess();
       } catch (err) {

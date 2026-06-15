@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   FiCalendar, FiClock, FiCheckCircle, FiXCircle,
   FiEdit, FiMessageSquare, FiStar, FiDownload,
-  FiArrowRight, FiVideo, FiBookOpen,
+  FiArrowRight, FiVideo, FiBookOpen, FiUsers,
   FiSearch, FiFilter, FiChevronDown,
 } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
@@ -185,6 +185,69 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, nav
   );
 };
 
+// ─── Group Session Card ─────────────────────────────────────────────────────────
+const GroupCard = ({ e, index, onCancel, onJoin, onChat }) => {
+  const date = new Date(e.start_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const time = new Date(e.start_datetime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+  const cancelled = e.session_status === "cancelled";
+  const upcoming = new Date(e.end_datetime) > new Date();
+  // Joinable from 15 min before start until the scheduled end.
+  const canJoin = !cancelled && upcoming && Date.now() >= new Date(e.start_datetime).getTime() - 15 * 60 * 1000;
+  const badge = cancelled ? "cancelled" : upcoming ? "upcoming" : "completed";
+  const badgeStyle = {
+    upcoming:  { bg: "rgba(52,168,83,0.1)",  color: "#2E7D32", border: "1px solid rgba(52,168,83,0.25)" },
+    completed: { bg: "rgba(200,169,81,0.12)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.3)" },
+    cancelled: { bg: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" },
+  }[badge];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, delay: index * 0.04 }}
+      className="rounded-2xl overflow-hidden"
+      style={{ background: "white", border: "1px solid rgba(200,169,81,0.18)", boxShadow: "0 2px 12px rgba(27,43,74,0.06)" }}
+    >
+      <div className="flex">
+        <div className="w-1.5 shrink-0" style={{ background: "linear-gradient(180deg,#C8A951,#C8A95155)" }} />
+        <div className="flex-1 px-5 py-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "#C8A951", color: "#14213D" }}>
+              <FiUsers size={15} />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-xs font-semibold" style={{ color: "#A9863A" }}>{e.coach_username}</span>
+              <span className="text-base font-normal text-[#1B2B4A] truncate" style={{ fontFamily: "'Playfair Display', serif" }}>{e.title}</span>
+            </div>
+            <div className="flex items-center gap-2 ml-auto flex-wrap">
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "#F3ECD9", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>Group</span>
+              <span className="text-xs font-semibold px-3 py-1 rounded-full shrink-0" style={{ background: badgeStyle.bg, color: badgeStyle.color, border: badgeStyle.border }}>
+                {badge.charAt(0).toUpperCase() + badge.slice(1)}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-3 mb-3" style={{ borderTop: "1px solid rgba(200,169,81,0.1)" }} />
+
+          <div className="flex items-center gap-5 flex-wrap">
+            <span className="flex items-center gap-1.5 text-sm text-[#4A5568]"><FiCalendar size={13} style={{ color: "#C8A951" }} />{date}</span>
+            <span className="flex items-center gap-1.5 text-sm text-[#4A5568]"><FiClock size={13} style={{ color: "#C8A951" }} />{time}</span>
+            <div className="flex items-center gap-2 ml-auto flex-wrap">
+              {!cancelled && upcoming && (
+                canJoin
+                  ? <ActionBtn onClick={() => onJoin(e.group_session)} icon={FiVideo} label="Join Call" variant="primary" />
+                  : <ActionBtn icon={FiVideo} label="Opens 15 min before" disabled />
+              )}
+              {!cancelled && <ActionBtn onClick={() => onChat(e.group_session)} icon={FiMessageSquare} label="Group Chat" />}
+              {!cancelled && upcoming && (
+                <ActionBtn onClick={() => onCancel(e.id)} icon={FiXCircle} label="Cancel" variant="danger" />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 const PAGE_SIZE = 4;
 
@@ -228,6 +291,7 @@ const Pagination = ({ page, totalPages, onChange }) => {
 
 const MyLearning = () => {
   const [sessions, setSessions] = useState([]);
+  const [groupEnrollments, setGroupEnrollments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("upcoming");
   const [page, setPage] = useState(1);
@@ -242,6 +306,7 @@ const MyLearning = () => {
 
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [sessionToCancelId, setSessionToCancelId] = useState(null);
+  const [cancelKind, setCancelKind] = useState("session"); // "session" | "group"
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackSession, setFeedbackSession] = useState(null);
   const [feedbackRating, setFeedbackRating] = useState(5);
@@ -254,8 +319,12 @@ const MyLearning = () => {
     if (!isAuthenticated || isCoach()) { toast.error("Access denied."); logout(); return; }
     setLoading(true);
     try {
-      const res = await api.get("/bookings/");
+      const [res, gres] = await Promise.all([
+        api.get("/bookings/"),
+        api.get("/bookings/group-sessions/mine/"),
+      ]);
       setSessions(res.data);
+      setGroupEnrollments(gres.data);
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to load sessions.");
     } finally {
@@ -276,13 +345,19 @@ const MyLearning = () => {
     return s.status === "completed" || (s.status === "accepted" && dt <= now);
   });
 
-  const handleCancelSession = (id) => { setSessionToCancelId(id); setShowCancelModal(true); };
+  const handleCancelSession = (id) => { setCancelKind("session"); setSessionToCancelId(id); setShowCancelModal(true); };
+  const handleCancelGroup = (id) => { setCancelKind("group"); setSessionToCancelId(id); setShowCancelModal(true); };
 
   const confirmCancel = async () => {
     try {
-      await api.patch(`/bookings/${sessionToCancelId}/cancel/`, {});
+      if (cancelKind === "group") {
+        await api.patch(`/bookings/group-sessions/${sessionToCancelId}/leave/`, {});
+        toast.success("Seat cancelled and refunded.");
+      } else {
+        await api.patch(`/bookings/${sessionToCancelId}/cancel/`, {});
+        toast.success("Session cancelled.");
+      }
       await fetchSessions();
-      toast.success("Session cancelled.");
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to cancel.");
     } finally {
@@ -384,6 +459,7 @@ const MyLearning = () => {
           {[
             { key: "upcoming", label: "Upcoming", count: upcomingSessions.length, icon: FiCalendar },
             { key: "past",     label: "Past Sessions", count: pastSessions.length, icon: FiCheckCircle },
+            { key: "group",    label: "Group Sessions", count: groupEnrollments.length, icon: FiUsers },
           ].map(tab => (
             <button
               key={tab.key}
@@ -402,6 +478,7 @@ const MyLearning = () => {
         </motion.div>
 
         {/* ── Filters ─────────────────────────────────────── */}
+        {activeTab !== "group" && (
         <motion.div className="mb-5" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.15 }}>
           <div className="flex gap-2 mb-2">
             <div className="flex-1 relative">
@@ -485,8 +562,27 @@ const MyLearning = () => {
             </p>
           )}
         </motion.div>
+        )}
 
         {/* ── Session List / Empty ─────────────────────────── */}
+        {activeTab === "group" ? (
+          groupEnrollments.length === 0 ? (
+            <div className="text-center py-20 rounded-2xl" style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)" }}>
+              <p className="text-5xl mb-4">👥</p>
+              <h3 className="text-xl font-normal text-[#1B2B4A] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>No group sessions yet</h3>
+              <p className="text-sm text-[#4A5568] mb-6">Browse and reserve a seat in a group session.</p>
+              <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => navigate("/group-sessions")}
+                className="gold-btn inline-flex items-center gap-2 px-6 py-3 rounded-full text-sm font-bold">
+                <FiUsers size={14} /> Browse Group Sessions
+              </motion.button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {groupEnrollments.map((e, i) => <GroupCard key={e.id} e={e} index={i} onCancel={handleCancelGroup} onJoin={(sid) => navigate(`/group-session/${sid}/call`)} onChat={(sid) => navigate(`/group-chat/${sid}`)} />)}
+            </div>
+          )
+        ) : (
+        <>
         <AnimatePresence mode="wait">
           {filtered.length === 0 ? (
             <motion.div
@@ -530,6 +626,8 @@ const MyLearning = () => {
           )}
         </AnimatePresence>
         <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+        </>
+        )}
       </div>
 
       {/* ── Cancel Modal ─────────────────────────────────── */}

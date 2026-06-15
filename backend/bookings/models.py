@@ -239,3 +239,133 @@ class Review(models.Model):
         mentor_username = self.mentor_profile.user.username if self.mentor_profile and hasattr(self.mentor_profile, 'user') else "N/A Mentor"
         student_username = self.student.username if self.student else "N/A Student"
         return f"Review for {mentor_username} by {student_username} ({self.rating} stars)"
+
+
+class GroupSession(models.Model):
+    """
+    A coach-led session with a capped number of paying participants.
+
+    Unlike a 1:1 booking (one exclusive TimeSlot per booking), a group session is
+    a single scheduled event that many clients enrol into, up to `capacity`. Each
+    enrolment is paid individually (see GroupEnrollment). Sessions are created
+    one-off by the coach; when capacity is reached the session is a hard stop
+    (status flips to 'full' and no further enrolments are accepted).
+
+    All datetimes are stored in UTC; display conversion happens per-user.
+    """
+    STATUS_CHOICES = (
+        ('scheduled', 'Scheduled'),   # open for enrolment
+        ('full', 'Full'),             # capacity reached
+        ('completed', 'Completed'),   # session has happened
+        ('cancelled', 'Cancelled'),   # coach cancelled; enrolments refunded
+    )
+
+    coach = models.ForeignKey(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name='group_sessions',
+        limit_choices_to={'role': 'coach'}
+    )
+    skill = models.ForeignKey(
+        Skill,
+        on_delete=models.SET_NULL,
+        related_name='group_sessions',
+        null=True, blank=True,
+        help_text="Optional: link this session to a skill/offering."
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    start_datetime = models.DateTimeField()
+    end_datetime = models.DateTimeField()
+    capacity = models.PositiveIntegerField(
+        default=10,
+        validators=[MinValueValidator(1)],
+        help_text="Maximum number of participants."
+    )
+    price_per_seat = models.DecimalField(
+        max_digits=8, decimal_places=2, default=0.00,
+        validators=[MinValueValidator(0.00)]
+    )
+    meeting_link = models.URLField(blank=True, null=True, help_text="Shared join URL for all participants.")
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='scheduled')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['start_datetime']
+        indexes = [
+            models.Index(fields=['coach', 'status', 'start_datetime']),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.end_datetime <= self.start_datetime:
+            raise ValidationError("Session end time must be after its start time.")
+        if self.skill and self.skill.profile != self.coach:
+            raise ValidationError("The selected skill is not offered by this coach.")
+
+    @property
+    def seats_taken(self):
+        """Active enrolments (held during checkout + confirmed) consume a seat."""
+        return self.enrollments.filter(status__in=('held', 'booked')).count()
+
+    @property
+    def seats_remaining(self):
+        return max(self.capacity - self.seats_taken, 0)
+
+    @property
+    def is_full(self):
+        return self.seats_taken >= self.capacity
+
+    def __str__(self):
+        coach_username = self.coach.user.username if self.coach and hasattr(self.coach, 'user') else 'N/A'
+        return f"{self.title} · {coach_username} · {self.start_datetime:%Y-%m-%d %H:%M} ({self.status})"
+
+
+class GroupEnrollment(models.Model):
+    """One client's paid seat in a GroupSession."""
+    STATUS_CHOICES = (
+        ('held', 'Held'),          # temporarily reserved during checkout
+        ('booked', 'Booked'),      # confirmed + paid
+        ('cancelled', 'Cancelled'),
+    )
+
+    group_session = models.ForeignKey(
+        GroupSession,
+        on_delete=models.CASCADE,
+        related_name='enrollments'
+    )
+    learner = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='group_enrollments'
+    )
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='held')
+
+    # Set while status == 'held' so abandoned checkouts can be reclaimed.
+    held_until = models.DateTimeField(null=True, blank=True)
+
+    payment_intent_id = models.CharField(max_length=255, blank=True, null=True)
+    payment_status = models.CharField(max_length=20, default='unpaid', choices=[
+        ('unpaid', 'Unpaid'),
+        ('paid', 'Paid'),
+        ('refunded', 'Refunded'),
+    ])
+    amount_paid = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        # A client cannot occupy two seats in the same session.
+        constraints = [
+            models.UniqueConstraint(
+                fields=['group_session', 'learner'],
+                name='unique_group_enrollment'
+            ),
+        ]
+
+    def __str__(self):
+        learner_username = self.learner.username if self.learner else 'N/A'
+        return f"{learner_username} → {self.group_session.title} ({self.status})"

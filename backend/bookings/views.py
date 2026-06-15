@@ -6,12 +6,15 @@ from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_400_BAD_
 from rest_framework.exceptions import ValidationError as DRFValidationError # Use DRF's ValidationError for API responses
 
 # Import all models used in this file
-from .models import SessionBooking, Review, Milestone, TimeSlot
+from .models import SessionBooking, Review, Milestone, TimeSlot, GroupSession, GroupEnrollment
 # Import models from other apps
 from profiles.models import UserProfile, CustomUser
 # Import all serializers used in this file
-from .serializers import ReviewSerializer, SessionBookingSerializer, TimeSlotSerializer
-from .services import generate_slots_for_coach, release_expired_holds, HOLD_MINUTES
+from .serializers import (
+    ReviewSerializer, SessionBookingSerializer, TimeSlotSerializer,
+    GroupSessionSerializer, GroupEnrollmentSerializer, MyGroupEnrollmentSerializer,
+)
+from .services import generate_slots_for_coach, release_expired_holds, HOLD_MINUTES, reserve_seat, SeatUnavailable
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.utils import timezone as dj_tz
@@ -319,6 +322,176 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(slot).data, status=HTTP_200_OK)
 
 
+class GroupSessionViewSet(viewsets.ModelViewSet):
+    """
+    Coach-managed group sessions (one event, many paying clients, capped capacity).
+
+    Coaches CRUD their own sessions and view rosters. Clients browse bookable
+    sessions via `available` and reserve a seat via `hold` (then pay through
+    the group payment endpoints). Capacity is a hard stop.
+    """
+    serializer_class = GroupSessionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated or not hasattr(user, 'profile'):
+            return GroupSession.objects.none()
+        if user.profile.role in ('coach', 'admin'):
+            return GroupSession.objects.filter(coach=user.profile)
+        return GroupSession.objects.none()
+
+    def _ensure_coach(self):
+        user = self.request.user
+        if not hasattr(user, 'profile') or user.profile.role not in ('coach', 'admin'):
+            raise DRFValidationError("Only coaches can manage group sessions.")
+        return user.profile
+
+    def perform_create(self, serializer):
+        profile = self._ensure_coach()
+        serializer.save(coach=profile)
+
+    def perform_update(self, serializer):
+        self._ensure_coach()
+        session = serializer.instance
+        if session.coach.user != self.request.user:
+            raise DRFValidationError("You can only manage your own sessions.")
+        if session.enrollments.filter(status='booked').exists():
+            raise DRFValidationError("This session has paid participants and cannot be edited. Cancel it instead.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._ensure_coach()
+        if instance.coach.user != self.request.user:
+            raise DRFValidationError("You can only delete your own sessions.")
+        if instance.enrollments.filter(status='booked').exists():
+            raise DRFValidationError("This session has paid participants and cannot be deleted. Cancel it instead.")
+        instance.delete()
+
+    @action(detail=True, methods=['get'])
+    def roster(self, request, pk=None):
+        """Coach-only list of (non-cancelled) participants for one session."""
+        session = self.get_object()
+        enrollments = session.enrollments.exclude(status='cancelled').select_related('learner')
+        return Response(GroupEnrollmentSerializer(enrollments, many=True).data)
+
+    @action(detail=True, methods=['patch'])
+    def cancel(self, request, pk=None):
+        """Coach cancels the whole session and refunds every paid seat."""
+        session = self.get_object()
+        if session.coach.user != request.user:
+            return Response({'detail': 'You can only cancel your own sessions.'}, status=HTTP_403_FORBIDDEN)
+        if session.status in ('completed', 'cancelled'):
+            return Response({'detail': 'This session cannot be cancelled.'}, status=HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            for enr in session.enrollments.filter(status__in=('held', 'booked')):
+                if enr.payment_status == 'paid' and enr.payment_intent_id:
+                    try:
+                        stripe.api_key = settings.STRIPE_SECRET_KEY
+                        stripe.Refund.create(payment_intent=enr.payment_intent_id)
+                        enr.payment_status = 'refunded'
+                    except Exception as e:
+                        print(f"Refund failed for enrollment {enr.id}: {e}")
+                enr.status = 'cancelled'
+                enr.held_until = None
+                enr.save(update_fields=['status', 'held_until', 'payment_status', 'updated_at'])
+            session.status = 'cancelled'
+            session.save(update_fields=['status', 'updated_at'])
+        return Response(self.get_serializer(session).data)
+
+    @action(detail=False, methods=['get'])
+    def available(self, request):
+        """Authenticated listing of upcoming, bookable group sessions for clients."""
+        release_expired_holds()
+        qs = GroupSession.objects.filter(status='scheduled', start_datetime__gt=dj_tz.now())
+        coach_id = request.query_params.get('coach')
+        skill_id = request.query_params.get('skill')
+        if coach_id:
+            qs = qs.filter(coach_id=coach_id)
+        if skill_id:
+            qs = qs.filter(skill_id=skill_id)
+        return Response(self.get_serializer(qs, many=True).data)
+
+    @action(detail=True, methods=['get'], url_path='messages')
+    def messages(self, request, pk=None):
+        """Group chat history — coach or booked client only."""
+        from messages.models import GroupMessage
+        from messages.serializers import GroupMessageSerializer
+        session = get_object_or_404(GroupSession, pk=pk)
+        user = request.user
+        is_coach = session.coach.user_id == user.id
+        is_booked = session.enrollments.filter(learner=user, status='booked').exists()
+        if not (is_coach or is_booked):
+            return Response({'detail': 'Not allowed.'}, status=HTTP_403_FORBIDDEN)
+        qs = GroupMessage.objects.filter(group_session=session).select_related('sender')
+        return Response(GroupMessageSerializer(qs, many=True).data)
+
+    @action(detail=False, methods=['get'])
+    def mine(self, request):
+        """The current client's booked group sessions (for My Learning)."""
+        enrollments = (
+            GroupEnrollment.objects
+            .filter(learner=request.user, status='booked')
+            .select_related('group_session', 'group_session__coach__user')
+            .order_by('group_session__start_datetime')
+        )
+        return Response(MyGroupEnrollmentSerializer(enrollments, many=True).data)
+
+    @action(detail=True, methods=['post'])
+    def hold(self, request, pk=None):
+        """Reserve a seat for the client while they complete checkout."""
+        release_expired_holds()
+        try:
+            enrollment = reserve_seat(pk, request.user)
+        except GroupSession.DoesNotExist:
+            return Response({'detail': 'Session not found.'}, status=status.HTTP_404_NOT_FOUND)
+        except SeatUnavailable as e:
+            return Response({'detail': str(e)}, status=HTTP_400_BAD_REQUEST)
+        return Response(GroupEnrollmentSerializer(enrollment).data, status=HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def release(self, request, pk=None):
+        """Release the client's own held seat back to the pool."""
+        with transaction.atomic():
+            session = get_object_or_404(GroupSession, pk=pk)
+            enr = session.enrollments.select_for_update().filter(learner=request.user, status='held').first()
+            if enr:
+                enr.status = 'cancelled'
+                enr.held_until = None
+                enr.save(update_fields=['status', 'held_until', 'updated_at'])
+                if session.status == 'full' and session.seats_taken < session.capacity:
+                    session.status = 'scheduled'
+                    session.save(update_fields=['status', 'updated_at'])
+        return Response({'detail': 'Released.'}, status=HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='leave')
+    def leave(self, request, pk=None):
+        """Client cancels their booked seat: refund and free the seat."""
+        with transaction.atomic():
+            session = get_object_or_404(GroupSession.objects.select_for_update(), pk=pk)
+            enr = session.enrollments.select_for_update().filter(learner=request.user, status='booked').first()
+            if not enr:
+                return Response({'detail': 'You are not enrolled in this session.'}, status=HTTP_400_BAD_REQUEST)
+            if session.start_datetime <= dj_tz.now():
+                return Response({'detail': 'This session has already started and cannot be cancelled.'}, status=HTTP_400_BAD_REQUEST)
+
+            if enr.payment_status == 'paid' and enr.payment_intent_id:
+                try:
+                    stripe.api_key = settings.STRIPE_SECRET_KEY
+                    stripe.Refund.create(payment_intent=enr.payment_intent_id)
+                    enr.payment_status = 'refunded'
+                except Exception as e:
+                    print(f"Refund failed for enrollment {enr.id}: {e}")
+
+            enr.status = 'cancelled'
+            enr.held_until = None
+            enr.save(update_fields=['status', 'held_until', 'payment_status', 'updated_at'])
+            if session.status == 'full' and session.seats_taken < session.capacity:
+                session.status = 'scheduled'
+                session.save(update_fields=['status', 'updated_at'])
+        return Response(self.get_serializer(session).data, status=HTTP_200_OK)
+
+
 class ReviewViewSet(viewsets.ModelViewSet):
     serializer_class = ReviewSerializer
     permission_classes = [IsAuthenticated]
@@ -470,6 +643,92 @@ class ConfirmBookingPaymentView(APIView):
             return Response({'error': 'Selected slot no longer exists.'}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CreateGroupPaymentIntentView(APIView):
+    """Create a Stripe intent for one seat in a group session."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        session_id = request.data.get('group_session_id')
+        try:
+            session = GroupSession.objects.get(id=session_id)
+        except GroupSession.DoesNotExist:
+            return Response({'error': 'Session not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        amount = float(session.price_per_seat)
+        amount_cents = int(amount * 100)
+        try:
+            intent = stripe.PaymentIntent.create(
+                amount=amount_cents,
+                currency='usd',
+                metadata={'group_session_id': session_id, 'user_id': request.user.id},
+            )
+            return Response({
+                'client_secret': intent.client_secret,
+                'amount': amount,
+                'publishable_key': settings.STRIPE_PUBLISHABLE_KEY,
+            })
+        except stripe.error.StripeError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ConfirmGroupPaymentView(APIView):
+    """Confirm payment and turn the client's held seat into a booked one."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        payment_intent_id = request.data.get('payment_intent_id')
+        session_id = request.data.get('group_session_id')
+
+        try:
+            intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+        except stripe.error.StripeError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if intent.status != 'succeeded':
+            return Response({'error': 'Payment not completed'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with transaction.atomic():
+                session = GroupSession.objects.select_for_update().get(id=session_id)
+                enrollment = GroupEnrollment.objects.select_for_update().filter(
+                    group_session=session, learner=request.user
+                ).first()
+
+                # The hold may have expired (and been cancelled) before payment landed.
+                if not enrollment or enrollment.status == 'cancelled':
+                    return Response(
+                        {'error': 'Your seat reservation expired. Please try enrolling again.'},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                # Idempotent: a retried confirm shouldn't double-charge state.
+                if enrollment.status == 'booked':
+                    return Response({'enrollment_id': enrollment.id, 'status': 'paid'})
+
+                enrollment.status = 'booked'
+                enrollment.payment_intent_id = payment_intent_id
+                enrollment.payment_status = 'paid'
+                enrollment.amount_paid = intent.amount / 100
+                enrollment.held_until = None
+                enrollment.save(update_fields=[
+                    'status', 'payment_intent_id', 'payment_status',
+                    'amount_paid', 'held_until', 'updated_at',
+                ])
+
+                if session.seats_taken >= session.capacity and session.status == 'scheduled':
+                    session.status = 'full'
+                    session.save(update_fields=['status', 'updated_at'])
+
+            return Response({'enrollment_id': enrollment.id, 'status': 'paid'})
+        except GroupSession.DoesNotExist:
+            return Response({'error': 'Session no longer exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 from rest_framework.parsers import MultiPartParser, FormParser
 
 class UploadNotesView(APIView):

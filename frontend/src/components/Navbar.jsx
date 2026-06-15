@@ -70,6 +70,7 @@ const Navbar = () => {
         { to: isCoach() ? "/my-skills" : "/skills", label: isCoach() ? "My Skills" : "Browse Skills" },
         ...(isCoach() ? [{ to: "/add-skill", label: "Add Skill" }, { to: "/my-availability", label: "Availability" }] : []),
         { to: isCoach() ? "/my-sessions" : "/my-learning", label: isCoach() ? "My Sessions" : "My Learning", badge: upcomingCount },
+        ...(!isCoach() ? [{ to: "/group-sessions", label: "Group Sessions" }] : []),
 
         { to: "/milestones", label: "Milestones" },
         { to: "/coaches", label: "Coaches" },

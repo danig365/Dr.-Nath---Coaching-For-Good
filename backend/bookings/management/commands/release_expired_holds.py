@@ -13,7 +13,7 @@ from bookings.services import release_expired_holds
 
 
 class Command(BaseCommand):
-    help = "Return expired held slots back to 'open'."
+    help = "Return expired checkout holds (1:1 slots and group seats) to available."
 
     def handle(self, *args, **options):
         count = release_expired_holds()

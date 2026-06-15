@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { FiPlus, FiTrash2, FiClock, FiCalendar, FiZap, FiLock, FiUnlock, FiGlobe, FiSettings, FiFilter, FiChevronLeft, FiChevronRight, FiChevronDown } from "react-icons/fi";
+import { FiPlus, FiTrash2, FiClock, FiCalendar, FiZap, FiLock, FiUnlock, FiGlobe, FiSettings, FiFilter, FiChevronLeft, FiChevronRight, FiChevronDown, FiUsers, FiVideo, FiXCircle, FiMessageSquare } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
+import { useNavigate } from "react-router-dom";
 import { api } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
 
@@ -28,6 +29,14 @@ const STATUS_STYLE = {
   booked:  { background: "rgba(27,43,74,0.08)",  color: "#1B2B4A", border: "1px solid rgba(27,43,74,0.18)" },
   held:    { background: "rgba(200,169,81,0.14)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.25)" },
   blocked: { background: "rgba(74,85,104,0.1)",  color: "#4A5568", border: "1px solid rgba(74,85,104,0.2)" },
+};
+
+// ─── Group session status pill ───────────────────────────────────────────────
+const GS_STATUS_STYLE = {
+  scheduled: { background: "rgba(52,168,83,0.1)",  color: "#2E7D32", border: "1px solid rgba(52,168,83,0.2)" },
+  full:      { background: "rgba(200,169,81,0.14)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.25)" },
+  completed: { background: "rgba(27,43,74,0.08)",  color: "#1B2B4A", border: "1px solid rgba(27,43,74,0.18)" },
+  cancelled: { background: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" },
 };
 
 // ─── Weekly rule row ────────────────────────────────────────────────────────
@@ -98,6 +107,7 @@ const Pager = ({ page, totalPages, onPrev, onNext }) =>
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 const MyAvailability = () => {
+  const navigate = useNavigate();
   const { isAuthenticated, isCoach, logout } = useAuth();
   const [tab, setTab] = useState("rules");
   const [rules, setRules] = useState([]);
@@ -113,6 +123,20 @@ const MyAvailability = () => {
   useEffect(() => { setSlotPage(1); }, [slotFilters]);
   const [rulePage, setRulePage] = useState(1);
 
+  // Group sessions
+  const [groupSessions, setGroupSessions] = useState([]);
+  const [coachSkills, setCoachSkills] = useState([]);
+  const [gsForm, setGsForm] = useState({ title: "", description: "", start: "", end: "", capacity: 10, price_per_seat: "", skill: "" });
+  const [gsSaving, setGsSaving] = useState(false);
+  const [rosterFor, setRosterFor] = useState(null);
+  const [rosterData, setRosterData] = useState([]);
+
+  // Coach can enter the call from 15 min before start until the scheduled end.
+  const canJoinCall = (s) =>
+    s.status !== "cancelled" &&
+    new Date(s.end_datetime) > new Date() &&
+    Date.now() >= new Date(s.start_datetime).getTime() - 15 * 60 * 1000;
+
   const totalRulePages = Math.max(1, Math.ceil(rules.length / RULES_PER_PAGE));
   const currentRulePage = Math.min(rulePage, totalRulePages);
   const pagedRules = rules.slice((currentRulePage - 1) * RULES_PER_PAGE, currentRulePage * RULES_PER_PAGE);
@@ -121,13 +145,17 @@ const MyAvailability = () => {
     if (!isAuthenticated || !isCoach()) { logout(); return; }
     setLoading(true);
     try {
-      const [r, s, p] = await Promise.all([
+      const [r, s, p, g, sk] = await Promise.all([
         api.get("/skills/availabilities/"),
         api.get("/bookings/slots/"),
         api.get("/profile/"),
+        api.get("/bookings/group-sessions/"),
+        api.get("/skills/"),
       ]);
       setRules(r.data);
       setSlots(s.data);
+      setGroupSessions(g.data);
+      setCoachSkills(sk.data);
       const prof = p.data.profile || {};
       setSettings({
         timezone: prof.timezone || "UTC",
@@ -239,6 +267,57 @@ const MyAvailability = () => {
     } catch (err) { toast.error(err.response?.data?.detail || "Cannot delete."); }
   };
 
+  // ── Group sessions ──
+  const sortByStart = (arr) => [...arr].sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime));
+
+  const createGroupSession = async () => {
+    if (!gsForm.title || !gsForm.start || !gsForm.end) { toast.error("Title, start and end are required."); return; }
+    setGsSaving(true);
+    try {
+      const payload = {
+        title: gsForm.title,
+        description: gsForm.description,
+        start_datetime: new Date(gsForm.start).toISOString(),
+        end_datetime: new Date(gsForm.end).toISOString(),
+        capacity: Number(gsForm.capacity),
+        price_per_seat: gsForm.price_per_seat || 0,
+      };
+      if (gsForm.skill) payload.skill = Number(gsForm.skill);
+      const res = await api.post("/bookings/group-sessions/", payload);
+      setGroupSessions((gs) => sortByStart([...gs, res.data]));
+      setGsForm({ title: "", description: "", start: "", end: "", capacity: 10, price_per_seat: "", skill: "" });
+      toast.success("Group session created.");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || err.response?.data?.[0] || "Failed to create session.");
+    } finally { setGsSaving(false); }
+  };
+
+  const cancelGroupSession = async (s) => {
+    try {
+      const res = await api.patch(`/bookings/group-sessions/${s.id}/cancel/`);
+      setGroupSessions((gs) => gs.map((x) => (x.id === s.id ? res.data : x)));
+      toast.success("Session cancelled. Participants refunded.");
+    } catch (err) { toast.error(err.response?.data?.detail || "Cancel failed."); }
+  };
+
+  const deleteGroupSession = async (s) => {
+    try {
+      await api.delete(`/bookings/group-sessions/${s.id}/`);
+      setGroupSessions((gs) => gs.filter((x) => x.id !== s.id));
+      if (rosterFor === s.id) setRosterFor(null);
+      toast.success("Session deleted.");
+    } catch (err) { toast.error(err.response?.data?.detail || "Delete failed."); }
+  };
+
+  const toggleRoster = async (s) => {
+    if (rosterFor === s.id) { setRosterFor(null); return; }
+    try {
+      const res = await api.get(`/bookings/group-sessions/${s.id}/roster/`);
+      setRosterData(res.data);
+      setRosterFor(s.id);
+    } catch { toast.error("Failed to load roster."); }
+  };
+
   const filteredSlots = useMemo(() => {
     const pad = (n) => String(n).padStart(2, "0");
     return [...slots]
@@ -283,7 +362,7 @@ const MyAvailability = () => {
 
         {/* Tabs */}
         <div className="flex gap-2 mb-6">
-          {[["rules", "Weekly Rules", FiClock], ["slots", "Slots", FiCalendar]].map(([key, label, Icon]) => (
+          {[["rules", "Weekly Rules", FiClock], ["slots", "Slots", FiCalendar], ["group", "Group Sessions", FiUsers]].map(([key, label, Icon]) => (
             <button key={key} onClick={() => setTab(key)}
               className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all"
               style={tab === key
@@ -295,7 +374,7 @@ const MyAvailability = () => {
         </div>
 
         <AnimatePresence mode="wait">
-          {tab === "rules" ? (
+          {tab === "rules" && (
             <motion.div key="rules" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
               {/* Booking policy */}
               <div className="rounded-2xl p-6" style={card}>
@@ -355,7 +434,8 @@ const MyAvailability = () => {
                 </div>
               )}
             </motion.div>
-          ) : (
+          )}
+          {tab === "slots" && (
             <motion.div key="slots" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
               {/* Manual slot */}
               <div className="rounded-2xl p-6" style={card}>
@@ -486,6 +566,152 @@ const MyAvailability = () => {
                     style={{ background: "white", color: "#1B2B4A", border: "1px solid rgba(27,43,74,0.12)" }}>
                     <FiChevronRight size={16} />
                   </button>
+                </div>
+              )}
+            </motion.div>
+          )}
+          {tab === "group" && (
+            <motion.div key="group" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
+              {/* Create a group session */}
+              <div className="rounded-2xl p-6" style={card}>
+                <h3 className="flex items-center gap-2 text-lg font-normal text-[#1B2B4A] mb-4" style={serif}>
+                  <FiUsers size={16} style={{ color: "#C8A951" }} /> Create a Group Session
+                </h3>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2">
+                    <Field label="Title">
+                      <input value={gsForm.title} onChange={(e) => setGsForm((f) => ({ ...f, title: e.target.value }))}
+                        placeholder="e.g. Group Wellness Workshop" className="rounded-xl px-3 py-2 text-sm w-full" style={inputStyle} />
+                    </Field>
+                  </div>
+                  <div className="md:col-span-2">
+                    <Field label="Description">
+                      <textarea rows={3} value={gsForm.description} onChange={(e) => setGsForm((f) => ({ ...f, description: e.target.value }))}
+                        className="rounded-xl px-3 py-2 text-sm w-full resize-none" style={inputStyle} />
+                    </Field>
+                  </div>
+                  <Field label="Starts">
+                    <input type="datetime-local" value={gsForm.start} onChange={(e) => setGsForm((f) => ({ ...f, start: e.target.value }))}
+                      className="rounded-xl px-3 py-2 text-sm w-full" style={inputStyle} />
+                  </Field>
+                  <Field label="Ends">
+                    <input type="datetime-local" value={gsForm.end} onChange={(e) => setGsForm((f) => ({ ...f, end: e.target.value }))}
+                      className="rounded-xl px-3 py-2 text-sm w-full" style={inputStyle} />
+                  </Field>
+                  <Field label="Capacity">
+                    <input type="number" min="1" value={gsForm.capacity} onChange={(e) => setGsForm((f) => ({ ...f, capacity: e.target.value }))}
+                      className="rounded-xl px-3 py-2 text-sm w-full" style={inputStyle} />
+                  </Field>
+                  <Field label="Price per seat ($)">
+                    <input type="number" min="0" step="0.01" value={gsForm.price_per_seat} onChange={(e) => setGsForm((f) => ({ ...f, price_per_seat: e.target.value }))}
+                      className="rounded-xl px-3 py-2 text-sm w-full" style={inputStyle} />
+                  </Field>
+                  <div className="md:col-span-2">
+                    <Field label="Linked skill (optional)">
+                      <select value={gsForm.skill} onChange={(e) => setGsForm((f) => ({ ...f, skill: e.target.value }))}
+                        className="rounded-xl px-3 py-2 text-sm w-full" style={inputStyle}>
+                        <option value="">— None —</option>
+                        {coachSkills.map((sk) => <option key={sk.id} value={sk.id}>{sk.name}</option>)}
+                      </select>
+                    </Field>
+                  </div>
+                </div>
+                <div className="flex justify-end mt-4">
+                  <button onClick={createGroupSession} disabled={gsSaving}
+                    className="px-5 py-2.5 rounded-full text-sm font-bold gold-btn disabled:opacity-60">
+                    {gsSaving ? "Creating…" : "Create Session"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Existing sessions */}
+              {groupSessions.length === 0 ? (
+                <div className="text-center py-16 rounded-2xl" style={card}>
+                  <p className="text-4xl mb-3">👥</p>
+                  <p className="text-sm text-[#4A5568]">No group sessions yet. Create one above.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {groupSessions.map((s) => (
+                    <div key={s.id} className="rounded-2xl p-5" style={card}>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="font-semibold text-[#1B2B4A]" style={serif}>{s.title}</h4>
+                            <span className="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full" style={GS_STATUS_STYLE[s.status] || GS_STATUS_STYLE.scheduled}>{s.status}</span>
+                          </div>
+                          <p className="text-sm text-[#4A5568] mt-1">
+                            {fmtDateShort(s.start_datetime, settings.timezone)} · {fmtTime(s.start_datetime, settings.timezone)} – {fmtTime(s.end_datetime, settings.timezone)}
+                          </p>
+                          <p className="text-xs mt-1" style={{ color: "rgba(74,85,104,0.7)" }}>
+                            {s.seats_taken}/{s.capacity} seats · ${parseFloat(s.price_per_seat).toFixed(2)}/seat
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => toggleRoster(s)} className="px-3 py-1.5 rounded-full text-sm font-semibold"
+                            style={{ background: "rgba(27,43,74,0.06)", color: "#1B2B4A" }}>
+                            {rosterFor === s.id ? "Hide" : "Roster"}
+                          </button>
+                          {s.status !== "cancelled" && (
+                            <button onClick={() => cancelGroupSession(s)} title="Cancel & refund"
+                              className="p-2 rounded-full" style={{ background: "rgba(239,68,68,0.08)", color: "#B91C1C" }}>
+                              <FiXCircle size={15} />
+                            </button>
+                          )}
+                          {s.seats_taken === 0 && (
+                            <button onClick={() => deleteGroupSession(s)} title="Delete"
+                              className="p-2 rounded-full" style={{ background: "rgba(239,68,68,0.08)", color: "#B91C1C" }}>
+                              <FiTrash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Built-in call + group chat */}
+                      {s.status !== "cancelled" && (
+                        <div className="flex flex-wrap items-center gap-2 mt-4">
+                          {new Date(s.end_datetime) > new Date() && (
+                            canJoinCall(s) ? (
+                              <button onClick={() => navigate(`/group-session/${s.id}/call`)}
+                                className="px-4 py-2 rounded-full text-sm font-semibold flex items-center gap-1.5"
+                                style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.25)" }}>
+                                <FiVideo size={13} /> Join Call
+                              </button>
+                            ) : (
+                              <span className="text-xs" style={{ color: "rgba(74,85,104,0.6)" }}>
+                                <FiVideo size={12} className="inline mr-1" /> Call opens 15 min before start
+                              </span>
+                            )
+                          )}
+                          <button onClick={() => navigate(`/group-chat/${s.id}`)}
+                            className="px-4 py-2 rounded-full text-sm font-semibold flex items-center gap-1.5"
+                            style={{ background: "rgba(27,43,74,0.06)", color: "#1B2B4A", border: "1px solid rgba(27,43,74,0.12)" }}>
+                            <FiMessageSquare size={13} /> Group Chat
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Roster */}
+                      {rosterFor === s.id && (
+                        <div className="mt-4 rounded-xl p-4" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.15)" }}>
+                          {rosterData.length === 0 ? (
+                            <p className="text-sm text-[#4A5568]">No participants yet.</p>
+                          ) : (
+                            <ul className="space-y-1.5">
+                              {rosterData.map((e) => (
+                                <li key={e.id} className="flex items-center justify-between text-sm">
+                                  <span className="text-[#1B2B4A] font-medium">{e.learner_username}</span>
+                                  <span className="text-xs" style={{ color: e.status === "booked" ? "#2E7D32" : "#A9863A" }}>
+                                    {e.status}{e.payment_status === "paid" ? " · paid" : ""}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </motion.div>

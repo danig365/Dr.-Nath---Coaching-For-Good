@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Message
+from .models import Message, GroupMessage
 from bookings.models import SessionBooking
 
 class MessageSerializer(serializers.ModelSerializer):
@@ -29,3 +29,12 @@ class MessageSerializer(serializers.ModelSerializer):
             'timestamp',
             'is_read',
         ]
+
+
+class GroupMessageSerializer(serializers.ModelSerializer):
+    sender_username = serializers.CharField(source='sender.username', read_only=True)
+
+    class Meta:
+        model = GroupMessage
+        fields = ['id', 'group_session', 'sender', 'sender_username', 'content', 'timestamp']
+        read_only_fields = fields

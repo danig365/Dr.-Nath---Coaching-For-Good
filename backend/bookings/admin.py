@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import SessionBooking
 from .models import Review
 from .models import TimeSlot
+from .models import GroupSession, GroupEnrollment
 
 
 @admin.register(TimeSlot)
@@ -37,3 +38,28 @@ class ReviewAdmin(admin.ModelAdmin):
     def get_student_username(self, obj):
         return obj.student.username if obj.student else 'N/A'
     get_student_username.short_description = 'Student'
+
+
+class GroupEnrollmentInline(admin.TabularInline):
+    model = GroupEnrollment
+    extra = 0
+    readonly_fields = ('created_at', 'updated_at')
+    fields = ('learner', 'status', 'payment_status', 'amount_paid', 'held_until', 'created_at')
+
+
+@admin.register(GroupSession)
+class GroupSessionAdmin(admin.ModelAdmin):
+    list_display = ('title', 'coach', 'start_datetime', 'capacity', 'seats_taken', 'status')
+    list_filter = ('status', 'start_datetime')
+    search_fields = ('title', 'coach__user__username', 'skill__name')
+    readonly_fields = ('created_at', 'updated_at')
+    date_hierarchy = 'start_datetime'
+    inlines = [GroupEnrollmentInline]
+
+
+@admin.register(GroupEnrollment)
+class GroupEnrollmentAdmin(admin.ModelAdmin):
+    list_display = ('learner', 'group_session', 'status', 'payment_status', 'amount_paid', 'created_at')
+    list_filter = ('status', 'payment_status', 'created_at')
+    search_fields = ('learner__username', 'group_session__title')
+    readonly_fields = ('created_at', 'updated_at')

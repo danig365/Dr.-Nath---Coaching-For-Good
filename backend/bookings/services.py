@@ -14,7 +14,7 @@ from django.db import transaction
 from django.utils import timezone as dj_timezone
 
 from skills.models import Availability
-from .models import TimeSlot
+from .models import TimeSlot, GroupSession, GroupEnrollment
 
 # Slots in these states must never be overwritten or duplicated by generation.
 PROTECTED_STATUSES = ('booked', 'held', 'blocked')
@@ -23,12 +23,89 @@ PROTECTED_STATUSES = ('booked', 'held', 'blocked')
 HOLD_MINUTES = 10
 
 
+class SeatUnavailable(Exception):
+    """Raised when a client cannot take a seat in a group session."""
+    pass
+
+
 def release_expired_holds():
-    """Return any held slots whose hold window has lapsed back to 'open'."""
+    """
+    Return abandoned checkout holds to their available state.
+
+    Covers both 1:1 slots (back to 'open') and group-session seats (held
+    enrolments back to 'cancelled', reopening any session that is no longer
+    full). Returns the total number of holds released.
+    """
     now = dj_timezone.now()
-    return TimeSlot.objects.filter(
+
+    slot_count = TimeSlot.objects.filter(
         status='held', held_until__lt=now
     ).update(status='open', held_until=None, held_by=None)
+
+    expired = GroupEnrollment.objects.filter(status='held', held_until__lt=now)
+    affected_session_ids = list(expired.values_list('group_session_id', flat=True).distinct())
+    seat_count = expired.update(status='cancelled', held_until=None)
+
+    # A freed seat may take a 'full' session back to 'scheduled'.
+    for session in GroupSession.objects.filter(id__in=affected_session_ids, status='full'):
+        if session.seats_taken < session.capacity:
+            session.status = 'scheduled'
+            session.save(update_fields=['status', 'updated_at'])
+
+    # Mark past sessions completed so they leave the bookable pool and read
+    # correctly in coach/client views.
+    GroupSession.objects.filter(
+        status__in=('scheduled', 'full'), end_datetime__lt=now
+    ).update(status='completed')
+
+    return slot_count + seat_count
+
+
+@transaction.atomic
+def reserve_seat(session_id, user):
+    """
+    Reserve a held seat for `user` in a group session.
+
+    Locks the GroupSession row so concurrent enrolments are serialised, enforces
+    the hard-stop capacity, and reuses the client's existing enrolment row (so a
+    re-enrol after cancellation doesn't violate the unique constraint). Raises
+    SeatUnavailable with a client-safe message on any rejection.
+    """
+    session = GroupSession.objects.select_for_update().get(id=session_id)
+
+    if session.status == 'cancelled':
+        raise SeatUnavailable("This session has been cancelled.")
+    if session.status == 'completed' or session.end_datetime <= dj_timezone.now():
+        raise SeatUnavailable("This session has already taken place.")
+
+    existing = session.enrollments.filter(learner=user).first()
+    if existing and existing.status == 'booked':
+        raise SeatUnavailable("You are already enrolled in this session.")
+
+    # Seats taken by other clients (held + booked). The caller's own row, if any,
+    # is reused rather than counted against them.
+    taken_by_others = session.enrollments.filter(
+        status__in=('held', 'booked')
+    ).exclude(learner=user).count()
+    if taken_by_others >= session.capacity:
+        raise SeatUnavailable("This session is full.")
+
+    enrollment, _ = GroupEnrollment.objects.update_or_create(
+        group_session=session,
+        learner=user,
+        defaults={
+            'status': 'held',
+            'held_until': dj_timezone.now() + timedelta(minutes=HOLD_MINUTES),
+            'payment_status': 'unpaid',
+        },
+    )
+
+    # Reflect a now-full session for coarse listing/filtering.
+    if session.seats_taken >= session.capacity and session.status == 'scheduled':
+        session.status = 'full'
+        session.save(update_fields=['status', 'updated_at'])
+
+    return enrollment
 
 
 def _coach_tz(coach):

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import SessionBooking, Review, TimeSlot
+from .models import SessionBooking, Review, TimeSlot, GroupSession, GroupEnrollment
 from profiles.models import CustomUser, UserProfile
 from skills.models import Skill
 
@@ -140,3 +140,65 @@ class SessionReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = Review
         fields = ['id', 'student_name', 'rating', 'comment', 'created_at']
+
+
+class GroupEnrollmentSerializer(serializers.ModelSerializer):
+    learner_username = serializers.CharField(source='learner.username', read_only=True)
+    session_title = serializers.CharField(source='group_session.title', read_only=True)
+
+    class Meta:
+        model = GroupEnrollment
+        fields = [
+            'id', 'group_session', 'session_title', 'learner', 'learner_username',
+            'status', 'payment_status', 'amount_paid', 'created_at',
+        ]
+        read_only_fields = fields
+
+
+class MyGroupEnrollmentSerializer(serializers.ModelSerializer):
+    """A client's enrolment with the session details flattened in for display."""
+    title = serializers.CharField(source='group_session.title', read_only=True)
+    coach_username = serializers.CharField(source='group_session.coach.user.username', read_only=True)
+    start_datetime = serializers.DateTimeField(source='group_session.start_datetime', read_only=True)
+    end_datetime = serializers.DateTimeField(source='group_session.end_datetime', read_only=True)
+    meeting_link = serializers.URLField(source='group_session.meeting_link', read_only=True)
+    session_status = serializers.CharField(source='group_session.status', read_only=True)
+    price_per_seat = serializers.DecimalField(source='group_session.price_per_seat', max_digits=8, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = GroupEnrollment
+        fields = [
+            'id', 'group_session', 'title', 'coach_username',
+            'start_datetime', 'end_datetime', 'meeting_link', 'session_status',
+            'price_per_seat', 'status', 'payment_status', 'amount_paid', 'created_at',
+        ]
+        read_only_fields = fields
+
+
+class GroupSessionSerializer(serializers.ModelSerializer):
+    coach_username = serializers.CharField(source='coach.user.username', read_only=True)
+    skill_title = serializers.CharField(source='skill.name', read_only=True)
+    seats_taken = serializers.IntegerField(read_only=True)
+    seats_remaining = serializers.IntegerField(read_only=True)
+    is_full = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = GroupSession
+        fields = [
+            'id', 'coach', 'coach_username', 'skill', 'skill_title',
+            'title', 'description', 'start_datetime', 'end_datetime',
+            'capacity', 'price_per_seat', 'meeting_link', 'status',
+            'seats_taken', 'seats_remaining', 'is_full', 'created_at',
+        ]
+        # coach is inferred from the request; status is system-managed.
+        read_only_fields = [
+            'id', 'coach', 'coach_username', 'skill_title', 'status',
+            'seats_taken', 'seats_remaining', 'is_full', 'created_at',
+        ]
+
+    def validate(self, attrs):
+        start = attrs.get('start_datetime', getattr(self.instance, 'start_datetime', None))
+        end = attrs.get('end_datetime', getattr(self.instance, 'end_datetime', None))
+        if start and end and end <= start:
+            raise serializers.ValidationError("Session end time must be after its start time.")
+        return attrs
