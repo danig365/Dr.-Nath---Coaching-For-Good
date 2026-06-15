@@ -152,6 +152,14 @@ class TimeSlot(models.Model):
 
     # Set while status == 'held' so abandoned checkouts can be reclaimed.
     held_until = models.DateTimeField(null=True, blank=True)
+    # The client who currently holds this slot during checkout. Lets us reject
+    # a confirm/release coming from anyone other than the holder.
+    held_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        related_name='held_slots',
+        null=True, blank=True,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

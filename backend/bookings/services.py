@@ -28,7 +28,7 @@ def release_expired_holds():
     now = dj_timezone.now()
     return TimeSlot.objects.filter(
         status='held', held_until__lt=now
-    ).update(status='open', held_until=None)
+    ).update(status='open', held_until=None, held_by=None)
 
 
 def _coach_tz(coach):

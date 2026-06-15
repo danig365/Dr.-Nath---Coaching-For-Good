@@ -255,10 +255,10 @@ const Home = () => {
         <div className="absolute inset-0 hidden md:block" style={{ background: "linear-gradient(to top, rgba(17,28,49,0.45), transparent 40%)" }} />
 
         <div className="relative w-full px-8 sm:px-12 lg:px-20 pt-32 pb-20">
-          <div className="max-w-2xl">
+          <div className="max-w-2xl flex flex-col">
             <motion.p
               initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
-              className="text-sm font-semibold uppercase mb-6 flex items-center gap-3"
+              className="text-sm font-semibold uppercase mb-6 flex items-center gap-3 order-last md:order-first mt-6 md:mt-0"
               style={{ color: GOLD, letterSpacing: "0.24em" }}
             >
               Clarity <span>•</span> Growth <span>•</span> Impact

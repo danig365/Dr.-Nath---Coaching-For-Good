@@ -32,7 +32,8 @@ def cancel_booking(booking, new_status='declined', refund=True):
             if slot.status in ('booked', 'held'):
                 slot.status = 'open'
                 slot.held_until = None
-                slot.save(update_fields=['status', 'held_until', 'updated_at'])
+                slot.held_by = None
+                slot.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
             # Release the OneToOne link so the reopened slot can be re-booked.
             booking.slot = None
 
@@ -72,26 +73,14 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
         # For any other role or if no role is defined, return an empty queryset
         return SessionBooking.objects.none()
 
-    def perform_create(self, serializer):
-        user = self.request.user
-        # Ensure user has a profile before checking role
-        if not hasattr(user, 'profile'):
-            raise DRFValidationError("User profile not found.")
-
-        # ⭐ CRITICAL FIX: This view is for CLIENTS to book sessions.
-        # So, the user's role must be 'client'.
-        if user.profile.role != 'client':
-            raise DRFValidationError("Only clients can book sessions.")
-
-        try:
-            # Let the serializer handle learner, mentor inference from skill, and validation
-            serializer.save()
-        except DRFValidationError as e:
-            # Re-raise DRF ValidationErrors so they are handled as 400 Bad Request
-            raise e
-        except Exception as e:
-            # Catch any other unexpected errors during creation and return a 400 Bad Request
-            raise DRFValidationError({'detail': f"An unexpected error occurred during booking creation: {str(e)}"})
+    def create(self, request, *args, **kwargs):
+        # Direct booking creation is disabled: bookings are created only through
+        # the slot + payment flow (see ConfirmBookingPaymentView), which reserves
+        # a TimeSlot and prevents double-booking. Allowing free-datetime creation
+        # here would let a caller book a time with no slot reservation.
+        raise DRFValidationError(
+            "Direct booking creation is disabled. Please book an available time slot."
+        )
 
     def perform_update(self, serializer):
         user = self.request.user
@@ -309,7 +298,8 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
                 return Response({'detail': 'This slot is no longer available.'}, status=HTTP_400_BAD_REQUEST)
             slot.status = 'held'
             slot.held_until = dj_tz.now() + timedelta(minutes=HOLD_MINUTES)
-            slot.save(update_fields=['status', 'held_until', 'updated_at'])
+            slot.held_by = request.user
+            slot.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
         return Response(self.get_serializer(slot).data, status=HTTP_200_OK)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
@@ -320,10 +310,12 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
                 slot = TimeSlot.objects.select_for_update().get(pk=pk)
             except TimeSlot.DoesNotExist:
                 return Response({'detail': 'Slot not found.'}, status=status.HTTP_404_NOT_FOUND)
-            if slot.status == 'held':
+            # Only the client holding the slot may release it.
+            if slot.status == 'held' and slot.held_by_id == request.user.id:
                 slot.status = 'open'
                 slot.held_until = None
-                slot.save(update_fields=['status', 'held_until', 'updated_at'])
+                slot.held_by = None
+                slot.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
         return Response(self.get_serializer(slot).data, status=HTTP_200_OK)
 
 
@@ -423,31 +415,33 @@ class ConfirmBookingPaymentView(APIView):
         from skills.models import Skill
 
         slot_id = booking_data.get('slot_id')
+        if not slot_id:
+            return Response({'error': 'A time slot is required to book a session.'},
+                            status=status.HTTP_400_BAD_REQUEST)
         try:
             with transaction.atomic():
                 skill = Skill.objects.get(id=booking_data['skill'])
                 mentor_profile = skill.profile
 
-                slot = None
-                if slot_id:
-                    # Lock the slot and verify it is still ours to book.
-                    slot = TimeSlot.objects.select_for_update().get(id=slot_id)
-                    if slot.status == 'booked':
-                        return Response(
-                            {'error': 'This time slot was just booked by someone else. Please pick another.'},
-                            status=status.HTTP_409_CONFLICT,
-                        )
-                    if slot.coach_id != mentor_profile.id:
-                        return Response({'error': 'Slot does not belong to this coach.'},
-                                        status=status.HTTP_400_BAD_REQUEST)
-                    session_date = slot.start_datetime.date()
-                    session_time = slot.start_datetime.time()
-                    duration = slot.duration_minutes
-                else:
-                    # Legacy free-datetime fallback (kept for backward compatibility).
-                    session_date = booking_data['session_date']
-                    session_time = booking_data['session_time']
-                    duration = booking_data['duration']
+                # Lock the slot and verify it is still ours to book.
+                slot = TimeSlot.objects.select_for_update().get(id=slot_id)
+                if slot.status == 'booked':
+                    return Response(
+                        {'error': 'This time slot was just booked by someone else. Please pick another.'},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                # A slot held by another client cannot be booked out from under them.
+                if slot.status == 'held' and slot.held_by_id and slot.held_by_id != request.user.id:
+                    return Response(
+                        {'error': 'This time slot is reserved by someone else. Please pick another.'},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                if slot.coach_id != mentor_profile.id:
+                    return Response({'error': 'Slot does not belong to this coach.'},
+                                    status=status.HTTP_400_BAD_REQUEST)
+                session_date = slot.start_datetime.date()
+                session_time = slot.start_datetime.time()
+                duration = slot.duration_minutes
 
                 booking = SessionBooking.objects.create(
                     learner=request.user,
@@ -468,7 +462,8 @@ class ConfirmBookingPaymentView(APIView):
                 if slot:
                     slot.status = 'booked'
                     slot.held_until = None
-                    slot.save(update_fields=['status', 'held_until', 'updated_at'])
+                    slot.held_by = None
+                    slot.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
 
             return Response({'booking_id': booking.id, 'status': 'paid'})
         except TimeSlot.DoesNotExist:
