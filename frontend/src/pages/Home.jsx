@@ -276,12 +276,27 @@ const Home = () => {
 
             <motion.p
               initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.25 }}
-              className="text-lg md:text-xl leading-relaxed mb-9 max-w-xl"
+              className="text-lg md:text-xl leading-relaxed mb-6 max-w-xl"
               style={{ color: "rgba(245,238,201,0.85)" }}
             >
-              Through a client-centered approach to coaching, Dr. Nath helps you find clarity,
-              unlock your potential, and create lasting change in your career and life.
+              Through a client-centered approach to coaching, Dr Nath partners with you to help you find clarity,
+              unlock your potential for growth, and create long-lasting impact on you.
             </motion.p>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.32 }}
+              className="mb-9"
+            >
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] mb-3" style={{ color: GOLD }}>Offerings</p>
+              <ul className="space-y-1.5">
+                <li className="flex items-center gap-2 text-base" style={{ color: "rgba(245,238,201,0.85)" }}>
+                  <span style={{ color: GOLD }}>•</span> Health and Wellness Coaching Program
+                </li>
+                <li className="flex items-center gap-2 text-base" style={{ color: "rgba(245,238,201,0.85)" }}>
+                  <span style={{ color: GOLD }}>•</span> Executive and Leadership Coaching
+                </li>
+              </ul>
+            </motion.div>
 
             <motion.div
               initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.4 }}
