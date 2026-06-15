@@ -5,7 +5,7 @@ import { toast } from "react-toastify"; // Make sure react-toastify is configure
 
 // --- Configuration ---
 const AUTH_TOKEN_KEY = "authTokens"; // Key for storing tokens (access & refresh) in localStorage
-const API_BASE_URL = "http://localhost:8000/api"; // Your Django API base URL
+const API_BASE_URL = "/api"; // Your Django API base URL
 
 // --- Axios Instance with Interceptors ---
 // This 'api' instance will be used for all authenticated requests.

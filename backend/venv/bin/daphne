@@ -1,4 +1,4 @@
-#!/home/danishrehman/Music/SkillForge/backend/venv/bin/python3
+#!/root/dr-nath-coaching/backend/venv/bin/python3
 import sys
 from daphne.cli import CommandLineInterface
 if __name__ == '__main__':

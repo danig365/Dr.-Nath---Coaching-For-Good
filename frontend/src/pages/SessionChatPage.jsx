@@ -55,7 +55,8 @@ const SessionChatPage = () => {
   useEffect(() => {
     if (!booking || !isChatEnabled) return;
     const tokens = JSON.parse(localStorage.getItem("authTokens"));
-    const ws = new WebSocket(`ws://localhost:8000/ws/chat/${bookingId}/?token=${tokens?.access}`);
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${wsProto}//${window.location.host}/ws/chat/${bookingId}/?token=${tokens?.access}`);
     wsRef.current = ws;
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
