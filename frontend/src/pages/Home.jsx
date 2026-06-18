@@ -252,7 +252,7 @@ const Home = () => {
         />
         <div
           className="absolute inset-0 hidden md:block"
-          style={{ backgroundImage: "url('/dr-nath.jpg')", backgroundSize: "cover", backgroundPosition: "right 96px", backgroundRepeat: "no-repeat" }}
+          style={{ backgroundImage: "url('/dr-nath.jpg')", backgroundSize: "cover", backgroundPosition: "right 48px", backgroundRepeat: "no-repeat" }}
         />
 
         {/* Legibility overlays — stronger bottom wash on mobile, left wash on desktop */}
