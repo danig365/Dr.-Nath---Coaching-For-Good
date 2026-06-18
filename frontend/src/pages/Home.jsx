@@ -242,26 +242,26 @@ const Home = () => {
       {/* ── HERO (full-bleed photo, Suzy style) ────────────── */}
       <section
         id="top"
-        className="relative min-h-screen flex items-end md:items-center overflow-hidden"
-        style={{ backgroundColor: NAVY_DEEP }}
+        className="relative overflow-hidden flex flex-col md:flex md:items-center"
+        style={{ backgroundColor: NAVY_DEEP, minHeight: "100vh" }}
       >
-        {/* Background photo — portrait on mobile, landscape on md+ */}
+        {/* Mobile: image stacked on top, below navbar */}
         <div
-          className="absolute inset-0 md:hidden"
-          style={{ backgroundImage: "url('/dr-nath-mobile.jpg')", backgroundSize: "cover", backgroundPosition: "60% top", backgroundRepeat: "no-repeat" }}
+          className="md:hidden w-full flex-shrink-0"
+          style={{ marginTop: "96px", height: "72vw", backgroundImage: "url('/dr-nath-mobile.jpg')", backgroundSize: "cover", backgroundPosition: "center top", backgroundRepeat: "no-repeat" }}
         />
+
+        {/* Desktop: full-bleed background */}
         <div
           className="absolute inset-0 hidden md:block"
           style={{ backgroundImage: "url('/dr-nath.jpg')", backgroundSize: "cover", backgroundPosition: "right 48px", backgroundRepeat: "no-repeat" }}
         />
 
-        {/* Legibility overlays — stronger bottom wash on mobile, left wash on desktop */}
-        <div className="absolute inset-0 md:hidden" style={{ background: "linear-gradient(to top, rgba(17,28,49,0.92) 8%, rgba(17,28,49,0.55) 40%, rgba(17,28,49,0.20) 70%, rgba(17,28,49,0.10) 100%)" }} />
-        <div className="absolute inset-0 md:hidden" style={{ background: "linear-gradient(to right, rgba(17,28,49,0.70) 0%, rgba(17,28,49,0.40) 45%, rgba(17,28,49,0) 70%)" }} />
+        {/* Desktop overlays only */}
         <div className="absolute inset-0 hidden md:block" style={{ background: "linear-gradient(110deg, rgba(17,28,49,0.80) 0%, rgba(17,28,49,0.55) 30%, rgba(17,28,49,0.12) 55%, rgba(17,28,49,0) 75%)" }} />
         <div className="absolute inset-0 hidden md:block" style={{ background: "linear-gradient(to top, rgba(17,28,49,0.45), transparent 40%)" }} />
 
-        <div className="relative w-full px-8 sm:px-12 lg:px-20 pt-32 pb-20">
+        <div className="relative w-full px-8 sm:px-12 lg:px-20 pt-8 md:pt-32 pb-16 md:pb-20">
           <div className="max-w-2xl flex flex-col">
             <motion.p
               initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
