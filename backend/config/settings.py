@@ -26,7 +26,10 @@ SECRET_KEY = 'django-insecure-faqs37dl@2c#d8(ufxdpqjk_-9pf_xge6)npig%5&48qy_b1ii
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = ['129.121.115.149', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['129.121.115.149', 'dr-nath.com', 'www.dr-nath.com', 'localhost', '127.0.0.1']
+
+# Required for the Django admin login POST over HTTPS behind nginx.
+CSRF_TRUSTED_ORIGINS = ['https://dr-nath.com', 'https://www.dr-nath.com']
 
 
 # Application definition
@@ -45,6 +48,7 @@ INSTALLED_APPS = [
     'skills',
     'bookings',
     'messages.apps.MessagesConfig',
+    'resources',
     # 'notifications',
 ]
 

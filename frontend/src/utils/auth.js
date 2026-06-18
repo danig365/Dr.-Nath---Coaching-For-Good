@@ -23,6 +23,12 @@ api.interceptors.request.use(
     const tokens = getAuthTokens(); // Get current tokens from localStorage
     const user = getUser(); // Get decoded user info (also checks access token expiry)
 
+    // For file uploads (FormData), let the browser set multipart/form-data with
+    // its boundary — the instance's default JSON content-type would break parsing.
+    if (typeof FormData !== "undefined" && config.data instanceof FormData) {
+      delete config.headers["Content-Type"];
+    }
+
     // If tokens exist and it's an authenticated request
     if (tokens && tokens.access) {
       // If the access token is still valid, just attach it
@@ -250,3 +256,33 @@ export const refreshAuthTokens = async () => {
     return false; // Refresh failed
   }
 };
+
+/**
+ * Download a Resources file through the authenticated API (the download
+ * endpoint is permission-gated, so a plain link/window.open — which sends no
+ * Authorization header — would be rejected). Fetches as a blob and saves it.
+ */
+const saveBlobFrom = async (path, fallbackName = "download") => {
+  const res = await api.get(path, { responseType: "blob" });
+  let name = fallbackName;
+  const cd = res.headers["content-disposition"];
+  if (cd) {
+    const m = /filename="?([^"]+)"?/.exec(cd);
+    if (m) name = m[1];
+  }
+  const url = URL.createObjectURL(res.data);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};
+
+export const downloadResource = (id, fallbackName = "download") =>
+  saveBlobFrom(`/resources/${id}/download/`, fallbackName);
+
+// A client→coach submission file (the inbox), same permission-gated mechanism.
+export const downloadSubmission = (id, fallbackName = "download") =>
+  saveBlobFrom(`/resources/submissions/${id}/download/`, fallbackName);

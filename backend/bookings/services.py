@@ -140,13 +140,21 @@ def _window_slot_bounds(day_date, availability, tz):
 
 
 @transaction.atomic
-def generate_slots_for_coach(coach, horizon_days=None, min_notice_hours=None):
+def generate_slots_for_coach(coach, horizon_days=None, min_notice_hours=None,
+                             start_date=None, end_date=None):
     """
-    Generate `open`/`auto` TimeSlots for `coach` across the rolling horizon.
+    Generate `open`/`auto` TimeSlots for `coach` from their recurring windows.
+
+    Two modes:
+      - Rolling horizon (default): covers `now → now + horizon_days`.
+      - Fixed range: when `start_date` and `end_date` (local `date`s) are given,
+        covers those local dates inclusive — e.g. 1 Jul → 6 Dec.
+
+    The min-notice floor still applies in both modes, so no slot is ever minted
+    in the past or inside the coach's notice window.
 
     Returns a summary dict: {'created': int, 'skipped': int}.
     """
-    horizon_days = horizon_days if horizon_days is not None else coach.booking_horizon_days
     min_notice_hours = (
         min_notice_hours if min_notice_hours is not None else coach.min_notice_hours
     )
@@ -154,7 +162,20 @@ def generate_slots_for_coach(coach, horizon_days=None, min_notice_hours=None):
     tz = _coach_tz(coach)
     now_utc = dj_timezone.now()
     earliest_start = now_utc + timedelta(hours=min_notice_hours)
-    horizon_end = now_utc + timedelta(days=horizon_days)
+
+    if start_date is not None and end_date is not None:
+        # Fixed date-range mode: walk the given local dates inclusive.
+        range_start_date = start_date
+        range_end_date = end_date
+        # Upper bound = start of the day after the last date, in UTC.
+        horizon_end = datetime.combine(
+            end_date + timedelta(days=1), time(0, 0), tzinfo=tz
+        ).astimezone(ZoneInfo('UTC'))
+    else:
+        horizon_days = horizon_days if horizon_days is not None else coach.booking_horizon_days
+        range_start_date = now_utc.astimezone(tz).date()
+        range_end_date = range_start_date + timedelta(days=horizon_days)
+        horizon_end = now_utc + timedelta(days=horizon_days)
 
     windows = list(
         Availability.objects.filter(mentor=coach, is_available=True)
@@ -178,10 +199,10 @@ def generate_slots_for_coach(coach, horizon_days=None, min_notice_hours=None):
     skipped = 0
     new_slots = []
 
-    # Walk each local date in the horizon and match same-weekday windows.
-    start_date = now_utc.astimezone(tz).date()
-    for offset in range((horizon_days) + 1):
-        day_date = start_date + timedelta(days=offset)
+    # Walk each local date in the range and match same-weekday windows.
+    day_count = (range_end_date - range_start_date).days
+    for offset in range(day_count + 1):
+        day_date = range_start_date + timedelta(days=offset)
         weekday_name = day_date.strftime('%A')
 
         for window in windows:

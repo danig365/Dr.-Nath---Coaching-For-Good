@@ -134,13 +134,14 @@ export default function Register() {
       navigate("/login");
     } catch (err) {
       const d = err.response?.data;
-      if (d) {
-        if (d.username) toast.error(`Username: ${d.username[0]}`);
-        if (d.email) toast.error(`Email: ${d.email[0]}`);
-        if (d.password) toast.error(`Password: ${d.password[0]}`);
-        if (d.non_field_errors) toast.error(d.non_field_errors[0]);
-        else if (d.detail) toast.error(d.detail);
-        else toast.error("Registration failed. Please check your input.");
+      if (d && typeof d === "object") {
+        const labels = { non_field_errors: "", detail: "", username: "Username", email: "Email", password: "Password" };
+        const msgs = Object.entries(d).map(([key, val]) => {
+          const text = Array.isArray(val) ? val.join(" ") : String(val);
+          const label = labels[key] ?? key;
+          return label ? `${label}: ${text}` : text;
+        });
+        toast.error(msgs.length ? msgs.join("\n") : "Registration failed. Please check your input.");
       } else {
         toast.error("An unexpected error occurred.");
       }

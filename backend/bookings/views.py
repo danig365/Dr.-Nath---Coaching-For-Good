@@ -18,7 +18,7 @@ from .services import generate_slots_for_coach, release_expired_holds, HOLD_MINU
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.utils import timezone as dj_tz
-from datetime import timedelta
+from datetime import timedelta, date as date_cls
 # Note: DjangoValidationError is not directly used in this file's logic, but can be kept if needed elsewhere.
 # from django.core.exceptions import ValidationError as DjangoValidationError
 
@@ -251,12 +251,46 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def generate(self, request):
-        """Generate open slots from the coach's recurring availability windows."""
+        """
+        Generate open slots from the coach's recurring availability windows.
+
+        Optional body params:
+          - horizon_days: rolling-horizon length (ignored if a date range is given).
+          - start_date / end_date (YYYY-MM-DD): generate across this fixed local
+            date range inclusive. Both must be supplied together.
+        """
         profile = self._ensure_coach()
         horizon = request.data.get('horizon_days')
+        start_raw = request.data.get('start_date')
+        end_raw = request.data.get('end_date')
+
+        if bool(start_raw) ^ bool(end_raw):
+            return Response(
+                {'detail': 'Provide both start_date and end_date, or neither.'},
+                status=HTTP_400_BAD_REQUEST,
+            )
+
+        start_date = end_date = None
+        if start_raw and end_raw:
+            try:
+                start_date = date_cls.fromisoformat(start_raw)
+                end_date = date_cls.fromisoformat(end_raw)
+            except ValueError:
+                return Response(
+                    {'detail': 'Dates must be in YYYY-MM-DD format.'},
+                    status=HTTP_400_BAD_REQUEST,
+                )
+            if end_date < start_date:
+                return Response(
+                    {'detail': 'end_date cannot be before start_date.'},
+                    status=HTTP_400_BAD_REQUEST,
+                )
+
         result = generate_slots_for_coach(
             profile,
             horizon_days=int(horizon) if horizon else None,
+            start_date=start_date,
+            end_date=end_date,
         )
         return Response(result, status=HTTP_200_OK)
 
@@ -403,7 +437,7 @@ class GroupSessionViewSet(viewsets.ModelViewSet):
     def available(self, request):
         """Authenticated listing of upcoming, bookable group sessions for clients."""
         release_expired_holds()
-        qs = GroupSession.objects.filter(status='scheduled', start_datetime__gt=dj_tz.now())
+        qs = GroupSession.objects.filter(status='scheduled', end_datetime__gt=dj_tz.now())
         coach_id = request.query_params.get('coach')
         skill_id = request.query_params.get('skill')
         if coach_id:

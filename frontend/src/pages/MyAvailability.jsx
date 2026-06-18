@@ -1,15 +1,18 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { FiPlus, FiTrash2, FiClock, FiCalendar, FiZap, FiLock, FiUnlock, FiGlobe, FiSettings, FiFilter, FiChevronLeft, FiChevronRight, FiChevronDown, FiUsers, FiVideo, FiXCircle, FiMessageSquare } from "react-icons/fi";
+import { FiPlus, FiTrash2, FiClock, FiCalendar, FiZap, FiLock, FiUnlock, FiGlobe, FiSettings, FiChevronLeft, FiChevronRight, FiChevronDown, FiUsers, FiVideo, FiXCircle, FiMessageSquare } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 import { useNavigate } from "react-router-dom";
 import { api } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
+import { GROUP_SESSIONS_ENABLED } from "../config/features";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DURATIONS = [15, 30, 45, 60]; // 60 min is the maximum slot length
 const COMMON_TZS = [
-  "UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+  "UTC",
+  "Africa/Johannesburg", "Africa/Lagos", "Africa/Nairobi", "Africa/Cairo", "Africa/Accra",
+  "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
   "Europe/London", "Europe/Paris", "Europe/Berlin", "Asia/Dubai", "Asia/Karachi",
   "Asia/Kolkata", "Asia/Singapore", "Asia/Tokyo", "Australia/Sydney",
 ];
@@ -20,7 +23,6 @@ const serif = { fontFamily: "'Playfair Display', serif" };
 
 const fmtTime = (iso, tz) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: tz || undefined });
 const fmtDateShort = (iso, tz) => new Date(iso).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: tz || undefined });
-const SLOTS_PER_PAGE = 12;
 const RULES_PER_PAGE = 6;
 
 // ─── Slot status pill ───────────────────────────────────────────────────────
@@ -105,6 +107,215 @@ const Pager = ({ page, totalPages, onPrev, onNext }) =>
     </div>
   ) : null;
 
+// ─── Coach availability calendar ─────────────────────────────────────────────
+const CAL_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const pad2 = (n) => String(n).padStart(2, "0");
+// Calendar date (YYYY-MM-DD) of a slot, in the coach's own timezone.
+const tzDateKey = (iso, tz) => new Date(iso).toLocaleDateString("en-CA", { timeZone: tz || undefined });
+
+const CoachCalendar = ({ slots, tz, onBlockSlot, onUnblockSlot, onDeleteSlot, onAddSlot, onBlockDay, onOpenDay, busy }) => {
+  const slotsByDate = useMemo(() => {
+    const m = {};
+    slots.forEach((s) => { (m[tzDateKey(s.start_datetime, tz)] ||= []).push(s); });
+    Object.values(m).forEach((arr) => arr.sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime)));
+    return m;
+  }, [slots, tz]);
+
+  const [viewMonth, setViewMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const [selectedKey, setSelectedKey] = useState(null);
+  const [addForm, setAddForm] = useState({ from: "09:00", to: "10:00" });
+
+  // On first load (or when slots first arrive), jump to the earliest slot's month.
+  useEffect(() => {
+    if (selectedKey === null) {
+      const keys = Object.keys(slotsByDate).sort();
+      if (keys.length) {
+        setSelectedKey(keys[0]);
+        const d = new Date(keys[0] + "T00:00:00");
+        setViewMonth(new Date(d.getFullYear(), d.getMonth(), 1));
+      }
+    }
+  }, [slotsByDate, selectedKey]);
+
+  const year = viewMonth.getFullYear();
+  const month = viewMonth.getMonth();
+  const startWeekday = (new Date(year, month, 1).getDay() + 6) % 7; // Mon-first
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const cells = [];
+  for (let i = 0; i < startWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const todayKey = tzDateKey(new Date().toISOString(), tz);
+  const monthLabel = viewMonth.toLocaleDateString([], { month: "long", year: "numeric" });
+  const daySlots = selectedKey ? (slotsByDate[selectedKey] || []) : [];
+
+  const counts = (arr) => ({
+    open: arr.filter((s) => s.status === "open").length,
+    booked: arr.filter((s) => s.status === "booked" || s.status === "held").length,
+    blocked: arr.filter((s) => s.status === "blocked").length,
+  });
+
+  const selCounts = counts(daySlots);
+  const prettyDay = selectedKey
+    ? new Date(selectedKey + "T00:00:00").toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+    : null;
+
+  const addOnDay = () => {
+    if (!selectedKey) return;
+    const start = new Date(`${selectedKey}T${addForm.from}:00`);
+    const end = new Date(`${selectedKey}T${addForm.to}:00`);
+    if (end <= start) { toast.error("End time must be after start time."); return; }
+    onAddSlot(start.toISOString(), end.toISOString());
+  };
+
+  return (
+    <div className="grid lg:grid-cols-[1fr_360px] gap-6">
+      {/* Month grid */}
+      <div className="rounded-2xl p-5" style={card}>
+        <div className="flex items-center justify-between mb-4">
+          <button type="button" onClick={() => setViewMonth(new Date(year, month - 1, 1))}
+            className="w-9 h-9 rounded-full flex items-center justify-center transition-all hover:bg-[rgba(200,169,81,0.12)]" style={{ color: "#A9863A" }}>
+            <FiChevronLeft size={16} />
+          </button>
+          <p className="text-base font-bold text-[#1B2B4A]" style={serif}>{monthLabel}</p>
+          <button type="button" onClick={() => setViewMonth(new Date(year, month + 1, 1))}
+            className="w-9 h-9 rounded-full flex items-center justify-center transition-all hover:bg-[rgba(200,169,81,0.12)]" style={{ color: "#A9863A" }}>
+            <FiChevronRight size={16} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-7 gap-1 mb-1">
+          {CAL_WEEKDAYS.map((w) => (
+            <div key={w} className="text-center text-[10px] font-semibold uppercase tracking-wider py-1" style={{ color: "rgba(74,85,104,0.6)" }}>{w}</div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7 gap-1">
+          {cells.map((d, i) => {
+            if (!d) return <div key={`b${i}`} />;
+            const key = `${year}-${pad2(month + 1)}-${pad2(d)}`;
+            const dayArr = slotsByDate[key];
+            const c = dayArr ? counts(dayArr) : null;
+            const isSelected = key === selectedKey;
+            const isToday = key === todayKey;
+            return (
+              <button key={key} type="button" onClick={() => setSelectedKey(key)}
+                className="relative aspect-square rounded-xl flex flex-col items-center justify-center text-sm font-medium transition-all"
+                style={
+                  isSelected
+                    ? { background: "#1B2B4A", color: "#FAF6EC" }
+                    : dayArr
+                    ? { background: "rgba(200,169,81,0.12)", color: "#1B2B4A", cursor: "pointer" }
+                    : { background: "transparent", color: "rgba(74,85,104,0.5)", cursor: "pointer", border: isToday ? "1px solid rgba(200,169,81,0.4)" : "1px solid transparent" }
+                }>
+                <span>{d}</span>
+                {c && (
+                  <span className="flex items-center gap-0.5 mt-0.5">
+                    {c.open > 0 && <span className="w-1.5 h-1.5 rounded-full" style={{ background: isSelected ? "#E8C96A" : "#2E7D32" }} />}
+                    {c.booked > 0 && <span className="w-1.5 h-1.5 rounded-full" style={{ background: isSelected ? "#FAF6EC" : "#1B2B4A" }} />}
+                    {c.blocked > 0 && <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#7A8699" }} />}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Legend */}
+        <div className="flex flex-wrap items-center gap-3 mt-4 text-[11px]" style={{ color: "rgba(74,85,104,0.7)" }}>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: "#2E7D32" }} /> Open</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: "#1B2B4A" }} /> Booked</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: "#7A8699" }} /> Blocked</span>
+          <span className="flex items-center gap-1 ml-auto"><FiGlobe size={11} /> {tz}</span>
+        </div>
+      </div>
+
+      {/* Selected day panel */}
+      <div className="rounded-2xl p-5 self-start" style={card}>
+        {!selectedKey ? (
+          <div className="text-center py-12">
+            <p className="text-3xl mb-2">🗓️</p>
+            <p className="text-sm text-[#4A5568]">Select a day to manage its slots.</p>
+          </div>
+        ) : (
+          <>
+            <h3 className="text-base font-bold text-[#1B2B4A] mb-1" style={serif}>{prettyDay}</h3>
+            <p className="text-xs mb-4" style={{ color: "rgba(74,85,104,0.7)" }}>
+              {selCounts.open} open · {selCounts.booked} booked · {selCounts.blocked} blocked
+            </p>
+
+            {/* Bulk day actions */}
+            <div className="flex gap-2 mb-4">
+              <button onClick={() => onBlockDay(daySlots)} disabled={busy || selCounts.open === 0}
+                className="flex-1 px-3 py-2 rounded-full text-xs font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
+                style={{ background: "rgba(74,85,104,0.1)", color: "#4A5568" }}>
+                <FiLock size={12} /> Block day
+              </button>
+              <button onClick={() => onOpenDay(daySlots)} disabled={busy || selCounts.blocked === 0}
+                className="flex-1 px-3 py-2 rounded-full text-xs font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5"
+                style={{ background: "rgba(52,168,83,0.1)", color: "#2E7D32" }}>
+                <FiUnlock size={12} /> Open day
+              </button>
+            </div>
+
+            {/* Slot list */}
+            {daySlots.length === 0 ? (
+              <p className="text-sm py-3 text-center" style={{ color: "rgba(74,85,104,0.6)" }}>No slots on this day.</p>
+            ) : (
+              <div className="space-y-2 mb-5">
+                {daySlots.map((slot) => {
+                  const locked = slot.status === "booked" || slot.status === "held";
+                  return (
+                    <div key={slot.id} className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: "#FAF6EC", border: "1px solid rgba(27,43,74,0.06)" }}>
+                      <span className="text-sm font-medium text-[#1B2B4A]">{fmtTime(slot.start_datetime, tz)}–{fmtTime(slot.end_datetime, tz)}</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full" style={STATUS_STYLE[slot.status] || STATUS_STYLE.open}>{slot.status}</span>
+                      <div className="ml-auto flex items-center gap-1">
+                        {locked ? (
+                          <span className="text-[11px] italic" style={{ color: "rgba(74,85,104,0.5)" }}>locked</span>
+                        ) : (
+                          <>
+                            <button onClick={() => (slot.status === "blocked" ? onUnblockSlot(slot) : onBlockSlot(slot))}
+                              title={slot.status === "blocked" ? "Open" : "Block"} disabled={busy}
+                              className="p-1.5 rounded-full hover:bg-[rgba(200,169,81,0.12)] disabled:opacity-40" style={{ color: "#A9863A" }}>
+                              {slot.status === "blocked" ? <FiUnlock size={13} /> : <FiLock size={13} />}
+                            </button>
+                            <button onClick={() => onDeleteSlot(slot)} title="Delete" disabled={busy}
+                              className="p-1.5 rounded-full hover:bg-[rgba(239,68,68,0.1)] disabled:opacity-40" style={{ color: "#B91C1C" }}>
+                              <FiTrash2 size={13} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Add a slot to this day */}
+            <div className="rounded-xl p-3" style={{ background: "rgba(200,169,81,0.08)", border: "1px solid rgba(200,169,81,0.2)" }}>
+              <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "#A9863A" }}>Add a slot</p>
+              <div className="flex items-end gap-2">
+                <Field label="From">
+                  <input type="time" value={addForm.from} onChange={(e) => setAddForm((f) => ({ ...f, from: e.target.value }))}
+                    className="rounded-lg px-2 py-1.5 text-sm w-full" style={inputStyle} />
+                </Field>
+                <Field label="To">
+                  <input type="time" value={addForm.to} onChange={(e) => setAddForm((f) => ({ ...f, to: e.target.value }))}
+                    className="rounded-lg px-2 py-1.5 text-sm w-full" style={inputStyle} />
+                </Field>
+                <button onClick={addOnDay} disabled={busy}
+                  className="px-4 py-2 rounded-full text-sm font-bold gold-btn disabled:opacity-50 whitespace-nowrap">Add</button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ─── Main ───────────────────────────────────────────────────────────────────
 const MyAvailability = () => {
   const navigate = useNavigate();
@@ -116,11 +327,9 @@ const MyAvailability = () => {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [savingId, setSavingId] = useState(null);
-  const [manual, setManual] = useState({ start: "", end: "" });
-  const [slotFilters, setSlotFilters] = useState({ fromDate: "", toDate: "", fromTime: "", toTime: "" });
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [slotPage, setSlotPage] = useState(1);
-  useEffect(() => { setSlotPage(1); }, [slotFilters]);
+  const [calBusy, setCalBusy] = useState(false);
+  // Date range to generate bookable slots across (defaults to the launch season).
+  const [genRange, setGenRange] = useState({ start: "2026-07-01", end: "2026-12-06" });
   const [rulePage, setRulePage] = useState(1);
 
   // Group sessions
@@ -222,10 +431,19 @@ const MyAvailability = () => {
 
   // ── Generate ──
   const generate = async () => {
+    if (!genRange.start || !genRange.end) { toast.error("Pick a start and end date."); return; }
+    if (genRange.end < genRange.start) { toast.error("End date can't be before start date."); return; }
     setGenerating(true);
     try {
-      const res = await api.post("/bookings/slots/generate/", {});
-      toast.success(`${res.data.created} slot(s) created.`);
+      const res = await api.post("/bookings/slots/generate/", {
+        start_date: genRange.start,
+        end_date: genRange.end,
+      });
+      toast.success(
+        res.data.created > 0
+          ? `${res.data.created} slot(s) created.`
+          : "No new slots — your schedule may already be generated for this range."
+      );
       const s = await api.get("/bookings/slots/");
       setSlots(s.data);
       if (res.data.created > 0) setTab("slots");
@@ -237,34 +455,57 @@ const MyAvailability = () => {
   };
 
   // ── Slots ──
-  const addManualSlot = async () => {
-    if (!manual.start || !manual.end) { toast.error("Pick a start and end time."); return; }
-    try {
-      const res = await api.post("/bookings/slots/", {
-        start_datetime: new Date(manual.start).toISOString(),
-        end_datetime: new Date(manual.end).toISOString(),
-      });
-      setSlots((s) => [...s, res.data].sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime)));
-      setManual({ start: "", end: "" });
-      toast.success("Slot added.");
-    } catch (err) {
-      toast.error(err.response?.data?.detail || err.response?.data?.[0] || "Failed to add slot.");
-    }
-  };
-
-  const toggleBlock = async (slot) => {
-    const action = slot.status === "blocked" ? "unblock" : "block";
-    try {
-      const res = await api.patch(`/bookings/slots/${slot.id}/${action}/`);
-      setSlots((s) => s.map((x) => (x.id === slot.id ? res.data : x)));
-    } catch (err) { toast.error(err.response?.data?.detail || "Action failed."); }
-  };
-
   const deleteSlot = async (slot) => {
     try {
       await api.delete(`/bookings/slots/${slot.id}/`);
       setSlots((s) => s.filter((x) => x.id !== slot.id));
     } catch (err) { toast.error(err.response?.data?.detail || "Cannot delete."); }
+  };
+
+  // ── Calendar slot actions ──
+  const setSlotStatus = async (slot, action) => {
+    const res = await api.patch(`/bookings/slots/${slot.id}/${action}/`);
+    setSlots((s) => s.map((x) => (x.id === slot.id ? res.data : x)));
+  };
+
+  const blockSlot = async (slot) => {
+    try { await setSlotStatus(slot, "block"); } catch (err) { toast.error(err.response?.data?.detail || "Action failed."); }
+  };
+  const unblockSlot = async (slot) => {
+    try { await setSlotStatus(slot, "unblock"); } catch (err) { toast.error(err.response?.data?.detail || "Action failed."); }
+  };
+
+  const blockDaySlots = async (daySlots) => {
+    const open = daySlots.filter((s) => s.status === "open");
+    if (open.length === 0) return;
+    setCalBusy(true);
+    try {
+      await Promise.all(open.map((s) => setSlotStatus(s, "block")));
+      toast.success(`Blocked ${open.length} slot(s).`);
+    } catch { toast.error("Some slots could not be blocked."); }
+    finally { setCalBusy(false); }
+  };
+
+  const openDaySlots = async (daySlots) => {
+    const blocked = daySlots.filter((s) => s.status === "blocked");
+    if (blocked.length === 0) return;
+    setCalBusy(true);
+    try {
+      await Promise.all(blocked.map((s) => setSlotStatus(s, "unblock")));
+      toast.success(`Opened ${blocked.length} slot(s).`);
+    } catch { toast.error("Some slots could not be opened."); }
+    finally { setCalBusy(false); }
+  };
+
+  const addSlotForDay = async (startISO, endISO) => {
+    setCalBusy(true);
+    try {
+      const res = await api.post("/bookings/slots/", { start_datetime: startISO, end_datetime: endISO });
+      setSlots((s) => [...s, res.data].sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime)));
+      toast.success("Slot added.");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || err.response?.data?.[0] || "Failed to add slot.");
+    } finally { setCalBusy(false); }
   };
 
   // ── Group sessions ──
@@ -318,27 +559,6 @@ const MyAvailability = () => {
     } catch { toast.error("Failed to load roster."); }
   };
 
-  const filteredSlots = useMemo(() => {
-    const pad = (n) => String(n).padStart(2, "0");
-    return [...slots]
-      .filter((s) => {
-        const d = new Date(s.start_datetime);
-        const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-        const timeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-        if (slotFilters.fromDate && dateStr < slotFilters.fromDate) return false;
-        if (slotFilters.toDate && dateStr > slotFilters.toDate) return false;
-        if (slotFilters.fromTime && timeStr < slotFilters.fromTime) return false;
-        if (slotFilters.toTime && timeStr > slotFilters.toTime) return false;
-        return true;
-      })
-      .sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime));
-  }, [slots, slotFilters]);
-
-  const hasSlotFilters = !!(slotFilters.fromDate || slotFilters.toDate || slotFilters.fromTime || slotFilters.toTime);
-  const totalSlotPages = Math.max(1, Math.ceil(filteredSlots.length / SLOTS_PER_PAGE));
-  const currentSlotPage = Math.min(slotPage, totalSlotPages);
-  const pagedSlots = filteredSlots.slice((currentSlotPage - 1) * SLOTS_PER_PAGE, currentSlotPage * SLOTS_PER_PAGE);
-
   if (loading) return (
     <div className="flex justify-center items-center min-h-screen" style={{ background: "#FAF6EC" }}>
       <div className="w-10 h-10 rounded-full border-2 animate-spin" style={{ borderColor: "#C8A951", borderTopColor: "transparent" }} />
@@ -353,16 +573,16 @@ const MyAvailability = () => {
           initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <div>
             <h1 className="text-3xl md:text-4xl font-normal text-[#1B2B4A]" style={serif}>My Availability</h1>
+            <p className="text-sm mt-1" style={{ color: "rgba(74,85,104,0.8)" }}>
+              Set your weekly schedule, generate slots for a date range, then fine-tune them on the calendar.
+            </p>
           </div>
-          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={generate} disabled={generating}
-            className="gold-btn flex items-center gap-2 px-5 py-3 rounded-full text-sm font-bold disabled:opacity-60">
-            <FiZap size={15} /> {generating ? "Generating…" : "Generate Slots"}
-          </motion.button>
         </motion.div>
 
         {/* Tabs */}
         <div className="flex gap-2 mb-6">
-          {[["rules", "Weekly Rules", FiClock], ["slots", "Slots", FiCalendar], ["group", "Group Sessions", FiUsers]].map(([key, label, Icon]) => (
+          {[["rules", "Schedule", FiClock], ["slots", "Calendar", FiCalendar],
+            ...(GROUP_SESSIONS_ENABLED ? [["group", "Group Sessions", FiUsers]] : [])].map(([key, label, Icon]) => (
             <button key={key} onClick={() => setTab(key)}
               className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all"
               style={tab === key
@@ -407,19 +627,25 @@ const MyAvailability = () => {
                 </p>
               </div>
 
-              {/* Weekly rules */}
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-normal text-[#1B2B4A]" style={serif}>Weekly Windows</h3>
-                <button onClick={addRule} className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold"
-                  style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.25)" }}>
-                  <FiPlus size={14} /> Add Window
-                </button>
+              {/* Coaching days & times */}
+              <div>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-normal text-[#1B2B4A]" style={serif}>Coaching Days &amp; Times</h3>
+                  <button onClick={addRule} className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold"
+                    style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.25)" }}>
+                    <FiPlus size={14} /> Add Day
+                  </button>
+                </div>
+                <p className="text-sm mt-1" style={{ color: "rgba(74,85,104,0.8)" }}>
+                  Add a row for each day you coach and the hours you're available (e.g. Saturday 08:00–13:00).
+                  Add a second row for a split day. Change these anytime — then re-generate below.
+                </p>
               </div>
 
               {rules.length === 0 ? (
                 <div className="text-center py-16 rounded-2xl" style={card}>
                   <p className="text-4xl mb-3">🗓️</p>
-                  <p className="text-sm text-[#4A5568]">No availability windows yet. Add one, then hit <strong>Generate Slots</strong>.</p>
+                  <p className="text-sm text-[#4A5568]">No coaching days set yet. Add one, then <strong>Generate Slots</strong> below.</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -433,144 +659,49 @@ const MyAvailability = () => {
                     onNext={() => setRulePage((p) => Math.min(totalRulePages, p + 1))} />
                 </div>
               )}
+
+              {/* Generate bookable slots for a date range */}
+              <div className="rounded-2xl p-6" style={card}>
+                <h3 className="flex items-center gap-2 text-lg font-normal text-[#1B2B4A] mb-1" style={serif}>
+                  <FiZap size={16} style={{ color: "#C8A951" }} /> Generate Bookable Slots
+                </h3>
+                <p className="text-sm mb-4" style={{ color: "rgba(74,85,104,0.8)" }}>
+                  Turn the schedule above into bookable slots across a date range. Re-run it anytime — existing
+                  booked, held, or blocked slots are never touched.
+                </p>
+                <div className="flex flex-wrap items-end gap-4">
+                  <Field label="From date">
+                    <input type="date" value={genRange.start} onChange={(e) => setGenRange((r) => ({ ...r, start: e.target.value }))}
+                      className="rounded-xl px-3 py-2 text-sm" style={inputStyle} />
+                  </Field>
+                  <Field label="To date">
+                    <input type="date" value={genRange.end} onChange={(e) => setGenRange((r) => ({ ...r, end: e.target.value }))}
+                      className="rounded-xl px-3 py-2 text-sm" style={inputStyle} />
+                  </Field>
+                  <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={generate} disabled={generating}
+                    className="ml-auto gold-btn flex items-center gap-2 px-5 py-3 rounded-full text-sm font-bold disabled:opacity-60">
+                    <FiZap size={15} /> {generating ? "Generating…" : "Generate Slots"}
+                  </motion.button>
+                </div>
+              </div>
             </motion.div>
           )}
           {tab === "slots" && (
             <motion.div key="slots" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-              {/* Manual slot */}
-              <div className="rounded-2xl p-6" style={card}>
-                <h3 className="flex items-center gap-2 text-lg font-normal text-[#1B2B4A] mb-4" style={serif}>
-                  <FiPlus size={16} style={{ color: "#C8A951" }} /> Add a One-off Slot
-                </h3>
-                <div className="flex flex-wrap items-end gap-4">
-                  <Field label="Starts">
-                    <input type="datetime-local" value={manual.start} onChange={(e) => setManual((m) => ({ ...m, start: e.target.value }))}
-                      className="rounded-xl px-3 py-2 text-sm" style={inputStyle} />
-                  </Field>
-                  <Field label="Ends">
-                    <input type="datetime-local" value={manual.end} onChange={(e) => setManual((m) => ({ ...m, end: e.target.value }))}
-                      className="rounded-xl px-3 py-2 text-sm" style={inputStyle} />
-                  </Field>
-                  <button onClick={addManualSlot} className="px-5 py-2.5 rounded-full text-sm font-bold gold-btn">Add Slot</button>
-                </div>
-              </div>
-
-              {/* Filters (collapsed by default) */}
-              <div className="rounded-2xl p-5" style={card}>
-                <button onClick={() => setFiltersOpen((o) => !o)} className="w-full flex items-center gap-2">
-                  <FiFilter size={15} style={{ color: "#C8A951" }} />
-                  <p className="text-sm font-bold text-[#1B2B4A]">Filter Slots</p>
-                  {hasSlotFilters && <span className="w-2 h-2 rounded-full" style={{ background: "#C8A951" }} />}
-                  {hasSlotFilters && (
-                    <span onClick={(e) => { e.stopPropagation(); setSlotFilters({ fromDate: "", toDate: "", fromTime: "", toTime: "" }); }}
-                      className="ml-auto text-xs font-semibold" style={{ color: "#A9863A" }}>Clear</span>
-                  )}
-                  <FiChevronDown size={15} className={hasSlotFilters ? "" : "ml-auto"}
-                    style={{ color: "#A9863A", transform: filtersOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
-                </button>
-                {filtersOpen && (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-                    <Field label="From Date">
-                      <input type="date" value={slotFilters.fromDate} onChange={(e) => setSlotFilters((f) => ({ ...f, fromDate: e.target.value }))}
-                        className="rounded-xl px-3 py-2 text-sm w-full" style={inputStyle} />
-                    </Field>
-                    <Field label="To Date">
-                      <input type="date" value={slotFilters.toDate} onChange={(e) => setSlotFilters((f) => ({ ...f, toDate: e.target.value }))}
-                        className="rounded-xl px-3 py-2 text-sm w-full" style={inputStyle} />
-                    </Field>
-                    <Field label="From Time">
-                      <input type="time" value={slotFilters.fromTime} onChange={(e) => setSlotFilters((f) => ({ ...f, fromTime: e.target.value }))}
-                        className="rounded-xl px-3 py-2 text-sm w-full" style={inputStyle} />
-                    </Field>
-                    <Field label="To Time">
-                      <input type="time" value={slotFilters.toTime} onChange={(e) => setSlotFilters((f) => ({ ...f, toTime: e.target.value }))}
-                        className="rounded-xl px-3 py-2 text-sm w-full" style={inputStyle} />
-                    </Field>
-                  </div>
-                )}
-              </div>
-
-              {/* Count + timezone note */}
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <span className="inline-block text-sm px-4 py-1.5 rounded-full" style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A" }}>
-                  Total: <strong>{filteredSlots.length}</strong> slots · Page {currentSlotPage} of {totalSlotPages}
-                </span>
-                <span className="flex items-center gap-1 text-xs" style={{ color: "rgba(74,85,104,0.6)" }}>
-                  <FiGlobe size={11} /> Times shown in {settings.timezone}
-                </span>
-              </div>
-
-              {/* Table */}
-              {filteredSlots.length === 0 ? (
-                <div className="text-center py-16 rounded-2xl" style={card}>
-                  <p className="text-4xl mb-3">📭</p>
-                  <p className="text-sm text-[#4A5568]">No slots match. Set weekly windows and click <strong>Generate Slots</strong>, or clear filters.</p>
-                </div>
-              ) : (
-                <div className="rounded-2xl overflow-hidden" style={card}>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr style={{ background: "#FAF6EC" }}>
-                        <th className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "rgba(74,85,104,0.7)" }}>Date</th>
-                        <th className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "rgba(74,85,104,0.7)" }}>Time</th>
-                        <th className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "rgba(74,85,104,0.7)" }}>Status</th>
-                        <th className="text-right px-5 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "rgba(74,85,104,0.7)" }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pagedSlots.map((slot) => (
-                        <tr key={slot.id} style={{ borderTop: "1px solid rgba(27,43,74,0.06)" }}>
-                          <td className="px-5 py-3 font-medium text-[#1B2B4A]">{fmtDateShort(slot.start_datetime, settings.timezone)}</td>
-                          <td className="px-5 py-3 text-[#4A5568]">{fmtTime(slot.start_datetime, settings.timezone)} – {fmtTime(slot.end_datetime, settings.timezone)}</td>
-                          <td className="px-5 py-3">
-                            <span className="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full" style={STATUS_STYLE[slot.status] || STATUS_STYLE.open}>
-                              {slot.status}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {slot.status !== "booked" && slot.status !== "held" ? (
-                                <>
-                                  <button onClick={() => toggleBlock(slot)} title={slot.status === "blocked" ? "Unblock" : "Block"}
-                                    className="p-2 rounded-full transition-all hover:bg-[rgba(200,169,81,0.12)]" style={{ color: "#A9863A" }}>
-                                    {slot.status === "blocked" ? <FiUnlock size={14} /> : <FiLock size={14} />}
-                                  </button>
-                                  <button onClick={() => deleteSlot(slot)} title="Delete"
-                                    className="p-2 rounded-full transition-all hover:bg-[rgba(239,68,68,0.1)]" style={{ color: "#B91C1C" }}>
-                                    <FiTrash2 size={14} />
-                                  </button>
-                                </>
-                              ) : (
-                                <span className="text-xs italic" style={{ color: "rgba(74,85,104,0.5)" }}>locked</span>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* Pagination */}
-              {totalSlotPages > 1 && (
-                <div className="flex items-center justify-center gap-3">
-                  <button onClick={() => setSlotPage((p) => Math.max(1, p - 1))} disabled={currentSlotPage <= 1}
-                    className="w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40 transition-all"
-                    style={{ background: "white", color: "#1B2B4A", border: "1px solid rgba(27,43,74,0.12)" }}>
-                    <FiChevronLeft size={16} />
-                  </button>
-                  <span className="text-sm" style={{ color: "#4A5568" }}>Page {currentSlotPage} of {totalSlotPages}</span>
-                  <button onClick={() => setSlotPage((p) => Math.min(totalSlotPages, p + 1))} disabled={currentSlotPage >= totalSlotPages}
-                    className="w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40 transition-all"
-                    style={{ background: "white", color: "#1B2B4A", border: "1px solid rgba(27,43,74,0.12)" }}>
-                    <FiChevronRight size={16} />
-                  </button>
-                </div>
-              )}
+              <CoachCalendar
+                slots={slots}
+                tz={settings.timezone}
+                busy={calBusy}
+                onBlockSlot={blockSlot}
+                onUnblockSlot={unblockSlot}
+                onDeleteSlot={deleteSlot}
+                onAddSlot={addSlotForDay}
+                onBlockDay={blockDaySlots}
+                onOpenDay={openDaySlots}
+              />
             </motion.div>
           )}
-          {tab === "group" && (
+          {GROUP_SESSIONS_ENABLED && tab === "group" && (
             <motion.div key="group" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
               {/* Create a group session */}
               <div className="rounded-2xl p-6" style={card}>

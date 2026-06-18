@@ -12,6 +12,12 @@ import { useAuth } from "../context/AuthContext";
 const ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
+  // TURN relay — required when peers are on different networks (e.g. mobile data
+  // + wifi) and STUN alone can't traverse the NAT. Without this, video connects
+  // briefly then freezes. These are the public openrelay credentials.
+  { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
 ];
 
 const fmt = (s) => {
@@ -110,11 +116,25 @@ export default function GroupCallPage() {
 
   const createPeer = useCallback((peerId, username, initiator) => {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    pc._initiator = initiator;
     pc.onicecandidate = (e) => { if (e.candidate) sendSignal(peerId, { type: "ice-candidate", candidate: e.candidate }); };
     pc.ontrack = (e) => setRemoteStreams((prev) => ({ ...prev, [peerId]: { stream: e.streams[0], username } }));
     pc.onconnectionstatechange = () => {
+      // Only tear down on a terminal state. "disconnected" is often transient
+      // (brief network blip) and recovers on its own — removing the peer there
+      // would kill a call that would otherwise heal.
       if (pc.connectionState === "connected") setCallState("connected");
-      else if (["failed", "closed", "disconnected"].includes(pc.connectionState)) removePeer(peerId);
+      else if (["failed", "closed"].includes(pc.connectionState)) removePeer(peerId);
+    };
+    pc.oniceconnectionstatechange = () => {
+      // If ICE fails, the initiator renegotiates with an ICE restart so a new
+      // candidate path (incl. TURN) can be found instead of freezing forever.
+      if (pc.iceConnectionState === "failed" && pc._initiator) {
+        pc.createOffer({ iceRestart: true })
+          .then((o) => pc.setLocalDescription(o))
+          .then(() => sendSignal(peerId, { type: "offer", sdp: pc.localDescription }))
+          .catch(() => {});
+      }
     };
     localStreamRef.current?.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current));
     peersRef.current.set(peerId, pc);
@@ -318,8 +338,23 @@ export default function GroupCallPage() {
           <div className="w-full h-full grid gap-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "1fr" }}>
             {/* Local tile */}
             <div className="relative rounded-2xl overflow-hidden bg-black" style={{ border: "1px solid rgba(200,169,81,0.4)" }}>
-              <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-              <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md text-xs font-semibold text-white" style={{ background: "rgba(0,0,0,0.55)" }}>You</span>
+              <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ visibility: camOn ? "visible" : "hidden" }} />
+              {!camOn && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2" style={{ background: "#14213D" }}>
+                  <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: "rgba(200,169,81,0.18)" }}>
+                    <FiVideoOff size={26} style={{ color: "#C8A951" }} />
+                  </div>
+                  <span className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>Camera off</span>
+                </div>
+              )}
+              <div className="absolute bottom-2 left-2 flex items-center gap-1.5">
+                <span className="px-2 py-0.5 rounded-md text-xs font-semibold text-white" style={{ background: "rgba(0,0,0,0.55)" }}>You</span>
+                {!micOn && (
+                  <span className="w-6 h-6 rounded-md flex items-center justify-center" style={{ background: "#EF4444" }}>
+                    <FiMicOff size={12} className="text-white" />
+                  </span>
+                )}
+              </div>
             </div>
             {remotes.map(([peerId, info]) => (
               <RemoteTile key={peerId} stream={info.stream} username={info.username} />

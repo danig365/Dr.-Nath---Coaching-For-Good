@@ -92,49 +92,53 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, nav
       <div className="flex">
         <div className="w-1.5 shrink-0" style={{ background: `linear-gradient(180deg, ${accentColor}, ${accentColor}55)` }} />
 
-        <div className="flex-1 px-5 py-4">
-          {/* Row 1: avatar · coach + skill · tags · status */}
-          <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex-1 px-4 sm:px-5 py-4">
+          {/* Row 1: avatar · coach + skill */}
+          <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "#C8A951", color: "#14213D" }}>
               {session.mentor_username?.charAt(0).toUpperCase()}
             </div>
-            <div className="flex flex-col min-w-0">
+            <div className="flex flex-col min-w-0 flex-1">
               <span className="text-xs font-semibold" style={{ color: "#A9863A" }}>{session.mentor_username}</span>
               <span className="text-base font-normal text-[#1B2B4A] truncate" style={{ fontFamily: "'Playfair Display', serif" }}>{session.skill_title}</span>
             </div>
-            <div className="flex items-center gap-2 ml-auto flex-wrap">
-              {session.duration && (
-                <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(200,169,81,0.1)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
-                  {session.duration} min
-                </span>
-              )}
-              {session.price && (
-                <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "#F3ECD9", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
-                  ${session.price}
-                </span>
-              )}
-              {session.skill_level && (
-                <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "#F3ECD9", color: "#4A5568", border: "1px solid rgba(200,169,81,0.15)" }}>
-                  {session.skill_level}
-                </span>
-              )}
-              <StatusBadge status={session.status} />
-            </div>
+            <StatusBadge status={session.status} />
+          </div>
+
+          {/* Badges row */}
+          <div className="flex items-center gap-1.5 flex-wrap mt-2">
+            {session.duration && (
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(200,169,81,0.1)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
+                {session.duration} min
+              </span>
+            )}
+            {session.price && (
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "#F3ECD9", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
+                ${session.price}
+              </span>
+            )}
+            {session.skill_level && (
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "#F3ECD9", color: "#4A5568", border: "1px solid rgba(200,169,81,0.15)" }}>
+                {session.skill_level}
+              </span>
+            )}
           </div>
 
           {/* Divider */}
           <div className="mt-3 mb-3" style={{ borderTop: "1px solid rgba(200,169,81,0.1)" }} />
 
-          {/* Row 2: date · time · actions */}
-          <div className="flex items-center gap-5 flex-wrap">
+          {/* Date + time */}
+          <div className="flex items-center gap-4">
             <span className="flex items-center gap-1.5 text-sm text-[#4A5568]">
               <FiCalendar size={13} style={{ color: "#C8A951" }} />{date}
             </span>
             <span className="flex items-center gap-1.5 text-sm text-[#4A5568]">
               <FiClock size={13} style={{ color: "#C8A951" }} />{time}
             </span>
+          </div>
 
-            <div className="flex items-center gap-2 ml-auto flex-wrap">
+          {/* Action buttons — full width row below on mobile */}
+          <div className="flex items-center gap-2 flex-wrap mt-3">
               {activeTab === "upcoming" && (
                 <>
                   {session.status === "accepted" ? (
@@ -162,7 +166,6 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, nav
                   <ActionBtn onClick={() => navigate("/skills")} icon={FiArrowRight} label="Book Again" />
                 </>
               )}
-            </div>
           </div>
 
           {/* Feedback display (past only) */}
@@ -208,39 +211,41 @@ const GroupCard = ({ e, index, onCancel, onJoin, onChat }) => {
     >
       <div className="flex">
         <div className="w-1.5 shrink-0" style={{ background: "linear-gradient(180deg,#C8A951,#C8A95155)" }} />
-        <div className="flex-1 px-5 py-4">
-          <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex-1 px-4 sm:px-5 py-4">
+          {/* Row 1: avatar + coach + title */}
+          <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "#C8A951", color: "#14213D" }}>
               <FiUsers size={15} />
             </div>
-            <div className="flex flex-col min-w-0">
+            <div className="flex flex-col min-w-0 flex-1">
               <span className="text-xs font-semibold" style={{ color: "#A9863A" }}>{e.coach_username}</span>
               <span className="text-base font-normal text-[#1B2B4A] truncate" style={{ fontFamily: "'Playfair Display', serif" }}>{e.title}</span>
             </div>
-            <div className="flex items-center gap-2 ml-auto flex-wrap">
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "#F3ECD9", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>Group</span>
-              <span className="text-xs font-semibold px-3 py-1 rounded-full shrink-0" style={{ background: badgeStyle.bg, color: badgeStyle.color, border: badgeStyle.border }}>
-                {badge.charAt(0).toUpperCase() + badge.slice(1)}
-              </span>
-            </div>
+          </div>
+          {/* Badges row */}
+          <div className="flex items-center gap-1.5 mt-2">
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "#F3ECD9", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>Group</span>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: badgeStyle.bg, color: badgeStyle.color, border: badgeStyle.border }}>
+              {badge.charAt(0).toUpperCase() + badge.slice(1)}
+            </span>
           </div>
 
           <div className="mt-3 mb-3" style={{ borderTop: "1px solid rgba(200,169,81,0.1)" }} />
 
-          <div className="flex items-center gap-5 flex-wrap">
+          <div className="flex items-center gap-4">
             <span className="flex items-center gap-1.5 text-sm text-[#4A5568]"><FiCalendar size={13} style={{ color: "#C8A951" }} />{date}</span>
             <span className="flex items-center gap-1.5 text-sm text-[#4A5568]"><FiClock size={13} style={{ color: "#C8A951" }} />{time}</span>
-            <div className="flex items-center gap-2 ml-auto flex-wrap">
-              {!cancelled && upcoming && (
-                canJoin
-                  ? <ActionBtn onClick={() => onJoin(e.group_session)} icon={FiVideo} label="Join Call" variant="primary" />
-                  : <ActionBtn icon={FiVideo} label="Opens 15 min before" disabled />
-              )}
-              {!cancelled && <ActionBtn onClick={() => onChat(e.group_session)} icon={FiMessageSquare} label="Group Chat" />}
-              {!cancelled && upcoming && (
-                <ActionBtn onClick={() => onCancel(e.id)} icon={FiXCircle} label="Cancel" variant="danger" />
-              )}
-            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap mt-3">
+            {!cancelled && upcoming && (
+              canJoin
+                ? <ActionBtn onClick={() => onJoin(e.group_session)} icon={FiVideo} label="Join Call" variant="primary" />
+                : <ActionBtn icon={FiVideo} label="Opens 15 min before" disabled />
+            )}
+            {!cancelled && <ActionBtn onClick={() => onChat(e.group_session)} icon={FiMessageSquare} label="Group Chat" />}
+            {!cancelled && upcoming && (
+              <ActionBtn onClick={() => onCancel(e.id)} icon={FiXCircle} label="Cancel" variant="danger" />
+            )}
           </div>
         </div>
       </div>
@@ -432,49 +437,53 @@ const MyLearning = () => {
   );
 
   return (
-    <div className="min-h-screen pt-28 pb-16 px-6" style={{ background: "#FAF6EC" }}>
+    <div className="min-h-screen pt-28 pb-16 px-4 sm:px-6" style={{ background: "#FAF6EC" }}>
       <div className="max-w-5xl mx-auto">
 
         {/* ── Header ──────────────────────────────────────── */}
-        <motion.div className="mb-8" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <h1 className="text-3xl md:text-4xl font-normal text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>My Learning Journey</h1>
+        <motion.div className="mb-6" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+          <h1 className="text-2xl md:text-4xl font-normal text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>My Learning Journey</h1>
         </motion.div>
 
         {/* ── Stats ───────────────────────────────────────── */}
-        <motion.div className="grid grid-cols-3 gap-4 mb-8" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}>
+        <motion.div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}>
           {[
             { label: "Upcoming", value: upcomingSessions.length, bg: "#F3ECD9" },
             { label: "Completed", value: pastSessions.length, bg: "white" },
             { label: "Skills", value: uniqueSkills, bg: "white" },
           ].map(s => (
-            <div key={s.label} className="rounded-2xl p-5" style={{ background: s.bg, border: "1px solid rgba(200,169,81,0.15)" }}>
-              <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: "rgba(74,85,104,0.6)" }}>{s.label}</p>
-              <p className="text-3xl font-bold text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>{s.value}</p>
+            <div key={s.label} className="rounded-2xl p-3 sm:p-5" style={{ background: s.bg, border: "1px solid rgba(200,169,81,0.15)" }}>
+              <p className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-1 truncate" style={{ color: "rgba(74,85,104,0.6)" }}>{s.label}</p>
+              <p className="text-2xl sm:text-3xl font-bold text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>{s.value}</p>
             </div>
           ))}
         </motion.div>
 
         {/* ── Tabs ────────────────────────────────────────── */}
-        <motion.div className="flex gap-2 mb-6" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.15 }}>
-          {[
-            { key: "upcoming", label: "Upcoming", count: upcomingSessions.length, icon: FiCalendar },
-            { key: "past",     label: "Past Sessions", count: pastSessions.length, icon: FiCheckCircle },
-            { key: "group",    label: "Group Sessions", count: groupEnrollments.length, icon: FiUsers },
-          ].map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => { setActiveTab(tab.key); setPage(1); }}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all duration-200"
-              style={{
-                background: activeTab === tab.key ? "#C8A951" : "white",
-                color: activeTab === tab.key ? "#14213D" : "#4A5568",
-                border: `1px solid ${activeTab === tab.key ? "#C8A951" : "rgba(200,169,81,0.25)"}`,
-              }}
-            >
-              <tab.icon size={14} /> {tab.label}
-              <span className="text-xs opacity-70">({tab.count})</span>
-            </button>
-          ))}
+        <motion.div className="mb-5 -mx-4 sm:mx-0" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.15 }}>
+          <div className="overflow-x-auto px-4 sm:px-0 pb-1">
+            <div className="flex gap-2 min-w-max">
+              {[
+                { key: "upcoming", label: "Upcoming", count: upcomingSessions.length, icon: FiCalendar },
+                { key: "past",     label: "Past Sessions", count: pastSessions.length, icon: FiCheckCircle },
+                { key: "group",    label: "Group Sessions", count: groupEnrollments.length, icon: FiUsers },
+              ].map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => { setActiveTab(tab.key); setPage(1); }}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-200 shrink-0"
+                  style={{
+                    background: activeTab === tab.key ? "#C8A951" : "white",
+                    color: activeTab === tab.key ? "#14213D" : "#4A5568",
+                    border: `1px solid ${activeTab === tab.key ? "#C8A951" : "rgba(200,169,81,0.25)"}`,
+                  }}
+                >
+                  <tab.icon size={14} /> {tab.label}
+                  <span className="text-xs opacity-70">({tab.count})</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </motion.div>
 
         {/* ── Filters ─────────────────────────────────────── */}
@@ -723,7 +732,7 @@ const MyLearning = () => {
                   <button onClick={() => setShowFeedbackModal(false)} className="flex-1 py-3 rounded-xl text-sm font-semibold border transition-all" style={{ borderColor: "rgba(200,169,81,0.3)", color: "#4A5568" }}>
                     Cancel
                   </button>
-                  <button onClick={submitFeedback} className="flex-1 gold-btn py-3 rounded-full text-sm font-bold flex items-center justify-center gap-2">
+                  <button onClick={submitFeedback} className="flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all" style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
                     <FiStar size={13} /> Submit Feedback
                   </button>
                 </div>

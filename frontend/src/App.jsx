@@ -27,6 +27,9 @@ import MyAvailability from "./pages/MyAvailability";
 import GroupSessions from "./pages/GroupSessions";
 import GroupCallPage from "./pages/GroupCallPage";
 import GroupChatPage from "./pages/GroupChatPage";
+import ResourcesManage from "./pages/ResourcesManage";
+import MyResources from "./pages/MyResources";
+import { GROUP_SESSIONS_ENABLED } from "./config/features";
 
 export default function App() {
   return (
@@ -54,9 +57,15 @@ export default function App() {
 <Route path="/session/:bookingId" element={<SessionCallPage />} />
 <Route path="/milestones" element={<Milestones />} />
 <Route path="/my-availability" element={<MyAvailability />} />
-<Route path="/group-sessions" element={<GroupSessions />} />
-<Route path="/group-session/:id/call" element={<GroupCallPage />} />
-<Route path="/group-chat/:id" element={<GroupChatPage />} />
+{GROUP_SESSIONS_ENABLED && (
+  <>
+    <Route path="/group-sessions" element={<GroupSessions />} />
+    <Route path="/group-session/:id/call" element={<GroupCallPage />} />
+    <Route path="/group-chat/:id" element={<GroupChatPage />} />
+  </>
+)}
+<Route path="/my-resources" element={<ResourcesManage />} />
+<Route path="/resources" element={<MyResources />} />
         </Routes>
         <ToastContainer /> {/* Add this line for the Toast notifications */}
       </AuthProvider>

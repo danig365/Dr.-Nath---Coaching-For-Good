@@ -12,6 +12,12 @@ import { useAuth } from "../context/AuthContext";
 const ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
+  // TURN relay — required when the two peers are on different networks (mobile
+  // data + wifi) and STUN can't traverse the NAT. Without it the video connects
+  // briefly then freezes. Public openrelay credentials.
+  { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
 ];
 
 function formatTime(seconds) {

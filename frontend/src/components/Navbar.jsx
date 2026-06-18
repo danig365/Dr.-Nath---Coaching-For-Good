@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import { api } from "../utils/auth";
+import { GROUP_SESSIONS_ENABLED } from "../config/features";
 
 const Navbar = () => {
   const { user, logout, isAuthenticated, isCoach, isAdmin } = useAuth();
@@ -68,9 +69,12 @@ const Navbar = () => {
       ]
     : [
         { to: isCoach() ? "/my-skills" : "/skills", label: isCoach() ? "My Skills" : "Browse Skills" },
-        ...(isCoach() ? [{ to: "/add-skill", label: "Add Skill" }, { to: "/my-availability", label: "Availability" }] : []),
+        ...(isCoach() ? [{ to: "/add-skill", label: "Add Skill" }, { to: "/my-availability", label: "Availability" }, { to: "/my-resources", label: "Resources" }] : []),
         { to: isCoach() ? "/my-sessions" : "/my-learning", label: isCoach() ? "My Sessions" : "My Learning", badge: upcomingCount },
-        ...(!isCoach() ? [{ to: "/group-sessions", label: "Group Sessions" }] : []),
+        ...(!isCoach() ? [
+          ...(GROUP_SESSIONS_ENABLED ? [{ to: "/group-sessions", label: "Group Sessions" }] : []),
+          { to: "/resources", label: "Resources" },
+        ] : []),
 
         { to: "/milestones", label: "Milestones" },
         { to: "/coaches", label: "Coaches" },

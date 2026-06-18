@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   FiCalendar, FiClock, FiMessageSquare, FiX,
   FiVideo, FiDollarSign, FiUpload, FiCheck,
-  FiSearch, FiFilter, FiChevronDown, FiLink,
+  FiSearch, FiFilter, FiChevronDown, FiLink, FiUsers,
 } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
@@ -188,6 +188,71 @@ const SessionCard = ({ session, activeTab, onCancel, onSetMeetingLink, onUploadN
   );
 };
 
+// ─── Group Session Card (coach-facing) ──────────────────────────────────────────
+const GroupCard = ({ s, index, onJoin, onChat, onRoster }) => {
+  const date = new Date(s.start_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const time = new Date(s.start_datetime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+  const cancelled = s.status === "cancelled";
+  const upcoming = new Date(s.end_datetime) > new Date();
+  // Joinable from 15 min before start until the scheduled end.
+  const canJoin = !cancelled && upcoming && Date.now() >= new Date(s.start_datetime).getTime() - 15 * 60 * 1000;
+  const badge = cancelled ? "cancelled" : upcoming ? "scheduled" : "completed";
+  const badgeStyle = {
+    scheduled: { bg: "rgba(52,168,83,0.1)",  color: "#2E7D32", border: "1px solid rgba(52,168,83,0.25)" },
+    completed: { bg: "rgba(200,169,81,0.12)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.3)" },
+    cancelled: { bg: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" },
+  }[badge];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, delay: index * 0.04 }}
+      className="rounded-2xl overflow-hidden"
+      style={{ background: "white", border: "1px solid rgba(200,169,81,0.18)", boxShadow: "0 2px 12px rgba(27,43,74,0.06)" }}
+    >
+      <div className="flex">
+        <div className="w-1.5 shrink-0" style={{ background: "linear-gradient(180deg,#C8A951,#C8A95155)" }} />
+        <div className="flex-1 px-4 sm:px-5 py-4">
+          {/* Row 1: icon + title */}
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "#C8A951", color: "#14213D" }}>
+              <FiUsers size={15} />
+            </div>
+            <div className="flex flex-col min-w-0 flex-1">
+              <span className="text-xs font-semibold" style={{ color: "#A9863A" }}>{s.seats_taken}/{s.capacity} seats · ${s.price_per_seat}/seat</span>
+              <span className="text-base font-normal text-[#1B2B4A] truncate" style={{ fontFamily: "'Playfair Display', serif" }}>{s.title}</span>
+            </div>
+          </div>
+          {/* Badges row */}
+          <div className="flex items-center gap-1.5 mt-2">
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "#F3ECD9", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>Group</span>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: badgeStyle.bg, color: badgeStyle.color, border: badgeStyle.border }}>
+              {badge.charAt(0).toUpperCase() + badge.slice(1)}
+            </span>
+          </div>
+
+          <div className="mt-3 mb-3" style={{ borderTop: "1px solid rgba(200,169,81,0.1)" }} />
+
+          {/* Date + time */}
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-1.5 text-sm text-[#4A5568]"><FiCalendar size={13} style={{ color: "#C8A951" }} />{date}</span>
+            <span className="flex items-center gap-1.5 text-sm text-[#4A5568]"><FiClock size={13} style={{ color: "#C8A951" }} />{time}</span>
+          </div>
+          {/* Actions */}
+          <div className="flex items-center gap-2 flex-wrap mt-3">
+            {!cancelled && upcoming && (
+              canJoin
+                ? <ActionBtn onClick={() => onJoin(s.id)} icon={FiVideo} label="Join Call" variant="primary" />
+                : <ActionBtn onClick={() => {}} icon={FiVideo} label="Opens 15 min before" variant="default" />
+            )}
+            {!cancelled && <ActionBtn onClick={() => onChat(s.id)} icon={FiMessageSquare} label="Group Chat" />}
+            <ActionBtn onClick={() => onRoster(s.id)} icon={FiUsers} label="Roster" />
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
 const PAGE_SIZE = 4;
 
 const Pagination = ({ page, totalPages, onChange }) => {
@@ -231,9 +296,15 @@ const Pagination = ({ page, totalPages, onChange }) => {
 // ─── Main Component ───────────────────────────────────────────────────────────
 const MySessions = () => {
   const [sessions, setSessions] = useState([]);
+  const [groupSessions, setGroupSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("upcoming");
   const [page, setPage] = useState(1);
+
+  // Group roster modal
+  const [rosterSession, setRosterSession] = useState(null);
+  const [roster, setRoster] = useState([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -250,14 +321,32 @@ const MySessions = () => {
     if (!isAuthenticated || !isCoach()) { logout(); return; }
     setLoading(true);
     try {
-      const res = await api.get("/bookings/");
+      const [res, gres] = await Promise.all([
+        api.get("/bookings/"),
+        api.get("/bookings/group-sessions/"),
+      ]);
       setSessions(res.data);
+      setGroupSessions(gres.data);
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to load sessions.");
     } finally {
       setLoading(false);
     }
   }, [isAuthenticated, isCoach, logout]);
+
+  const openRoster = async (id) => {
+    setRosterSession(groupSessions.find(g => g.id === id) || { id });
+    setRoster([]);
+    setRosterLoading(true);
+    try {
+      const res = await api.get(`/bookings/group-sessions/${id}/roster/`);
+      setRoster(res.data);
+    } catch {
+      toast.error("Failed to load roster.");
+    } finally {
+      setRosterLoading(false);
+    }
+  };
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
@@ -397,31 +486,37 @@ const MySessions = () => {
 
         {/* ── Tabs ────────────────────────────────────────── */}
         <motion.div
-          className="flex gap-2 mb-6"
+          className="mb-6 -mx-6 sm:mx-0"
           initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}
         >
-          {[
-            { key: "upcoming", label: "Upcoming", count: upcomingSessions.length, icon: FiCalendar },
-            { key: "past",     label: "Completed", count: pastSessions.length,   icon: FiCheck },
-          ].map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => { setActiveTab(tab.key); setPage(1); }}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all duration-200"
-              style={{
-                background: activeTab === tab.key ? "#C8A951" : "white",
-                color: activeTab === tab.key ? "#14213D" : "#4A5568",
-                border: `1px solid ${activeTab === tab.key ? "#C8A951" : "rgba(200,169,81,0.25)"}`,
-              }}
-            >
-              <tab.icon size={14} />
-              {tab.label}
-              <span className="text-xs opacity-70">({tab.count})</span>
-            </button>
-          ))}
+          <div className="overflow-x-auto px-6 sm:px-0 pb-1">
+            <div className="flex gap-2 min-w-max">
+              {[
+                { key: "upcoming", label: "Upcoming", count: upcomingSessions.length, icon: FiCalendar },
+                { key: "past",     label: "Completed", count: pastSessions.length,   icon: FiCheck },
+                { key: "group",    label: "Group Sessions", count: groupSessions.length, icon: FiUsers },
+              ].map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => { setActiveTab(tab.key); setPage(1); }}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all duration-200 shrink-0"
+                  style={{
+                    background: activeTab === tab.key ? "#C8A951" : "white",
+                    color: activeTab === tab.key ? "#14213D" : "#4A5568",
+                    border: `1px solid ${activeTab === tab.key ? "#C8A951" : "rgba(200,169,81,0.25)"}`,
+                  }}
+                >
+                  <tab.icon size={14} />
+                  {tab.label}
+                  <span className="text-xs opacity-70">({tab.count})</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </motion.div>
 
         {/* ── Filters ─────────────────────────────────────── */}
+        {activeTab !== "group" && (
         <motion.div className="mb-5" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.15 }}>
           {/* Search + toggle row */}
           <div className="flex gap-2 mb-2">
@@ -508,7 +603,30 @@ const MySessions = () => {
             </p>
           )}
         </motion.div>
+        )}
 
+        {/* ── Group Sessions List ──────────────────────────── */}
+        {activeTab === "group" ? (
+          groupSessions.length === 0 ? (
+            <div className="text-center py-20 rounded-2xl" style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)" }}>
+              <p className="text-5xl mb-4">👥</p>
+              <h3 className="text-xl font-normal text-[#1B2B4A] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>No group sessions yet</h3>
+              <p className="text-sm text-[#4A5568]">Create a group session from the Availability page.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {groupSessions.map((s, i) => (
+                <GroupCard
+                  key={s.id} s={s} index={i}
+                  onJoin={(id) => navigate(`/group-session/${id}/call`)}
+                  onChat={(id) => navigate(`/group-chat/${id}`)}
+                  onRoster={openRoster}
+                />
+              ))}
+            </div>
+          )
+        ) : (
+        <>
         {/* ── Sessions List / Empty ────────────────────────── */}
         <AnimatePresence mode="wait">
           {filteredSessions.length === 0 ? (
@@ -551,6 +669,8 @@ const MySessions = () => {
           )}
         </AnimatePresence>
         <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+        </>
+        )}
       </div>
 
       {/* ── Cancel Confirmation Modal ────────────────────── */}
@@ -619,6 +739,60 @@ const MySessions = () => {
                   Save Link
                 </button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Roster Modal ─────────────────────────────────── */}
+      <AnimatePresence>
+        {rosterSession && (
+          <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setRosterSession(null)} />
+            <motion.div
+              className="relative rounded-2xl p-6 w-full max-w-md z-10"
+              style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.2)" }}
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(200,169,81,0.15)" }}>
+                  <FiUsers size={18} style={{ color: "#C8A951" }} />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-lg font-normal text-[#1B2B4A] truncate" style={{ fontFamily: "'Playfair Display', serif" }}>{rosterSession.title || "Roster"}</h3>
+                  <p className="text-xs text-[#4A5568]">{roster.length} participant{roster.length !== 1 ? "s" : ""}</p>
+                </div>
+              </div>
+
+              {rosterLoading ? (
+                <p className="text-sm text-center py-8" style={{ color: "rgba(74,85,104,0.6)" }}>Loading…</p>
+              ) : roster.length === 0 ? (
+                <p className="text-sm text-center py-8" style={{ color: "rgba(74,85,104,0.6)" }}>No participants yet.</p>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-y-auto">
+                  {roster.map(r => (
+                    <div key={r.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl" style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)" }}>
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0" style={{ background: "#C8A951", color: "#14213D" }}>
+                        {r.learner_username?.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="text-sm font-medium text-[#1B2B4A] flex-1 truncate">{r.learner_username}</span>
+                      <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{
+                        background: r.status === "booked" ? "rgba(52,168,83,0.1)" : "rgba(251,191,36,0.12)",
+                        color: r.status === "booked" ? "#2E7D32" : "#92400E",
+                      }}>
+                        {r.status === "booked" ? "Booked" : "Held"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button onClick={() => setRosterSession(null)} className="w-full mt-5 py-2.5 rounded-full text-sm font-semibold border" style={{ borderColor: "rgba(200,169,81,0.3)", color: "#4A5568" }}>
+                Close
+              </button>
             </motion.div>
           </motion.div>
         )}
