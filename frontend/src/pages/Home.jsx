@@ -248,7 +248,7 @@ const Home = () => {
         {/* Background photo — portrait on mobile, landscape on md+ */}
         <div
           className="absolute inset-0 md:hidden"
-          style={{ backgroundImage: "url('/dr-nath-mobile.jpg')", backgroundSize: "cover", backgroundPosition: "center top", backgroundRepeat: "no-repeat" }}
+          style={{ backgroundImage: "url('/dr-nath-mobile.jpg')", backgroundSize: "cover", backgroundPosition: "80% top", backgroundRepeat: "no-repeat" }}
         />
         <div
           className="absolute inset-0 hidden md:block"
@@ -256,7 +256,8 @@ const Home = () => {
         />
 
         {/* Legibility overlays — stronger bottom wash on mobile, left wash on desktop */}
-        <div className="absolute inset-0 md:hidden" style={{ background: "linear-gradient(to top, rgba(17,28,49,0.92) 8%, rgba(17,28,49,0.55) 40%, rgba(17,28,49,0.20) 70%, rgba(17,28,49,0.10) 100%)" }} />
+        <div className="absolute inset-0 md:hidden" style={{ background: "linear-gradient(to top, rgba(17,28,49,0.95) 10%, rgba(17,28,49,0.75) 40%, rgba(17,28,49,0.30) 70%, rgba(17,28,49,0.10) 100%)" }} />
+        <div className="absolute inset-0 md:hidden" style={{ background: "linear-gradient(to right, rgba(17,28,49,0.90) 0%, rgba(17,28,49,0.60) 50%, rgba(17,28,49,0) 80%)" }} />
         <div className="absolute inset-0 hidden md:block" style={{ background: "linear-gradient(110deg, rgba(17,28,49,0.80) 0%, rgba(17,28,49,0.55) 30%, rgba(17,28,49,0.12) 55%, rgba(17,28,49,0) 75%)" }} />
         <div className="absolute inset-0 hidden md:block" style={{ background: "linear-gradient(to top, rgba(17,28,49,0.45), transparent 40%)" }} />
 
