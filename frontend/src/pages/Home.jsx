@@ -204,22 +204,28 @@ const Home = () => {
 
   const offerings = [
     {
+      icon: <SparklesIcon className="w-9 h-9" />,
+      title: "Health and Wellness Coaching",
+      desc: "Holistic coaching to help you build sustainable habits, manage stress and thrive in every dimension of your health.",
+      cta: "Book a Session", to: "/register",
+    },
+    {
       icon: <UsersIcon className="w-9 h-9" />,
-      title: "1-on-1 Coaching",
-      desc: "Personal, client-centered sessions built entirely around your goals, your pace and your growth.",
+      title: "Executive and Leadership Coaching",
+      desc: "Develop your leadership presence, sharpen your decision-making and lead with authentic, lasting confidence.",
+      cta: "Book a Session", to: "/register",
+    },
+    {
+      icon: <ChartBarIcon className="w-9 h-9" />,
+      title: "Business Coaching for Entrepreneurs",
+      desc: "Practical coaching for founders: strategy, growth mindset and the resilience to build something that lasts.",
       cta: "Book a Session", to: "/register",
     },
     {
       icon: <AcademicCapIcon className="w-9 h-9" />,
-      title: "Skill Programs",
-      desc: "Structured coaching programs and skill tracks that turn intention into measurable progress.",
-      cta: "Browse Programs", to: "/skills",
-    },
-    {
-      icon: <SparklesIcon className="w-9 h-9" />,
-      title: "Smart Match",
-      desc: "Answer a few questions and get matched with the right coach and path for where you are now.",
-      cta: "Find My Match", to: "/match",
+      title: "Leadership and Management Program",
+      desc: "A structured program for managers and emerging leaders to build the skills that drive teams and organizations forward.",
+      cta: "Book a Session", to: "/register",
     },
   ];
 
@@ -246,7 +252,7 @@ const Home = () => {
         />
         <div
           className="absolute inset-0 hidden md:block"
-          style={{ backgroundImage: "url('/dr-nath.jpg')", backgroundSize: "cover", backgroundPosition: "right center", backgroundRepeat: "no-repeat" }}
+          style={{ backgroundImage: "url('/dr-nath.jpg')", backgroundSize: "cover", backgroundPosition: "right 96px", backgroundRepeat: "no-repeat" }}
         />
 
         {/* Legibility overlays — stronger bottom wash on mobile, left wash on desktop */}
@@ -280,7 +286,7 @@ const Home = () => {
               style={{ color: "rgba(245,238,201,0.85)" }}
             >
               Through a client-centered approach to coaching, Dr Nath partners with you to help you find clarity,
-              unlock your potential for growth, and create long-lasting impact on you.
+              unlock your potential for growth, and create long-lasting impact on you, your teams and others.
             </motion.p>
 
             <motion.div
@@ -289,12 +295,16 @@ const Home = () => {
             >
               <p className="text-xs font-semibold uppercase tracking-[0.2em] mb-3" style={{ color: GOLD }}>Offerings</p>
               <ul className="space-y-1.5">
-                <li className="flex items-center gap-2 text-base" style={{ color: "rgba(245,238,201,0.85)" }}>
-                  <span style={{ color: GOLD }}>•</span> Health and Wellness Coaching Program
-                </li>
-                <li className="flex items-center gap-2 text-base" style={{ color: "rgba(245,238,201,0.85)" }}>
-                  <span style={{ color: GOLD }}>•</span> Executive and Leadership Coaching
-                </li>
+                {[
+                  "Health and Wellness Coaching",
+                  "Executive and Leadership Coaching",
+                  "Business Coaching for entrepreneurs",
+                  "Leadership and Management Program",
+                ].map((item) => (
+                  <li key={item} className="flex items-center gap-2 text-base" style={{ color: "rgba(245,238,201,0.85)" }}>
+                    <span style={{ color: GOLD }}>•</span> {item}
+                  </li>
+                ))}
               </ul>
             </motion.div>
 
@@ -416,7 +426,7 @@ const Home = () => {
             </h2>
           </motion.div>
 
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-8">
             {offerings.map((o, i) => (
               <motion.div
                 key={i}

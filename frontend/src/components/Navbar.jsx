@@ -69,7 +69,7 @@ const Navbar = () => {
       ]
     : [
         { to: isCoach() ? "/my-skills" : "/skills", label: isCoach() ? "My Skills" : "Browse Skills" },
-        ...(isCoach() ? [{ to: "/add-skill", label: "Add Skill" }, { to: "/my-availability", label: "Availability" }, { to: "/my-resources", label: "Resources" }] : []),
+        ...(isCoach() ? [{ to: "/add-skill", label: "Add Skill" }, { to: "/my-availability", label: "Nath's Availability" }, { to: "/my-resources", label: "Resources" }] : []),
         { to: isCoach() ? "/my-sessions" : "/my-learning", label: isCoach() ? "My Sessions" : "My Learning", badge: upcomingCount },
         ...(!isCoach() ? [
           ...(GROUP_SESSIONS_ENABLED ? [{ to: "/group-sessions", label: "Group Sessions" }] : []),
