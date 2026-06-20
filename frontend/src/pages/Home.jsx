@@ -11,7 +11,11 @@ import {
   ChevronDownIcon,
   XMarkIcon,
   CheckIcon,
+  BriefcaseIcon,
+  GlobeAltIcon,
+  CheckBadgeIcon,
 } from "@heroicons/react/24/outline";
+import { api } from "../utils/auth";
 
 /* ── Brand tokens ─────────────────────────────────────────────── */
 const NAVY = "#1B2B4A";
@@ -88,7 +92,7 @@ function NewsletterModal({ onClose }) {
         ) : (
           <>
             <h3 className="text-2xl font-bold mb-2 text-center" style={{ color: NAVY, fontFamily: serif }}>
-              The Dr. Nath Newsletter
+              Dr-nath.com Newsletter
             </h3>
             <p className="text-[#4A5568] text-center text-sm mb-6">
               Clarity, growth and impact — practical coaching insights delivered to your inbox.
@@ -183,6 +187,20 @@ const Home = () => {
   const [showModal, setShowModal] = useState(false);
   const [newsletter, setNewsletter] = useState({ first: "", last: "", email: "" });
   const [openFaq, setOpenFaq] = useState(0);
+  const [showDrNathModal, setShowDrNathModal] = useState(false);
+  const [drNathProfile, setDrNathProfile] = useState(null);
+  const [drNathLoading, setDrNathLoading] = useState(false);
+
+  const openDrNathProfile = () => {
+    setShowDrNathModal(true);
+    if (!drNathProfile) {
+      setDrNathLoading(true);
+      api.get("/coaches/51/")
+        .then(res => setDrNathProfile(res.data))
+        .catch(() => {})
+        .finally(() => setDrNathLoading(false));
+    }
+  };
 
   useEffect(() => {
     const handleScroll = () => {
@@ -242,26 +260,25 @@ const Home = () => {
       {/* ── HERO (full-bleed photo, Suzy style) ────────────── */}
       <section
         id="top"
-        className="relative overflow-hidden flex flex-col md:flex md:items-center"
-        style={{ backgroundColor: NAVY_DEEP, minHeight: "100vh" }}
+        className="relative min-h-screen flex items-end md:items-center overflow-hidden"
+        style={{ backgroundColor: NAVY_DEEP }}
       >
-        {/* Mobile: image stacked on top, below navbar */}
+        {/* Background photo — portrait on mobile, landscape on md+ */}
         <div
-          className="md:hidden w-full flex-shrink-0"
-          style={{ marginTop: "96px", height: "72vw", backgroundImage: "url('/dr-nath-mobile.jpg')", backgroundSize: "cover", backgroundPosition: "center top", backgroundRepeat: "no-repeat" }}
+          className="absolute inset-0 md:hidden"
+          style={{ backgroundImage: "url('/dr-nath-mobile.jpg')", backgroundSize: "cover", backgroundPosition: "center top", backgroundRepeat: "no-repeat" }}
         />
-
-        {/* Desktop: full-bleed background */}
         <div
           className="absolute inset-0 hidden md:block"
           style={{ backgroundImage: "url('/dr-nath.jpg')", backgroundSize: "cover", backgroundPosition: "right 48px", backgroundRepeat: "no-repeat" }}
         />
 
-        {/* Desktop overlays only */}
+        {/* Legibility overlays — stronger bottom wash on mobile, left wash on desktop */}
+        <div className="absolute inset-0 md:hidden" style={{ background: "linear-gradient(to top, rgba(17,28,49,0.92) 8%, rgba(17,28,49,0.55) 40%, rgba(17,28,49,0.20) 70%, rgba(17,28,49,0.10) 100%)" }} />
         <div className="absolute inset-0 hidden md:block" style={{ background: "linear-gradient(110deg, rgba(17,28,49,0.80) 0%, rgba(17,28,49,0.55) 30%, rgba(17,28,49,0.12) 55%, rgba(17,28,49,0) 75%)" }} />
         <div className="absolute inset-0 hidden md:block" style={{ background: "linear-gradient(to top, rgba(17,28,49,0.45), transparent 40%)" }} />
 
-        <div className="relative w-full px-8 sm:px-12 lg:px-20 pt-8 md:pt-32 pb-16 md:pb-20">
+        <div className="relative w-full px-8 sm:px-12 lg:px-20 pt-32 pb-20">
           <div className="max-w-2xl flex flex-col">
             <motion.p
               initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
@@ -299,7 +316,7 @@ const Home = () => {
                 {[
                   "Health and Wellness Coaching",
                   "Executive and Leadership Coaching",
-                  "Business Coaching for entrepreneurs",
+                  "Business and Entrepreneurship Coaching",
                   "Leadership and Management Program",
                 ].map((item) => (
                   <li key={item} className="flex items-center gap-2 text-base" style={{ color: "rgba(245,238,201,0.85)" }}>
@@ -369,10 +386,10 @@ const Home = () => {
           >
             <p className="text-xs font-semibold uppercase tracking-[0.22em] mb-4" style={{ color: GOLD_DEEP }}>Who is Dr. Nath</p>
             <h2 className="text-4xl md:text-5xl font-normal leading-[1.1] mb-6" style={{ color: NAVY, fontFamily: serif }}>
-              A coach who helps you <em>become</em> who you&apos;re meant to be
+              A coach who helps you <em>become</em> more you.
             </h2>
             <p className="leading-relaxed mb-5" style={{ color: SLATE }}>
-              Dr. Nath is a certified executive and life coach with a simple belief: real growth is personal.
+              Dr. Nath holds a PhD and an MBA, and is a certified executive and life coach with a simple belief: real growth is personal.
               Through a client-centered approach, every session is built around your story, your goals and your
               potential — never a one-size-fits-all formula.
             </p>
@@ -384,9 +401,9 @@ const Home = () => {
                 </li>
               ))}
             </ul>
-            <Link to="/register" className="navy-btn inline-flex items-center gap-2 px-7 py-3 rounded-full">
-              Start Your Journey <ArrowRightIcon className="w-5 h-5" />
-            </Link>
+            <button onClick={openDrNathProfile} className="navy-btn inline-flex items-center gap-2 px-7 py-3 rounded-full">
+              Explore More <ArrowRightIcon className="w-5 h-5" />
+            </button>
           </motion.div>
         </div>
       </section>
@@ -500,23 +517,6 @@ const Home = () => {
         </div>
       </section>
 
-      {/* ── FAQ ────────────────────────────────────────────── */}
-      <section className="py-24 px-6" style={{ background: CREAM }}>
-        <div className="max-w-3xl mx-auto">
-          <motion.h2
-            className="text-4xl md:text-6xl font-normal text-center mb-14 leading-tight" style={{ color: NAVY, fontFamily: serif }}
-            initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }}
-          >
-            Frequently Asked Questions
-          </motion.h2>
-          <div>
-            {faqs.map((f, i) => (
-              <FaqItem key={i} q={f.q} a={f.a} isOpen={openFaq === i} onToggle={() => setOpenFaq(openFaq === i ? -1 : i)} />
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* ── FINAL CTA ──────────────────────────────────────── */}
       <section className="py-24 px-6" style={{ background: CREAM_WARM }}>
         <motion.div
@@ -527,17 +527,12 @@ const Home = () => {
             Ready to begin your <em>transformation?</em>
           </h2>
           <p className="text-lg mb-10 max-w-2xl mx-auto" style={{ color: SLATE }}>
-            Join hundreds of professionals who found clarity, unlocked their growth, and built lives they truly love.
+            Join other professionals.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}>
               <Link to="/register" className="gold-btn px-10 py-4 rounded-full text-base inline-flex items-center gap-2">
                 Get Started <ArrowRightIcon className="w-5 h-5" />
-              </Link>
-            </motion.div>
-            <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}>
-              <Link to="/coaches" className="outline-btn px-10 py-4 rounded-full text-base inline-flex items-center gap-2">
-                Browse Coaches <ArrowRightIcon className="w-5 h-5" />
               </Link>
             </motion.div>
           </div>
@@ -547,21 +542,9 @@ const Home = () => {
       {/* ── FOOTER ─────────────────────────────────────────── */}
       <footer className="py-16 px-6" style={{ background: NAVY_DEEP }}>
         <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
-          <div>
-            <div className="flex items-center gap-3 mb-3">
-              <img src="/dr-nath-logo.png" alt="Dr. Nath" className="h-12 w-auto object-contain" />
-              <div>
-                <h3 className="text-white text-base font-bold leading-tight" style={{ fontFamily: serif }}>Dr. Nath</h3>
-                <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: GOLD }}>Coaching for Good</p>
-              </div>
-            </div>
-            <p className="text-sm leading-relaxed" style={{ color: "rgba(250,246,236,0.5)" }}>
-              Clarity, growth and impact — client-centered coaching for lasting personal and career transformation.
-            </p>
-          </div>
           {[
             { title: "Offerings", links: [{ label: "1-on-1 Coaching", to: "/register" }, { label: "Skill Programs", to: "/skills" }, { label: "Smart Match", to: "/match" }, { label: "Browse Coaches", to: "/coaches" }] },
-            { title: "Explore", links: [{ label: "Who is Dr. Nath", to: "/#who" }, { label: "How It Works", to: "/#offerings" }, { label: "Newsletter", to: "/#newsletter" }] },
+            { title: "Explore", links: [{ label: "Who is Dr. Nath", to: "/#who" },{ label: "Newsletter", to: "/#newsletter" }] },
             { title: "Account", links: [{ label: "Sign Up", to: "/register" }, { label: "Log In", to: "/login" }, { label: "My Learning", to: "/my-learning" }] },
           ].map((col, i) => (
             <div key={i}>
@@ -577,13 +560,153 @@ const Home = () => {
           ))}
         </div>
         <div className="pt-8 text-center text-sm" style={{ borderTop: "1px solid rgba(255,255,255,0.1)", color: "rgba(250,246,236,0.3)" }}>
-          &copy; {new Date().getFullYear()} Dr. Nath · Coaching for Good. All rights reserved.
+          &copy; {new Date().getFullYear()} Dr. Nath · Coaching for Impact. All rights reserved.
         </div>
       </footer>
 
       {/* ── NEWSLETTER MODAL ───────────────────────────────── */}
       <AnimatePresence>
         {showModal && <NewsletterModal onClose={() => setShowModal(false)} />}
+      </AnimatePresence>
+
+      {/* ── DR. NATH PROFILE MODAL ─────────────────────────── */}
+      <AnimatePresence>
+        {showDrNathModal && (
+          <motion.div
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <motion.div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowDrNathModal(false)} />
+            <motion.div
+              className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl z-10"
+              style={{ background: CREAM }}
+              initial={{ y: 60, opacity: 0, scale: 0.95 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 60, opacity: 0, scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            >
+              {/* Modal header band */}
+              <div className="rounded-t-3xl px-8 pt-8 pb-6" style={{ background: `linear-gradient(135deg, ${NAVY}, ${NAVY_DEEP})` }}>
+                <button
+                  onClick={() => setShowDrNathModal(false)}
+                  className="absolute top-5 right-5 p-1.5 rounded-full transition-colors hover:bg-white/10"
+                  style={{ color: "rgba(250,246,236,0.7)" }}
+                >
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] mb-3" style={{ color: GOLD }}>Meet Your Coach</p>
+                {drNathLoading ? (
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: GOLD, borderTopColor: "transparent" }} />
+                    <span className="text-sm" style={{ color: "rgba(250,246,236,0.6)" }}>Loading profile…</span>
+                  </div>
+                ) : drNathProfile ? (
+                  <div className="flex items-start gap-5">
+                    <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-bold shrink-0" style={{ background: GOLD, color: NAVY_DEEP, fontFamily: serif }}>
+                      {(drNathProfile.display_name || drNathProfile.username)?.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-normal text-white mb-1" style={{ fontFamily: serif }}>
+                        {drNathProfile.display_name || drNathProfile.username}
+                      </h2>
+                      <div className="flex flex-wrap items-center gap-3 text-sm">
+                        {drNathProfile.is_verified && (
+                          <span className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(52,168,83,0.2)", color: "#6EE79B", border: "1px solid rgba(52,168,83,0.3)" }}>
+                            <CheckBadgeIcon className="w-3.5 h-3.5" /> Verified
+                          </span>
+                        )}
+                        {drNathProfile.years_experience && (
+                          <span style={{ color: "rgba(250,246,236,0.6)" }}>{drNathProfile.years_experience} yrs experience</span>
+                        )}
+                        {drNathProfile.hourly_rate && (
+                          <span className="font-semibold" style={{ color: GOLD }}>${drNathProfile.hourly_rate}/hr</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Modal body */}
+              {!drNathLoading && drNathProfile && (
+                <div className="px-8 py-6 space-y-6">
+                  {/* Bio */}
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: GOLD_DEEP }}>About</p>
+                    <p className="leading-relaxed whitespace-pre-line text-sm" style={{ color: SLATE }}>
+                      {drNathProfile.bio || ""}
+                    </p>
+                  </div>
+
+                  {/* Specialties */}
+                  {drNathProfile.specialties?.length > 0 && (
+                    <div className="rounded-2xl bg-white p-5" style={{ border: "1px solid rgba(27,43,74,0.08)" }}>
+                      <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: GOLD_DEEP }}>
+                        <SparklesIcon className="w-4 h-4" /> Specialties
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {drNathProfile.specialties.map(s => (
+                          <span key={s} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: "rgba(200,169,81,0.12)", color: GOLD_DEEP, border: "1px solid rgba(200,169,81,0.2)" }}>{s}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Certifications */}
+                  {drNathProfile.certifications?.length > 0 && (
+                    <div className="rounded-2xl bg-white p-5" style={{ border: "1px solid rgba(27,43,74,0.08)" }}>
+                      <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: GOLD_DEEP }}>
+                        <AcademicCapIcon className="w-4 h-4" /> Certifications
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {drNathProfile.certifications.map(c => (
+                          <span key={c} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: "rgba(200,169,81,0.12)", color: GOLD_DEEP, border: "1px solid rgba(200,169,81,0.2)" }}>{c}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Industries */}
+                  {drNathProfile.industries?.length > 0 && (
+                    <div className="rounded-2xl bg-white p-5" style={{ border: "1px solid rgba(27,43,74,0.08)" }}>
+                      <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: GOLD_DEEP }}>
+                        <BriefcaseIcon className="w-4 h-4" /> Industries
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {drNathProfile.industries.map(ind => (
+                          <span key={ind} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: "rgba(200,169,81,0.12)", color: GOLD_DEEP, border: "1px solid rgba(200,169,81,0.2)" }}>{ind}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Languages */}
+                  {drNathProfile.languages?.length > 0 && (
+                    <div className="rounded-2xl bg-white p-5" style={{ border: "1px solid rgba(27,43,74,0.08)" }}>
+                      <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: GOLD_DEEP }}>
+                        <GlobeAltIcon className="w-4 h-4" /> Languages
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {drNathProfile.languages.map(l => (
+                          <span key={l} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: "rgba(200,169,81,0.12)", color: GOLD_DEEP, border: "1px solid rgba(200,169,81,0.2)" }}>{l}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* CTA */}
+                  <Link
+                    to="/register"
+                    onClick={() => setShowDrNathModal(false)}
+                    className="gold-btn flex items-center justify-center gap-2 w-full py-3.5 rounded-2xl text-sm font-bold"
+                  >
+                    Start Your Journey with Dr. Nath <ArrowRightIcon className="w-4 h-4" />
+                  </Link>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );

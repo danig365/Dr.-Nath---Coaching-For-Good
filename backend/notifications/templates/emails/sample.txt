@@ -1,0 +1,9 @@
+{% extends "emails/base.txt" %}
+
+{% block content %}{{ heading }}
+
+Hi {{ name }},
+
+{{ body }}
+
+Visit Dr. Nath: {{ site_url }}{% endblock %}

@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -134,6 +134,16 @@ const SlotCalendar = ({ slots, selectedSlot, onSelectSlot }) => {
     firstAvailable ? localDateKey(firstAvailable) : null
   );
 
+  // Keep the calendar pointed at whatever slot is currently selected — this is
+  // what makes an invite-link slot (auto-selected by the parent) show up on the
+  // right day with its time highlighted.
+  useEffect(() => {
+    if (!selectedSlot) return;
+    const d = new Date(selectedSlot.start_datetime);
+    setSelectedDate(localDateKey(d));
+    setViewMonth(new Date(d.getFullYear(), d.getMonth(), 1));
+  }, [selectedSlot]);
+
   const year = viewMonth.getFullYear();
   const month = viewMonth.getMonth();
   const startWeekday = (new Date(year, month, 1).getDay() + 6) % 7; // Mon-first
@@ -251,6 +261,8 @@ const SlotCalendar = ({ slots, selectedSlot, onSelectSlot }) => {
 const BookSessionPage = () => {
   const { id: skillId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedSlotId = searchParams.get("slot"); // from a coach invite link
   const { isAuthenticated, logout } = useAuth();
 
   const [skill, setSkill] = useState(null);
@@ -265,6 +277,9 @@ const BookSessionPage = () => {
   const [slots, setSlots] = useState([]);
   const [slotsLoading, setSlotsLoading] = useState(true);
   const [selectedSlot, setSelectedSlot] = useState(null);
+  const [slotNotice, setSlotNotice] = useState(""); // shown if an invite slot is gone
+  const autoSelectedRef = useRef(false); // ensures the invite slot is applied only once
+  const resumedRef = useRef(false); // ensures a post-login resume runs only once
 
   const [paymentStep, setPaymentStep] = useState(false);
   const [clientSecret, setClientSecret] = useState(null);
@@ -276,7 +291,9 @@ const BookSessionPage = () => {
   );
 
   const fetchSkillDetails = useCallback(async () => {
-    if (!isAuthenticated) { toast.error("Please log in to book a session."); logout(); return; }
+    // Guests are welcome here: they can browse the offering, see slots, pick a
+    // time and fill in details. Authentication is only required at Confirm
+    // (handled in handleSubmit), so we no longer bounce un-authenticated users.
     setLoading(true);
     try {
       const response = await api.get("/skills/public/");
@@ -285,7 +302,8 @@ const BookSessionPage = () => {
       else { toast.error("Skill not found."); navigate("/skills"); }
     } catch (error) {
       toast.error("Failed to load skill details.");
-      if (error.response?.status === 401) logout();
+      // Only force logout for an authenticated user whose session genuinely expired.
+      if (error.response?.status === 401 && isAuthenticated) logout();
     } finally {
       setLoading(false);
     }
@@ -307,6 +325,21 @@ const BookSessionPage = () => {
 
   useEffect(() => { fetchSlots(); }, [fetchSlots]);
 
+  // Auto-select the slot from a coach invite link (`?slot=`) once slots load.
+  // If that slot is no longer open (booked/expired), fall back gracefully with
+  // a soft notice so the visitor can pick another time.
+  useEffect(() => {
+    if (autoSelectedRef.current) return;
+    if (!requestedSlotId || slotsLoading) return;
+    const match = slots.find((s) => String(s.id) === String(requestedSlotId));
+    if (match) {
+      setSelectedSlot(match);
+    } else {
+      setSlotNotice("The time from your invite link is no longer available — please pick another below.");
+    }
+    autoSelectedRef.current = true;
+  }, [requestedSlotId, slots, slotsLoading]);
+
   const handleChange = e => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -319,17 +352,18 @@ const BookSessionPage = () => {
     }
   }, [selectedSlot]);
 
-  const handleSubmit = async e => {
-    e.preventDefault();
-    if (!selectedSlot) { toast.error("Please select an available time slot."); return; }
+  // Reserve the slot and open the Stripe payment step. Requires auth (the hold
+  // is tied to the logged-in user). Shared by the manual submit and the
+  // post-login auto-resume.
+  const startCheckout = useCallback(async (slot) => {
     setIsSubmitting(true);
     try {
       // 1. Reserve the slot so nobody else can grab it during checkout.
-      await api.post(`/bookings/slots/${selectedSlot.id}/hold/`);
+      await api.post(`/bookings/slots/${slot.id}/hold/`);
       // 2. Start payment for the slot's duration.
       const res = await api.post("/bookings/create-payment-intent/", {
         skill_id: parseInt(skillId),
-        duration: selectedSlot.duration_minutes,
+        duration: slot.duration_minutes,
       });
       setClientSecret(res.data.client_secret);
       setPaymentAmount(res.data.amount);
@@ -342,7 +376,51 @@ const BookSessionPage = () => {
     } finally {
       setIsSubmitting(false);
     }
+  }, [skillId, fetchSlots]);
+
+  const handleSubmit = async e => {
+    e.preventDefault();
+    if (!selectedSlot) { toast.error("Please select an available time slot."); return; }
+    // Deferred login: a guest can fill everything in, but must sign in to
+    // confirm. Stash the in-progress booking and bounce through login; the
+    // resume effect picks it back up and goes straight to payment.
+    if (!isAuthenticated) {
+      sessionStorage.setItem("pendingBooking", JSON.stringify({
+        skillId: String(skillId),
+        slotId: selectedSlot.id,
+        skillLevel: formData.skillLevel,
+        message: formData.message,
+      }));
+      const next = `/book/${skillId}?slot=${selectedSlot.id}`;
+      toast.info("Please sign in to confirm — we've saved your selected time and details.");
+      navigate(`/login?next=${encodeURIComponent(next)}`);
+      return;
+    }
+    startCheckout(selectedSlot);
   };
+
+  // After returning from login/register, resume a booking the guest started:
+  // restore their details + slot and go straight to payment — no re-entry.
+  useEffect(() => {
+    if (resumedRef.current) return;
+    if (!isAuthenticated || loading || slotsLoading) return;
+    const raw = sessionStorage.getItem("pendingBooking");
+    if (!raw) return;
+    let intent;
+    try { intent = JSON.parse(raw); } catch { sessionStorage.removeItem("pendingBooking"); return; }
+    if (String(intent.skillId) !== String(skillId)) return; // intent is for another offering
+    resumedRef.current = true;
+    sessionStorage.removeItem("pendingBooking");
+    setFormData({ skillLevel: intent.skillLevel || "Beginner", message: intent.message || "" });
+    const match = slots.find((s) => String(s.id) === String(intent.slotId));
+    if (!match) {
+      setSlotNotice("The time you selected was just taken while you signed in — please pick another below.");
+      return;
+    }
+    setSelectedSlot(match);
+    toast.success("You're signed in — continuing to payment to confirm your booking.");
+    startCheckout(match);
+  }, [isAuthenticated, loading, slotsLoading, slots, skillId, startCheckout]);
 
   const editDetails = async () => {
     await releaseHold();
@@ -373,7 +451,7 @@ const BookSessionPage = () => {
   );
 
   return (
-    <div className="min-h-screen pt-28 pb-16 px-4" style={{ background: "#FAF6EC" }}>
+    <div className="min-h-screen pt-36 pb-16 px-4" style={{ background: "#FAF6EC" }}>
       <div className="max-w-lg mx-auto">
 
         {/* ── Back link ──────────────────────────────────────── */}
@@ -431,6 +509,13 @@ const BookSessionPage = () => {
                   {/* Available slots */}
                   <div>
                     <FieldLabel icon={FiCalendar}>Choose an Available Slot</FieldLabel>
+                    {slotNotice && (
+                      <div className="rounded-xl px-4 py-3 mb-3 text-sm flex items-start gap-2"
+                        style={{ background: "rgba(200,169,81,0.12)", border: "1px solid rgba(200,169,81,0.3)", color: "#8a6d1f" }}>
+                        <FiClock size={15} className="mt-0.5 shrink-0" />
+                        <span>{slotNotice}</span>
+                      </div>
+                    )}
                     {slotsLoading ? (
                       <div className="flex items-center gap-2 text-sm py-4" style={{ color: "rgba(74,85,104,0.7)" }}>
                         <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: "#C8A951", borderTopColor: "transparent" }} />
@@ -506,12 +591,22 @@ const BookSessionPage = () => {
                         <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: "#14213D", borderTopColor: "transparent" }} />
                         Processing...
                       </>
-                    ) : (
+                    ) : isAuthenticated ? (
                       <>
                         <FiCreditCard size={14} /> Proceed to Payment
                       </>
+                    ) : (
+                      <>
+                        <FiUser size={14} /> Sign In to Confirm
+                      </>
                     )}
                   </motion.button>
+
+                  {!isAuthenticated && (
+                    <p className="text-center text-xs mt-3 flex items-center justify-center gap-1.5" style={{ color: "rgba(74,85,104,0.7)" }}>
+                      <FiUser size={11} /> You&apos;ll sign in to confirm — your selected time and details are saved.
+                    </p>
+                  )}
                 </motion.form>
               )}
 

@@ -140,7 +140,7 @@ const EditSkill = () => {
   const estimatedMonthly = form.price ? (parseFloat(form.price) * 10).toFixed(0) : null;
 
   return (
-    <div className="min-h-screen pt-28 pb-16 px-4" style={{ background: "#FAF6EC" }}>
+    <div className="min-h-screen pt-36 pb-16 px-4" style={{ background: "#FAF6EC" }}>
       <div className="max-w-2xl mx-auto">
 
         <motion.button

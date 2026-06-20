@@ -287,7 +287,7 @@ export default function AdminPanel() {
   };
 
   return (
-    <div className="min-h-screen pt-28 pb-16 px-4" style={{ background: "#FAF6EC" }}>
+    <div className="min-h-screen pt-36 pb-16 px-4" style={{ background: "#FAF6EC" }}>
 
       <div className="max-w-6xl mx-auto">
 

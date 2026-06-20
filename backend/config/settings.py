@@ -12,16 +12,34 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables from backend/.env (secrets, email creds, etc.).
+# Values already present in the real environment take precedence over the file.
+load_dotenv(BASE_DIR / '.env')
+
+
+def env_bool(key, default=False):
+    """Read a boolean-ish env var ('1', 'true', 'yes' → True)."""
+    val = os.environ.get(key)
+    if val is None:
+        return default
+    return val.strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-faqs37dl@2c#d8(ufxdpqjk_-9pf_xge6)npig%5&48qy_b1ii'
+# Falls back to the previous hardcoded key so existing deploys keep working
+# until a SECRET_KEY is supplied via .env.
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY',
+    'django-insecure-faqs37dl@2c#d8(ufxdpqjk_-9pf_xge6)npig%5&48qy_b1ii',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
@@ -49,7 +67,7 @@ INSTALLED_APPS = [
     'bookings',
     'messages.apps.MessagesConfig',
     'resources',
-    # 'notifications',
+    'notifications',
 ]
 
 MIDDLEWARE = [
@@ -157,8 +175,33 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 AUTH_USER_MODEL = 'profiles.CustomUser'
 
-STRIPE_SECRET_KEY = 'sk_test_51RCasKQOwqqD0Bo5Wo1iYXwWjvY5rXuJwMOPgExENTNgCU9obOs4olQSQFcwbNHZr5cracOEFs4AYBTEIPE884JR003i1o5WXv'  # your full secret key
-STRIPE_PUBLISHABLE_KEY = 'pk_test_51RCasKQOwqqD0Bo5Lzoz0xt4hMfh2bmrua5Vo3TchUsnI5ZpgDV1Pg7pZUlmBd0soZSOrkJLSTAWkMisLNxH1Pru00v8URzIRH'  # your full publishable key
+STRIPE_SECRET_KEY = os.environ.get(
+    'STRIPE_SECRET_KEY',
+    'sk_test_51RCasKQOwqqD0Bo5Wo1iYXwWjvY5rXuJwMOPgExENTNgCU9obOs4olQSQFcwbNHZr5cracOEFs4AYBTEIPE884JR003i1o5WXv',
+)
+STRIPE_PUBLISHABLE_KEY = os.environ.get(
+    'STRIPE_PUBLISHABLE_KEY',
+    'pk_test_51RCasKQOwqqD0Bo5Lzoz0xt4hMfh2bmrua5Vo3TchUsnI5ZpgDV1Pg7pZUlmBd0soZSOrkJLSTAWkMisLNxH1Pru00v8URzIRH',
+)
+
+# ─── Email configuration ──────────────────────────────────────────────────────
+# All values come from backend/.env. EMAIL_BACKEND defaults to console (prints
+# emails to the Daphne log) so the app works before real SMTP creds are set;
+# set EMAIL_BACKEND to the SMTP backend in .env to actually send mail.
+EMAIL_BACKEND = os.environ.get(
+    'EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend',
+)
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
+EMAIL_USE_SSL = env_bool('EMAIL_USE_SSL', False)
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '15'))
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'Dr. Nath Coaching <no-reply@dr-nath.com>')
+# Public site URL used to build links inside emails.
+SITE_URL = os.environ.get('SITE_URL', 'https://dr-nath.com')
 
 INSTALLED_APPS += ['channels']
 

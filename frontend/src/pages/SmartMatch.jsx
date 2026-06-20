@@ -148,7 +148,7 @@ export default function SmartMatch() {
   };
 
   return (
-    <div className="min-h-screen pt-28 pb-16 px-6" style={{ background: "#FAF6EC" }}>
+    <div className="min-h-screen pt-36 pb-16 px-6" style={{ background: "#FAF6EC" }}>
 
       {/* ── Header (flat, matches dashboard pages) ────────── */}
       <div className="max-w-xl mx-auto text-center">

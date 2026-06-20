@@ -49,6 +49,8 @@ const ProfilePage = () => {
       const d = res.data;
       const p = {
         fullName: d.full_name,
+        firstName: d.first_name || "",
+        lastName: d.last_name || "",
         email: d.email,
         bio: d.profile.bio,
         role: d.profile.role,
@@ -65,7 +67,7 @@ const ProfilePage = () => {
         coaching_goals: d.profile.coaching_goals || [],
       };
       setProfile(p);
-      setFormData({ bio: p.bio || "" });
+      setFormData({ bio: p.bio || "", first_name: p.firstName, last_name: p.lastName });
     } catch (err) {
       toast.error("Failed to load profile.");
       if (err.message?.includes("Session expired")) logout();
@@ -79,8 +81,18 @@ const ProfilePage = () => {
   const handleSubmit = async () => {
     setSaving(true);
     try {
-      const res = await api.patch("/profile/", { profile: { bio: formData.bio } });
-      setProfile(prev => ({ ...prev, bio: res.data.profile.bio }));
+      const res = await api.patch("/profile/", {
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        profile: { bio: formData.bio },
+      });
+      setProfile(prev => ({
+        ...prev,
+        bio: res.data.profile.bio,
+        fullName: res.data.full_name,
+        firstName: res.data.first_name || "",
+        lastName: res.data.last_name || "",
+      }));
       setEditMode(false);
       toast.success("Profile updated.");
     } catch {
@@ -110,7 +122,7 @@ const ProfilePage = () => {
   const roleLabel = { coach: "Coach", client: "Client", admin: "Admin" }[profile.role] || profile.role;
 
   return (
-    <div className="min-h-screen pt-28 pb-16 px-6" style={{ background: "#FAF6EC" }}>
+    <div className="min-h-screen pt-36 pb-16 px-6" style={{ background: "#FAF6EC" }}>
       <div className="max-w-5xl mx-auto space-y-5">
 
         {/* ── PROFILE HEADER CARD ──────────────────────────── */}
@@ -129,9 +141,34 @@ const ProfilePage = () => {
               {/* Info */}
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2 mb-1">
-                  <h1 className="text-3xl font-normal text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>
-                    {profile.fullName}
-                  </h1>
+                  {editMode ? (
+                    <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto mb-1">
+                      <input
+                        type="text"
+                        value={formData.first_name}
+                        onChange={e => setFormData(f => ({ ...f, first_name: e.target.value }))}
+                        placeholder="First name"
+                        className="px-3 py-2 rounded-lg text-sm focus:outline-none transition-all duration-200"
+                        style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }}
+                        onFocus={e => e.target.style.borderColor = "#C8A951"}
+                        onBlur={e => e.target.style.borderColor = "rgba(200,169,81,0.3)"}
+                      />
+                      <input
+                        type="text"
+                        value={formData.last_name}
+                        onChange={e => setFormData(f => ({ ...f, last_name: e.target.value }))}
+                        placeholder="Last name"
+                        className="px-3 py-2 rounded-lg text-sm focus:outline-none transition-all duration-200"
+                        style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }}
+                        onFocus={e => e.target.style.borderColor = "#C8A951"}
+                        onBlur={e => e.target.style.borderColor = "rgba(200,169,81,0.3)"}
+                      />
+                    </div>
+                  ) : (
+                    <h1 className="text-3xl font-normal text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>
+                      {profile.fullName}
+                    </h1>
+                  )}
                   <Tag label={roleLabel} color="gold" />
                   {profile.is_verified && <Tag label="✓ Verified" color="green" />}
                   {profile.role === "coach" && !profile.is_verified && (
@@ -206,7 +243,7 @@ const ProfilePage = () => {
                   onBlur={e => e.target.style.borderColor = "rgba(200,169,81,0.3)"}
                 />
               ) : (
-                <p className="text-sm leading-relaxed" style={{ color: profile.bio ? "#4A5568" : "rgba(74,85,104,0.5)" }}>
+                <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: profile.bio ? "#4A5568" : "rgba(74,85,104,0.5)" }}>
                   {profile.bio || "No bio added yet. Click Edit Profile to add one."}
                 </p>
               )}

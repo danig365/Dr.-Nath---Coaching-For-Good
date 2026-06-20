@@ -124,7 +124,7 @@ const MyResources = () => {
   );
 
   return (
-    <div className="min-h-screen pt-28 pb-16 px-6" style={{ background: "#FAF6EC" }}>
+    <div className="min-h-screen pt-36 pb-16 px-6" style={{ background: "#FAF6EC" }}>
       <div className="max-w-4xl mx-auto">
         <motion.div className="mb-8" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
           <p className="text-xs font-semibold uppercase tracking-[0.22em] mb-2" style={{ color: "#A9863A" }}>Your workspace</p>

@@ -1,0 +1,9 @@
+{% autoescape off %}DR. NATH — COACHING FOR IMPACT
+==============================================================
+
+{% block content %}{% endblock %}
+
+--------------------------------------------------------------
+(c) {% now "Y" %} Dr. Nath - Coaching for Impact
+This is an automated message - please do not reply directly.
+{% endautoescape %}

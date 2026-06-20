@@ -29,7 +29,7 @@ const CoachCard = ({ coach, index, onView }) => (
           className="w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold shrink-0"
           style={{ background: "#C8A951", color: "#14213D" }}
         >
-          {coach.username?.charAt(0).toUpperCase()}
+          {(coach.display_name || coach.username)?.charAt(0).toUpperCase()}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -37,7 +37,7 @@ const CoachCard = ({ coach, index, onView }) => (
               className="text-lg font-normal text-[#1B2B4A] leading-tight"
               style={{ fontFamily: "'Playfair Display', serif" }}
             >
-              {coach.username}
+              {coach.display_name || coach.username}
             </h2>
             {coach.is_verified && (
               <span
@@ -144,7 +144,7 @@ export default function CoachDirectory() {
   const clearFilters = () => setFilters({ specialty: "", industry: "", verified: false });
 
   return (
-    <div className="min-h-screen pt-28 pb-16 px-6" style={{ background: "#FAF6EC" }}>
+    <div className="min-h-screen pt-36 pb-16 px-6" style={{ background: "#FAF6EC" }}>
 
       {/* ── Header (flat, matches dashboard pages) ─────────── */}
       <div className="max-w-5xl mx-auto">

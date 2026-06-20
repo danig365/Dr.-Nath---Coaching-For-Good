@@ -1,0 +1,16 @@
+{% extends "emails/base.txt" %}
+
+{% block content %}{% if role == 'coach' %}NEW SESSION BOOKED{% else %}YOUR SESSION IS CONFIRMED{% endif %}
+
+Hi {{ recipient_name }},
+{% if role == 'coach' %}{{ other_name }} has booked and paid for a session with you.{% else %}Your session with {{ other_name }} is booked and paid. We look forward to seeing you!{% endif %}
+
+  Session  : {{ skill_name }}
+  When     : {{ session_when }}
+  Duration : {{ duration }} minutes
+  {% if role == 'coach' %}Client{% else %}Coach{% endif %}    : {{ other_name }}
+{% if meeting_link %}  Join     : {{ meeting_link }}
+{% endif %}
+{% if role == 'coach' %}View in My Sessions: {{ manage_url }}{% else %}View in My Learning: {{ manage_url }}{% endif %}
+
+We'll send you reminders before the session so it never sneaks up on you.{% endblock %}

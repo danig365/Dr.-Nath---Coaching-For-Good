@@ -1,0 +1,55 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Booking Confirmed{% endblock %}
+
+{% block content %}
+  <h1 style="margin:0 0 8px; font-size:22px; font-weight:normal; color:#1B2B4A;">
+    {% if role == 'coach' %}New session booked{% else %}Your session is confirmed{% endif %}
+  </h1>
+  <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;">
+    Hi {{ recipient_name }},
+    {% if role == 'coach' %}
+      <strong>{{ other_name }}</strong> has booked and paid for a session with you.
+    {% else %}
+      your session with <strong>{{ other_name }}</strong> is booked and paid. We look forward to seeing you!
+    {% endif %}
+  </p>
+
+  <!-- Detail card -->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#FAF6EC; border:1px solid rgba(200,169,81,0.3); border-radius:12px; margin-bottom:24px;">
+    <tr><td style="padding:18px 20px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-family:Arial, sans-serif; font-size:14px; color:#1B2B4A;">
+        <tr>
+          <td style="padding:6px 0; color:#9aa3b0; width:120px;">Session</td>
+          <td style="padding:6px 0; font-weight:bold;">{{ skill_name }}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 0; color:#9aa3b0;">When</td>
+          <td style="padding:6px 0; font-weight:bold;">{{ session_when }}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 0; color:#9aa3b0;">Duration</td>
+          <td style="padding:6px 0;">{{ duration }} minutes</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 0; color:#9aa3b0;">{% if role == 'coach' %}Client{% else %}Coach{% endif %}</td>
+          <td style="padding:6px 0;">{{ other_name }}</td>
+        </tr>
+        {% if meeting_link %}
+        <tr>
+          <td style="padding:6px 0; color:#9aa3b0;">Join link</td>
+          <td style="padding:6px 0;"><a href="{{ meeting_link }}" style="color:#A9863A;">{{ meeting_link }}</a></td>
+        </tr>
+        {% endif %}
+      </table>
+    </td></tr>
+  </table>
+
+  <a href="{{ manage_url }}" style="display:inline-block; background:linear-gradient(135deg,#C8A951,#F0D98C); color:#14213D; text-decoration:none; font-weight:bold; font-size:14px; padding:12px 28px; border-radius:999px; font-family:Arial, sans-serif;">
+    {% if role == 'coach' %}View in My Sessions{% else %}View in My Learning{% endif %}
+  </a>
+
+  <p style="margin:24px 0 0; font-size:13px; line-height:1.6; color:#9aa3b0; font-family:Arial, sans-serif;">
+    We'll send you reminders before the session so it never sneaks up on you.
+  </p>
+{% endblock %}

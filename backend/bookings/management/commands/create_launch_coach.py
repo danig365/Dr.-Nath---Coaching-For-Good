@@ -19,7 +19,7 @@ from skills.models import Skill
 SA_TZ = "Africa/Johannesburg"
 
 LAUNCH_BIO = (
-    "Dr. Nathalie is the founder of Coaching for Good (C4G), a practice built on "
+    "Dr. Nathalie is the founder of Coaching for Impact (C4G), a practice built on "
     "three principles — clarity, growth, and impact. Through a warm, "
     "client-centered approach she partners with individuals, teams, and "
     "organisations to turn insight into action: clarifying goals, building "

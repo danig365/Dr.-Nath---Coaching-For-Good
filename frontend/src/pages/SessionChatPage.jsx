@@ -111,7 +111,7 @@ const SessionChatPage = () => {
   const sessionTime = new Date(`2000-01-01T${booking.session_time}`).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   return (
-    <div className="min-h-screen pt-28 pb-10 px-4" style={{ background: "#FAF6EC" }}>
+    <div className="min-h-screen pt-36 pb-10 px-4" style={{ background: "#FAF6EC" }}>
       <div className="mx-auto max-w-7xl">
 
         {/* ── Top bar ─────────────────────────────────────── */}

@@ -131,7 +131,10 @@ export default function Register() {
       } else {
         toast.success("Registered successfully! You can now log in.");
       }
-      navigate("/login");
+      // Carry any `next` destination through to login so a mid-task signup
+      // (e.g. a guest booking) resumes where it left off after signing in.
+      const next = searchParams.get("next");
+      navigate(next ? `/login?next=${encodeURIComponent(next)}` : "/login");
     } catch (err) {
       const d = err.response?.data;
       if (d && typeof d === "object") {
@@ -177,7 +180,7 @@ export default function Register() {
             <img src="/dr-nath-logo.png" alt="Dr. Nath" className="h-14 w-auto object-contain" />
             <div className="flex flex-col leading-tight">
               <span className="font-bold text-white text-lg" style={{ fontFamily: "'Playfair Display', serif" }}>Dr. Nath</span>
-              <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#C8A951" }}>Coaching for Good</span>
+              <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#C8A951" }}>Coaching for Impact</span>
             </div>
           </Link>
 
@@ -236,9 +239,20 @@ export default function Register() {
                 {step === 0 ? "Create Your Account" : step === 1 ? "Choose Your Role" : "Complete Your Profile"}
               </h2>
               <p className="text-sm mt-1" style={{ color: "rgba(250,246,236,0.5)" }}>
-                {step === 0 ? "Join Coaching for Good today" : step === 1 ? "How will you be using the platform?" : "Just a few more details"}
+                {step === 0 ? "Join Coaching for Impact today" : step === 1 ? "How will you be using the platform?" : "Just a few more details"}
               </p>
             </div>
+
+            {/* Mid-booking context: tell the user why they're here */}
+            {searchParams.get("next")?.startsWith("/book/") && (
+              <div className="mx-8 mt-5 px-4 py-3 rounded-xl flex items-start gap-2.5"
+                style={{ background: "rgba(200,169,81,0.12)", border: "1px solid rgba(200,169,81,0.3)" }}>
+                <CheckCircleIcon className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "#C8A951" }} />
+                <p className="text-sm leading-relaxed" style={{ color: "rgba(250,246,236,0.85)" }}>
+                  Create your account to confirm your booking — your selected time and details are saved.
+                </p>
+              </div>
+            )}
 
             <form onSubmit={step < 2 ? (e) => { e.preventDefault(); setStep(s => s + 1); } : handleSubmit} className="px-8 py-6 space-y-5">
 
@@ -472,7 +486,7 @@ export default function Register() {
 
               <p className="text-center text-xs pt-1" style={{ color: "rgba(250,246,236,0.4)" }}>
                 Already have an account?{" "}
-                <Link to="/login" className="font-semibold transition-colors hover:text-[#C8A951]" style={{ color: "rgba(200,169,81,0.8)" }}>
+                <Link to={searchParams.get("next") ? `/login?next=${encodeURIComponent(searchParams.get("next"))}` : "/login"} className="font-semibold transition-colors hover:text-[#C8A951]" style={{ color: "rgba(200,169,81,0.8)" }}>
                   Sign in
                 </Link>
               </p>

@@ -14,14 +14,22 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 class CurrentUserAndProfileSerializer(serializers.ModelSerializer):
     profile = UserProfileSerializer()
-    full_name = serializers.CharField(source='username', read_only=True)
+    full_name = serializers.SerializerMethodField()
+    first_name = serializers.CharField(required=False, allow_blank=True)
+    last_name = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = CustomUser
-        fields = ['id', 'full_name', 'email', 'profile']
+        fields = ['id', 'full_name', 'first_name', 'last_name', 'email', 'profile']
+
+    def get_full_name(self, obj):
+        full = f"{obj.first_name} {obj.last_name}".strip()
+        return full or obj.username
 
     def update(self, instance, validated_data):
         profile_data = validated_data.pop('profile', {})
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
         instance.save()
         profile = instance.profile
         for attr, value in profile_data.items():
@@ -89,16 +97,21 @@ class RegisterSerializer(serializers.ModelSerializer):
 # Coach directory listing
 class CoachDirectorySerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username')
+    display_name = serializers.SerializerMethodField()
     email = serializers.CharField(source='user.email')
     user_id = serializers.IntegerField(source='user.id')
 
     class Meta:
         model = UserProfile
         fields = [
-            'user_id', 'username', 'email', 'bio', 'photo',
+            'user_id', 'username', 'display_name', 'email', 'bio', 'photo',
             'specialties', 'certifications', 'hourly_rate',
             'years_experience', 'languages', 'industries', 'is_verified'
         ]
+
+    def get_display_name(self, obj):
+        full = f"{obj.user.first_name} {obj.user.last_name}".strip()
+        return full or obj.user.username
 
 # Admin approval
 class CoachApprovalSerializer(serializers.ModelSerializer):

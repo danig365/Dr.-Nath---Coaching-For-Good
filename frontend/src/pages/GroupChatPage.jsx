@@ -85,7 +85,7 @@ const GroupChatPage = () => {
   const time = new Date(session.start_datetime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   return (
-    <div className="min-h-screen pt-28 pb-10 px-4" style={{ background: "#FAF6EC" }}>
+    <div className="min-h-screen pt-36 pb-10 px-4" style={{ background: "#FAF6EC" }}>
       <div className="mx-auto max-w-7xl">
         <motion.div className="flex items-center justify-between gap-4 mb-6" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
           <motion.button whileHover={{ x: -3 }} onClick={() => navigate(isCoach() ? "/my-availability" : "/my-learning")}

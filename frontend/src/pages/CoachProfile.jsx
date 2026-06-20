@@ -106,12 +106,12 @@ export default function CoachProfile() {
               className="w-20 h-20 rounded-2xl flex items-center justify-center text-3xl font-bold shrink-0"
               style={{ background: GOLD, color: NAVY_DEEP, fontFamily: serif }}
             >
-              {coach.username?.charAt(0).toUpperCase()}
+              {(coach.display_name || coach.username)?.charAt(0).toUpperCase()}
             </div>
 
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-3 mb-2">
-                <h1 className="text-3xl font-normal" style={{ color: NAVY, fontFamily: serif }}>{coach.username}</h1>
+                <h1 className="text-3xl font-normal" style={{ color: NAVY, fontFamily: serif }}>{coach.display_name || coach.username}</h1>
                 {coach.is_verified && (
                   <span className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(52,168,83,0.1)", color: "#2E7D32", border: "1px solid rgba(52,168,83,0.2)" }}>
                     <CheckBadgeIcon className="w-3.5 h-3.5" /> Verified
@@ -138,7 +138,7 @@ export default function CoachProfile() {
             </div>
           </div>
 
-          <p className="leading-relaxed mt-6" style={{ color: SLATE }}>
+          <p className="leading-relaxed mt-6 whitespace-pre-line" style={{ color: SLATE }}>
             {coach.bio || "This coach hasn't added a bio yet."}
           </p>
 

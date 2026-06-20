@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { FiPlus, FiTrash2, FiClock, FiCalendar, FiZap, FiLock, FiUnlock, FiGlobe, FiSettings, FiChevronLeft, FiChevronRight, FiChevronDown, FiUsers, FiVideo, FiXCircle, FiMessageSquare } from "react-icons/fi";
+import { FiPlus, FiTrash2, FiClock, FiCalendar, FiZap, FiLock, FiUnlock, FiGlobe, FiSettings, FiChevronLeft, FiChevronRight, FiChevronDown, FiUsers, FiVideo, FiXCircle, FiMessageSquare, FiShare2, FiCopy, FiCheck, FiX } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 import { useNavigate } from "react-router-dom";
@@ -113,7 +113,7 @@ const pad2 = (n) => String(n).padStart(2, "0");
 // Calendar date (YYYY-MM-DD) of a slot, in the coach's own timezone.
 const tzDateKey = (iso, tz) => new Date(iso).toLocaleDateString("en-CA", { timeZone: tz || undefined });
 
-const CoachCalendar = ({ slots, tz, onBlockSlot, onUnblockSlot, onDeleteSlot, onAddSlot, onBlockDay, onOpenDay, busy }) => {
+const CoachCalendar = ({ slots, tz, coachSkills = [], onBlockSlot, onUnblockSlot, onDeleteSlot, onAddSlot, onBlockDay, onOpenDay, onShareSlot, busy }) => {
   const slotsByDate = useMemo(() => {
     const m = {};
     slots.forEach((s) => { (m[tzDateKey(s.start_datetime, tz)] ||= []).push(s); });
@@ -275,6 +275,12 @@ const CoachCalendar = ({ slots, tz, onBlockSlot, onUnblockSlot, onDeleteSlot, on
                           <span className="text-[11px] italic" style={{ color: "rgba(74,85,104,0.5)" }}>locked</span>
                         ) : (
                           <>
+                            {slot.status === "open" && (
+                              <button onClick={() => onShareSlot(slot)} title="Share invite link" disabled={busy}
+                                className="p-1.5 rounded-full hover:bg-[rgba(27,43,74,0.08)] disabled:opacity-40" style={{ color: "#1B2B4A" }}>
+                                <FiShare2 size={13} />
+                              </button>
+                            )}
                             <button onClick={() => (slot.status === "blocked" ? onUnblockSlot(slot) : onBlockSlot(slot))}
                               title={slot.status === "blocked" ? "Open" : "Block"} disabled={busy}
                               className="p-1.5 rounded-full hover:bg-[rgba(200,169,81,0.12)] disabled:opacity-40" style={{ color: "#A9863A" }}>
@@ -316,6 +322,83 @@ const CoachCalendar = ({ slots, tz, onBlockSlot, onUnblockSlot, onDeleteSlot, on
   );
 };
 
+// ─── Share-slot invite modal ──────────────────────────────────────────────────
+const ShareSlotModal = ({ slot, skills, tz, onClose }) => {
+  // Default to the slot's own skill if it has one, else the first offering.
+  const [skillId, setSkillId] = useState(() => slot.skill ?? (skills[0]?.id ?? ""));
+  const [copied, setCopied] = useState(false);
+
+  const link = skillId
+    ? `${window.location.origin}/book/${skillId}?slot=${slot.id}`
+    : "";
+
+  const copy = async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+    } catch {
+      // Fallback for non-secure contexts / older browsers.
+      const ta = document.createElement("textarea");
+      ta.value = link; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); } catch { /* noop */ }
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    toast.success("Invite link copied.");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const when = `${fmtDateShort(slot.start_datetime, tz)} · ${fmtTime(slot.start_datetime, tz)}–${fmtTime(slot.end_datetime, tz)}`;
+
+  return (
+    <motion.div className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <motion.div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <motion.div className="relative w-full max-w-md rounded-2xl shadow-2xl z-10 p-7" style={{ background: "#FAF6EC" }}
+        initial={{ y: 40, opacity: 0, scale: 0.96 }} animate={{ y: 0, opacity: 1, scale: 1 }} exit={{ y: 40, opacity: 0, scale: 0.96 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}>
+        <button onClick={onClose} className="absolute top-4 right-4 p-1 rounded-full hover:bg-[rgba(27,43,74,0.08)]" style={{ color: "#4A5568" }}>
+          <FiX size={18} />
+        </button>
+
+        <div className="flex items-center gap-2 mb-1">
+          <FiShare2 size={16} style={{ color: "#A9863A" }} />
+          <h3 className="text-lg font-bold text-[#1B2B4A]" style={serif}>Share this slot</h3>
+        </div>
+        <p className="text-xs mb-5" style={{ color: "rgba(74,85,104,0.8)" }}>{when}</p>
+
+        <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#A9863A" }}>Offering to book</label>
+        {skills.length === 0 ? (
+          <p className="text-sm mb-4" style={{ color: "#B91C1C" }}>You have no offerings yet. Add a skill first.</p>
+        ) : (
+          <div className="relative mb-4">
+            <select value={skillId} onChange={(e) => setSkillId(e.target.value)}
+              className="w-full appearance-none rounded-xl px-3 py-2.5 text-sm pr-9" style={inputStyle}>
+              {skills.map((sk) => (
+                <option key={sk.id} value={sk.id}>{sk.name}{sk.price ? ` — $${sk.price}/hr` : ""}</option>
+              ))}
+            </select>
+            <FiChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "#C8A951" }} />
+          </div>
+        )}
+
+        <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#A9863A" }}>Invite link</label>
+        <div className="flex items-center gap-2">
+          <input readOnly value={link} onFocus={(e) => e.target.select()}
+            className="flex-1 rounded-xl px-3 py-2.5 text-xs truncate" style={{ ...inputStyle, color: "#4A5568" }} />
+          <button onClick={copy} disabled={!link}
+            className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold gold-btn disabled:opacity-50 flex items-center gap-1.5">
+            {copied ? <FiCheck size={14} /> : <FiCopy size={14} />} {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+        <p className="text-[11px] mt-3 leading-relaxed" style={{ color: "rgba(74,85,104,0.7)" }}>
+          Anyone with this link lands on the booking page with this exact time pre-selected. They sign in only when they confirm.
+        </p>
+      </motion.div>
+    </motion.div>
+  );
+};
+
 // ─── Main ───────────────────────────────────────────────────────────────────
 const MyAvailability = () => {
   const navigate = useNavigate();
@@ -328,6 +411,7 @@ const MyAvailability = () => {
   const [generating, setGenerating] = useState(false);
   const [savingId, setSavingId] = useState(null);
   const [calBusy, setCalBusy] = useState(false);
+  const [shareSlot, setShareSlot] = useState(null); // slot being shared via invite link
   // Date range to generate bookable slots across (defaults to the launch season).
   const [genRange, setGenRange] = useState({ start: "2026-07-01", end: "2026-12-06" });
   const [rulePage, setRulePage] = useState(1);
@@ -566,7 +650,7 @@ const MyAvailability = () => {
   );
 
   return (
-    <div className="min-h-screen pt-28 pb-16 px-6" style={{ background: "#FAF6EC" }}>
+    <div className="min-h-screen pt-36 pb-16 px-6" style={{ background: "#FAF6EC" }}>
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <motion.div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8"
@@ -691,6 +775,7 @@ const MyAvailability = () => {
               <CoachCalendar
                 slots={slots}
                 tz={settings.timezone}
+                coachSkills={coachSkills}
                 busy={calBusy}
                 onBlockSlot={blockSlot}
                 onUnblockSlot={unblockSlot}
@@ -698,6 +783,7 @@ const MyAvailability = () => {
                 onAddSlot={addSlotForDay}
                 onBlockDay={blockDaySlots}
                 onOpenDay={openDaySlots}
+                onShareSlot={setShareSlot}
               />
             </motion.div>
           )}
@@ -849,6 +935,18 @@ const MyAvailability = () => {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Share-slot invite modal */}
+      <AnimatePresence>
+        {shareSlot && (
+          <ShareSlotModal
+            slot={shareSlot}
+            skills={coachSkills}
+            tz={settings.timezone}
+            onClose={() => setShareSlot(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

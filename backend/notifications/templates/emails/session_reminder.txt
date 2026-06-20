@@ -1,0 +1,12 @@
+{% extends "emails/base.txt" %}
+
+{% block content %}{% if reminder_label == 'starting now' %}YOUR SESSION IS STARTING NOW{% else %}REMINDER: YOUR SESSION IS {{ reminder_label|upper }}{% endif %}
+
+Hi {{ recipient_name }}, this is a reminder of your session with {{ other_name }}.
+
+  Session  : {{ skill_name }}
+  When     : {{ session_when }}
+  Duration : {{ duration }} minutes
+{% if meeting_link %}  Join     : {{ meeting_link }}
+{% endif %}
+{% if meeting_link %}Join the session: {{ meeting_link }}{% elif role == 'coach' %}View in My Sessions: {{ manage_url }}{% else %}View in My Learning: {{ manage_url }}{% endif %}{% endblock %}

@@ -47,8 +47,8 @@ const Navbar = () => {
   }, [isAuthenticated]);
 
   const navBg = scrolled
-    ? "rgba(38,56,92,0.97)"
-    : "rgba(38,56,92,0.90)";
+    ? "linear-gradient(180deg, rgba(243,233,205,0.98), rgba(230,210,156,0.98))"
+    : "linear-gradient(180deg, rgba(243,233,205,0.94), rgba(230,210,156,0.92))";
 
 
   const desktopLinks = !isAuthenticated
@@ -88,12 +88,12 @@ const Navbar = () => {
         className="fixed w-full z-40 transition-all duration-300 backdrop-blur-md"
         style={{
           background: navBg,
-          borderBottom: "1px solid rgba(200,169,81,0.2)",
-          boxShadow: scrolled ? "0 6px 24px rgba(10,18,35,0.35)" : "0 2px 10px rgba(10,18,35,0.15)",
+          borderBottom: "1px solid rgba(122,94,34,0.45)",
+          boxShadow: scrolled ? "0 6px 24px rgba(27,43,74,0.16)" : "0 2px 10px rgba(27,43,74,0.08)",
         }}
       >
         <div className="w-full px-6 sm:px-10 lg:px-20">
-          <div className="flex items-center justify-between h-24">
+          <div className="flex items-center justify-between h-28">
 
             {/* Logo */}
             <Link
@@ -102,16 +102,16 @@ const Navbar = () => {
             >
               <img
                 src="/dr-nath-logo.png"
-                alt="Dr. Nath — Coaching for Good"
-                className="h-20 w-auto object-contain transition-opacity duration-300 group-hover:opacity-90 shrink-0"
+                alt="Dr. Nath — Coaching for Impact"
+                className="h-24 w-auto object-contain transition-opacity duration-300 group-hover:opacity-90 shrink-0"
               />
               {isAuthenticated && (
                 <span
                   className="text-xs px-2 py-0.5 rounded-full font-semibold"
                   style={{
-                    background: isAdmin() ? "rgba(200,169,81,0.2)" : isCoach() ? "rgba(200,169,81,0.15)" : "rgba(250,246,236,0.1)",
-                    color: isAdmin() ? "#C8A951" : isCoach() ? "#C8A951" : "rgba(250,246,236,0.7)",
-                    border: "1px solid rgba(200,169,81,0.3)",
+                    background: "rgba(27,43,74,0.08)",
+                    color: isAdmin() ? "#7A5E22" : isCoach() ? "#7A5E22" : "#1B2B4A",
+                    border: "1px solid rgba(122,94,34,0.45)",
                   }}
                 >
                   {isAdmin() ? "Admin" : isCoach() ? "Coach" : "Client"}
@@ -127,14 +127,17 @@ const Navbar = () => {
                   <Link
                     key={link.to}
                     to={link.to}
-                    className="relative px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 hover:text-[#C8A951] hover:bg-white/5"
-                    style={{ color: link.to === currentFull ? "#C8A951" : "rgba(255,255,255,0.8)" }}
+                    className="relative px-3.5 py-2.5 rounded-lg text-[15px] transition-all duration-200 hover:text-[#7A5E22] hover:bg-[#1B2B4A]/[0.06]"
+                    style={{
+                      color: link.to === currentFull ? "#7A5E22" : "#1B2B4A",
+                      fontWeight: link.to === currentFull ? 700 : 500,
+                    }}
                   >
                     {link.label}
                     {badgeNum > 0 && (
                       <span
                         className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] flex items-center justify-center rounded-full text-[10px] font-bold px-1"
-                        style={{ background: "#C8A951", color: "#14213D", lineHeight: 1 }}
+                        style={{ background: "#1B2B4A", color: "#E6D29C", lineHeight: 1 }}
                       >
                         {badgeNum > 99 ? "99+" : badgeNum}
                       </span>
@@ -146,9 +149,9 @@ const Navbar = () => {
               {isAuthenticated ? (
                 <button
                   onClick={() => { setShowLogoutModal(true); setLogoutFromMobile(false); }}
-                  className="ml-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 border"
-                  style={{ borderColor: "rgba(200,169,81,0.4)", color: "#C8A951" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "rgba(200,169,81,0.1)"}
+                  className="ml-2 px-4 py-2.5 rounded-lg text-[15px] font-semibold transition-all duration-200 border"
+                  style={{ borderColor: "rgba(27,43,74,0.45)", color: "#1B2B4A" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "rgba(27,43,74,0.08)"}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                 >
                   Logout →
@@ -157,12 +160,16 @@ const Navbar = () => {
                 <>
                   <Link
                     to="/login"
-                    className="px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 hover:text-[#C8A951] hover:bg-white/5"
-                    style={{ color: "rgba(255,255,255,0.8)" }}
+                    className="px-3.5 py-2.5 rounded-lg text-[15px] font-medium transition-all duration-200 hover:text-[#7A5E22] hover:bg-[#1B2B4A]/[0.06]"
+                    style={{ color: "#1B2B4A" }}
                   >
                     Login
                   </Link>
-                  <Link to="/#newsletter" className="gold-btn ml-2 px-5 py-2 rounded-full text-sm font-bold">
+                  <Link
+                    to="/#newsletter"
+                    className="ml-2 px-6 py-2.5 rounded-full text-[15px] font-bold transition-all duration-200 hover:-translate-y-0.5"
+                    style={{ background: "#1B2B4A", color: "#F3E9C9" }}
+                  >
                     Newsletter Sign Up
                   </Link>
                 </>
@@ -173,7 +180,7 @@ const Navbar = () => {
             <button
               onClick={() => setIsOpen(!isOpen)}
               className="md:hidden p-2 rounded-lg transition-colors duration-200"
-              style={{ color: "rgba(255,255,255,0.8)" }}
+              style={{ color: "#1B2B4A" }}
             >
               {isOpen ? <XMarkIcon className="w-6 h-6" /> : <Bars3Icon className="w-6 h-6" />}
             </button>
@@ -189,7 +196,7 @@ const Navbar = () => {
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.25 }}
               className="md:hidden overflow-hidden"
-              style={{ background: "rgba(15,25,46,0.98)", borderTop: "1px solid rgba(200,169,81,0.15)" }}
+              style={{ background: "linear-gradient(180deg, rgba(243,233,205,0.98), rgba(230,210,156,0.98))", borderTop: "1px solid rgba(122,94,34,0.4)" }}
             >
               <div className="px-4 py-4 space-y-1">
                 {desktopLinks.map(link => {
@@ -199,14 +206,14 @@ const Navbar = () => {
                       key={link.to}
                       to={link.to}
                       onClick={() => setIsOpen(false)}
-                      className="relative flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 hover:text-[#C8A951] hover:bg-white/5"
-                      style={{ color: "rgba(255,255,255,0.8)" }}
+                      className="relative flex items-center gap-2 px-3 py-3 rounded-lg text-[15px] font-medium transition-all duration-200 hover:text-[#7A5E22] hover:bg-[#1B2B4A]/[0.06]"
+                      style={{ color: "#1B2B4A" }}
                     >
                       {link.label}
                       {badgeNum > 0 && (
                         <span
                           className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-bold px-1"
-                          style={{ background: "#C8A951", color: "#14213D" }}
+                          style={{ background: "#1B2B4A", color: "#E6D29C" }}
                         >
                           {badgeNum > 99 ? "99+" : badgeNum}
                         </span>
@@ -219,8 +226,8 @@ const Navbar = () => {
                   {isAuthenticated ? (
                     <button
                       onClick={() => { setShowLogoutModal(true); setLogoutFromMobile(true); }}
-                      className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-semibold border transition-all duration-200"
-                      style={{ borderColor: "rgba(200,169,81,0.3)", color: "#C8A951" }}
+                      className="w-full text-left px-3 py-3 rounded-lg text-[15px] font-semibold border transition-all duration-200"
+                      style={{ borderColor: "rgba(27,43,74,0.45)", color: "#1B2B4A" }}
                     >
                       Logout →
                     </button>
@@ -229,15 +236,16 @@ const Navbar = () => {
                       <Link
                         to="/login"
                         onClick={() => setIsOpen(false)}
-                        className="block px-3 py-2.5 rounded-lg text-sm font-medium hover:text-[#C8A951] hover:bg-white/5"
-                        style={{ color: "rgba(255,255,255,0.8)" }}
+                        className="block px-3 py-3 rounded-lg text-[15px] font-medium hover:text-[#7A5E22] hover:bg-[#1B2B4A]/[0.06]"
+                        style={{ color: "#1B2B4A" }}
                       >
                         Login
                       </Link>
                       <Link
                         to="/#newsletter"
                         onClick={() => setIsOpen(false)}
-                        className="gold-btn block text-center py-2.5 rounded-full text-sm font-bold"
+                        className="block text-center py-3 rounded-full text-[15px] font-bold"
+                        style={{ background: "#1B2B4A", color: "#F3E9C9" }}
                       >
                         Newsletter Sign Up
                       </Link>

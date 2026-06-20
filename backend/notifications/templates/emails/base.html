@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Dr. Nath Coaching{% endblock %}</title>
+</head>
+<body style="margin:0; padding:0; background-color:#FAF6EC; font-family:Georgia, 'Times New Roman', serif; color:#1B2B4A;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#FAF6EC; padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px; max-width:600px; background-color:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 2px 16px rgba(27,43,74,0.08);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#1B2B4A,#14213D); padding:28px 32px; text-align:center;">
+              <div style="font-size:24px; font-weight:bold; color:#ffffff; letter-spacing:0.5px;">Dr. Nath</div>
+              <div style="font-size:11px; text-transform:uppercase; letter-spacing:3px; color:#C8A951; margin-top:4px;">Coaching for Impact</div>
+            </td>
+          </tr>
+
+          <!-- Gold rule -->
+          <tr><td style="height:4px; background:linear-gradient(90deg,#C8A951,#F0D98C);"></td></tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:32px;">
+              {% block content %}{% endblock %}
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#FAF6EC; padding:20px 32px; text-align:center; border-top:1px solid rgba(200,169,81,0.25);">
+              <p style="margin:0; font-size:12px; color:#4A5568; font-family:Arial, sans-serif;">
+                &copy; {% now "Y" %} Dr. Nath &middot; Coaching for Impact
+              </p>
+              <p style="margin:6px 0 0; font-size:11px; color:#9aa3b0; font-family:Arial, sans-serif;">
+                This is an automated message — please do not reply directly to this email.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

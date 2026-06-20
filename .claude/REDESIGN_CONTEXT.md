@@ -1,6 +1,6 @@
 # Dr. Nath — Design System (Navy + Gold + Cream)
 
-> Brand: **Dr. Nath · Coaching for Good** — Clarity • Growth • Impact
+> Brand: **Dr. Nath · Coaching for Impact** — Clarity • Growth • Impact
 > Stack: React + Vite + TailwindCSS + Framer Motion + Heroicons
 > Frontend dir: `/home/danishrehman/Music/SkillForge/frontend`
 > Reference style: suzywelch.com (oversized light serif, full-bleed hero, pill controls)

@@ -1,5 +1,5 @@
 from rest_framework import viewsets, status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.decorators import action # Required for @action decorator
 from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST # Explicitly import status codes
@@ -52,6 +52,13 @@ def cancel_booking(booking, new_status='declined', refund=True):
 
         booking.status = new_status
         booking.save()
+
+    # Cancel any pending reminders so a dead session stops emailing people.
+    try:
+        from .notifications import cancel_booking_notifications
+        cancel_booking_notifications(booking)
+    except Exception as notify_err:  # noqa: BLE001
+        print(f"Failed to cancel notifications for booking {booking.id}: {notify_err}")
     return booking
 
 
@@ -294,11 +301,14 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
         )
         return Response(result, status=HTTP_200_OK)
 
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny])
     def available(self, request):
         """
-        Public (authenticated) listing of bookable slots for a coach or skill.
-        Clients use this to pick a slot. Only future, open slots are returned.
+        Public listing of bookable slots for a coach or skill.
+
+        Open to guests so an un-authenticated visitor (e.g. someone who followed
+        a coach's slot invite link) can browse times before signing in. Only
+        future, open slots are returned; holding/booking still requires auth.
         """
         release_expired_holds()
         coach_id = request.query_params.get('coach')
@@ -671,6 +681,14 @@ class ConfirmBookingPaymentView(APIView):
                     slot.held_until = None
                     slot.held_by = None
                     slot.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
+
+            # Notify both parties (confirmation now + reminders later). Best-effort:
+            # email scheduling must never fail a paid booking.
+            try:
+                from .notifications import schedule_booking_notifications
+                schedule_booking_notifications(booking)
+            except Exception as notify_err:  # noqa: BLE001
+                print(f"Booking {booking.id} created but notification scheduling failed: {notify_err}")
 
             return Response({'booking_id': booking.id, 'status': 'paid'})
         except TimeSlot.DoesNotExist:

@@ -149,7 +149,7 @@ const SkillList = () => {
   }
 
   return (
-    <div className="min-h-screen pt-28 pb-16 px-6" style={{ background: "#FAF6EC" }}>
+    <div className="min-h-screen pt-36 pb-16 px-6" style={{ background: "#FAF6EC" }}>
 
       {/* ── Header (flat, matches dashboard pages) ────────── */}
       <div className="max-w-5xl mx-auto">
@@ -159,7 +159,7 @@ const SkillList = () => {
           transition={{ duration: 0.5 }}
         >
           <p className="text-xs font-semibold uppercase tracking-[0.22em] mb-2" style={{ color: "#A9863A" }}>
-            Coaching for Good
+            Coaching for Impact
           </p>
           <h1
             className="text-3xl md:text-4xl font-normal mb-2 leading-tight"

@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   UserIcon,
   LockClosedIcon,
   EyeIcon,
   EyeSlashIcon,
+  CheckCircleIcon,
 } from "@heroicons/react/24/outline";
 import { FcGoogle } from "react-icons/fc";
 import { FaFacebook } from "react-icons/fa";
@@ -16,7 +17,7 @@ const serif = "'Playfair Display', serif";
 
 const quotes = [
   { text: "The journey of a thousand miles begins with a single step. Dr. Nath helped me take mine.", author: "Sarah M.", role: "VP of Operations" },
-  { text: "Coaching for Good gave me the clarity I had been searching for in years.", author: "James K.", role: "Entrepreneur" },
+  { text: "Coaching for Impact gave me the clarity I had been searching for in years.", author: "James K.", role: "Entrepreneur" },
   { text: "I logged in for the first time and never looked back. Best decision of my career.", author: "Priya R.", role: "Founder, TechStart" },
 ];
 
@@ -69,10 +70,22 @@ const Login = () => {
   const [showPass, setShowPass] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Where to land after auth. Set by flows that send the user to log in mid-task
+  // (e.g. a guest confirming a booking). Falls back to role-based defaults.
+  const next = searchParams.get("next");
   const { login, isAuthenticated, isAdmin, isCoach, loading: authContextLoading } = useAuth();
+
+  const redirectAfterAuth = (role) => {
+    if (next) { navigate(next, { replace: true }); return; }
+    if (role === "admin") navigate("/admin", { replace: true });
+    else if (role === "coach") navigate("/my-skills", { replace: true });
+    else navigate("/skills", { replace: true });
+  };
 
   useEffect(() => {
     if (!authContextLoading && isAuthenticated) {
+      if (next) { navigate(next, { replace: true }); return; }
       if (isAdmin()) navigate("/admin", { replace: true });
       else if (isCoach()) navigate("/my-skills", { replace: true });
       else navigate("/skills", { replace: true });
@@ -87,9 +100,7 @@ const Login = () => {
     try {
       const loggedInUser = await login(form.username, form.password);
       if (loggedInUser) {
-        if (loggedInUser.role === "admin") navigate("/admin", { replace: true });
-        else if (loggedInUser.role === "coach") navigate("/my-skills", { replace: true });
-        else navigate("/skills", { replace: true });
+        redirectAfterAuth(loggedInUser.role);
       }
     } catch (err) {
       console.error("Login error:", err);
@@ -126,7 +137,7 @@ const Login = () => {
             <img src="/dr-nath-logo.png" alt="Dr. Nath" className="h-14 w-auto object-contain" />
             <div className="flex flex-col leading-tight">
               <span className="font-bold text-white text-lg" style={{ fontFamily: serif }}>Dr. Nath</span>
-              <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#C8A951" }}>Coaching for Good</span>
+              <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#C8A951" }}>Coaching for Impact</span>
             </div>
           </Link>
 
@@ -165,6 +176,17 @@ const Login = () => {
                 Access your Dr. Nath account
               </p>
             </div>
+
+            {/* Mid-booking context: tell the user why they're here */}
+            {next && next.startsWith("/book/") && (
+              <div className="mx-8 mt-5 px-4 py-3 rounded-xl flex items-start gap-2.5"
+                style={{ background: "rgba(200,169,81,0.12)", border: "1px solid rgba(200,169,81,0.3)" }}>
+                <CheckCircleIcon className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "#C8A951" }} />
+                <p className="text-sm leading-relaxed" style={{ color: "rgba(250,246,236,0.85)" }}>
+                  Almost there! Sign in to confirm your booking — your selected time and details are saved.
+                </p>
+              </div>
+            )}
 
             <div className="px-8 py-6 space-y-5">
 
@@ -296,7 +318,7 @@ const Login = () => {
 
               <p className="text-center text-xs pt-1" style={{ color: "rgba(250,246,236,0.4)" }}>
                 Don&apos;t have an account?{" "}
-                <Link to="/register" className="font-semibold transition-colors hover:text-[#C8A951]" style={{ color: "rgba(200,169,81,0.8)" }}>
+                <Link to={next ? `/register?next=${encodeURIComponent(next)}` : "/register"} className="font-semibold transition-colors hover:text-[#C8A951]" style={{ color: "rgba(200,169,81,0.8)" }}>
                   Create one
                 </Link>
               </p>
