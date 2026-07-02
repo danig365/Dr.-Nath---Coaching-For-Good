@@ -12,6 +12,7 @@ import {
   SparklesIcon,
   ArrowRightIcon,
 } from "@heroicons/react/24/outline";
+import { FaLinkedin } from "react-icons/fa";
 
 const NAVY = "#1B2B4A";
 const NAVY_DEEP = "#14213D";
@@ -111,11 +112,25 @@ export default function CoachProfile() {
 
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-3 mb-2">
-                <h1 className="text-3xl font-normal" style={{ color: NAVY, fontFamily: serif }}>{coach.display_name || coach.username}</h1>
+                {coach.linkedin_url ? (
+                  <a href={coach.linkedin_url} target="_blank" rel="noopener noreferrer"
+                    className="text-3xl font-normal transition-colors hover:underline" style={{ color: NAVY, fontFamily: serif }}>
+                    {coach.display_name || coach.username}
+                  </a>
+                ) : (
+                  <h1 className="text-3xl font-normal" style={{ color: NAVY, fontFamily: serif }}>{coach.display_name || coach.username}</h1>
+                )}
                 {coach.is_verified && (
                   <span className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(52,168,83,0.1)", color: "#2E7D32", border: "1px solid rgba(52,168,83,0.2)" }}>
                     <CheckBadgeIcon className="w-3.5 h-3.5" /> Verified
                   </span>
+                )}
+                {coach.linkedin_url && (
+                  <a href={coach.linkedin_url} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full transition-colors"
+                    style={{ background: "rgba(10,102,194,0.1)", color: "#0A66C2", border: "1px solid rgba(10,102,194,0.2)" }}>
+                    <FaLinkedin className="w-3.5 h-3.5" /> LinkedIn
+                  </a>
                 )}
               </div>
 

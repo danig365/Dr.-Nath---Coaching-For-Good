@@ -1,13 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  FiArrowLeft, FiCalendar, FiClock,
+  FiArrowLeft, FiCalendar, FiClock, FiPaperclip, FiDownload, FiFile,
   FiMessageSquare, FiSend, FiUser, FiVideo,
 } from "react-icons/fi";
 import { motion } from "framer-motion";
 import { toast } from "react-toastify";
 import { api } from "../utils/auth";
+import { SESSION_GRACE_MS } from "../utils/sessionTiming";
 import { useAuth } from "../context/AuthContext";
+
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // keep in sync with backend guard
+
+const formatBytes = (bytes) => {
+  if (!bytes && bytes !== 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const isImageType = (type) => typeof type === "string" && type.startsWith("image/");
 
 const STATUS_STYLE = {
   accepted:  { bg: "rgba(52,168,83,0.1)",  color: "#2E7D32", border: "1px solid rgba(52,168,83,0.25)" },
@@ -19,13 +31,16 @@ const STATUS_STYLE = {
 const SessionChatPage = () => {
   const { bookingId } = useParams();
   const navigate = useNavigate();
-  const { user, isAuthenticated, isCoach, logout } = useAuth();
+  const { user, isAuthenticated, isCoach, logout, timezone } = useAuth();
   const [booking, setBooking] = useState(null);
   const [messages, setMessages] = useState([]);
   const [messageText, setMessageText] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [pendingFile, setPendingFile] = useState(null);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
   const currentUserId = user?.user_id;
   const wsRef = useRef(null);
 
@@ -71,8 +86,46 @@ const SessionChatPage = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Selecting a file only stages it; nothing is sent until the user hits Send.
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.error("File exceeds the 50 MB limit.");
+      return;
+    }
+    setPendingFile(file);
+  };
+
   const sendMessage = async (e) => {
     e.preventDefault();
+    if (sending || uploading) return;
+
+    // A staged file is sent over REST (optionally with a caption), then broadcast.
+    if (pendingFile) {
+      setUploading(true);
+      try {
+        const form = new FormData();
+        form.append("booking", Number(bookingId));
+        form.append("attachment", pendingFile);
+        const caption = messageText.trim();
+        if (caption) form.append("content", caption);
+        const res = await api.post("/messages/", form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        // The upload is also broadcast over the WebSocket; dedup by id handles it.
+        setMessages(prev => prev.find(m => m.id === res.data.id) ? prev : [...prev, res.data]);
+        setPendingFile(null);
+        setMessageText("");
+      } catch (err) {
+        toast.error(err.response?.data?.detail || err.response?.data?.attachment?.[0] || "Failed to send file.");
+      } finally {
+        setUploading(false);
+      }
+      return;
+    }
+
     if (!messageText.trim()) return;
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -107,8 +160,11 @@ const SessionChatPage = () => {
   if (!booking) return null;
 
   const statusStyle = STATUS_STYLE[booking.status] || STATUS_STYLE.pending;
-  const sessionDate = new Date(booking.session_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-  const sessionTime = new Date(`2000-01-01T${booking.session_time}`).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const startDt = booking.slot_start
+    ? new Date(booking.slot_start)
+    : new Date(`${booking.session_date}T${booking.session_time}Z`);
+  const sessionDate = startDt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: timezone || undefined });
+  const sessionTime = startDt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: timezone || undefined });
 
   return (
     <div className="min-h-screen pt-36 pb-10 px-4" style={{ background: "#FAF6EC" }}>
@@ -176,7 +232,40 @@ const SessionChatPage = () => {
                         <span>{isMine ? "You" : message.sender_username}</span>
                         <span>{new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                       </div>
-                      <p className="whitespace-pre-wrap">{message.content}</p>
+                      {message.attachment_url && (
+                        isImageType(message.content_type) ? (
+                          <a href={message.attachment_url} target="_blank" rel="noopener noreferrer" className="block mb-1">
+                            <img
+                              src={message.attachment_url}
+                              alt={message.attachment_name || "attachment"}
+                              className="rounded-lg max-h-60 w-auto object-cover"
+                              style={{ border: isMine ? "1px solid rgba(20,33,61,0.15)" : "1px solid rgba(200,169,81,0.2)" }}
+                            />
+                          </a>
+                        ) : (
+                          <a
+                            href={message.attachment_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            download={message.attachment_name || true}
+                            className="flex items-center gap-2.5 px-3 py-2 rounded-xl mb-1 transition-opacity hover:opacity-80"
+                            style={isMine
+                              ? { background: "rgba(20,33,61,0.1)" }
+                              : { background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.2)" }
+                            }
+                          >
+                            <FiFile size={18} className="shrink-0" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-semibold">{message.attachment_name || "Attachment"}</span>
+                              {message.attachment_size != null && (
+                                <span className="block text-xs opacity-60">{formatBytes(message.attachment_size)}</span>
+                              )}
+                            </span>
+                            <FiDownload size={15} className="shrink-0 opacity-70" />
+                          </a>
+                        )
+                      )}
+                      {message.content && <p className="whitespace-pre-wrap">{message.content}</p>}
                     </div>
                   </div>
                 );
@@ -209,32 +298,79 @@ const SessionChatPage = () => {
                   Chat becomes available once the booking is accepted.
                 </div>
               )}
-              <div className="flex gap-3">
+              {pendingFile && (
+                <div className="mb-3 flex items-center gap-2.5 px-3 py-2 rounded-xl" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)" }}>
+                  <FiFile size={18} className="shrink-0" style={{ color: "#A9863A" }} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-[#1B2B4A]">{pendingFile.name}</span>
+                    <span className="block text-xs" style={{ color: "rgba(74,85,104,0.6)" }}>{formatBytes(pendingFile.size)} · ready to send</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPendingFile(null)}
+                    disabled={uploading}
+                    title="Remove file"
+                    className="text-lg leading-none px-2 shrink-0 transition-opacity hover:opacity-60 disabled:opacity-30"
+                    style={{ color: "#A9863A" }}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+              <div className="flex gap-3 items-end">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  disabled={!isChatEnabled || uploading}
+                />
+                <motion.button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={!isChatEnabled || uploading}
+                  whileHover={isChatEnabled && !uploading ? { scale: 1.06 } : {}}
+                  whileTap={isChatEnabled && !uploading ? { scale: 0.94 } : {}}
+                  title="Attach a file"
+                  className="flex items-center justify-center w-12 h-12 rounded-xl shrink-0 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{
+                    background: pendingFile ? "rgba(200,169,81,0.18)" : "#FAF6EC",
+                    border: "1px solid rgba(200,169,81,0.3)",
+                    color: "#A9863A",
+                  }}
+                >
+                  <FiPaperclip size={18} />
+                </motion.button>
                 <textarea
                   value={messageText}
                   onChange={e => setMessageText(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(e); } }}
-                  placeholder={isChatEnabled ? "Write a message... (Enter to send)" : "Chat not available yet."}
-                  disabled={!isChatEnabled || sending}
+                  placeholder={isChatEnabled ? (pendingFile ? "Add a caption (optional)…" : "Write a message... (Enter to send)") : "Chat not available yet."}
+                  disabled={!isChatEnabled || sending || uploading}
                   rows={2}
                   className="flex-1 resize-none px-4 py-3 rounded-xl text-sm focus:outline-none transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }}
                   onFocus={e => e.target.style.borderColor = "#C8A951"}
                   onBlur={e => e.target.style.borderColor = "rgba(200,169,81,0.3)"}
                 />
-                <motion.button
-                  type="submit"
-                  disabled={!isChatEnabled || sending || !messageText.trim()}
-                  whileHover={isChatEnabled && messageText.trim() ? { scale: 1.04 } : {}}
-                  whileTap={isChatEnabled && messageText.trim() ? { scale: 0.96 } : {}}
-                  className="flex items-center gap-2 px-5 py-3 rounded-full text-sm font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                  style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}
-                >
-                  {sending
-                    ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: "#14213D", borderTopColor: "transparent" }} />
-                    : <><FiSend size={14} /> Send</>
-                  }
-                </motion.button>
+                {(() => {
+                  const canSend = isChatEnabled && !sending && !uploading && (!!messageText.trim() || !!pendingFile);
+                  return (
+                    <motion.button
+                      type="submit"
+                      disabled={!canSend}
+                      whileHover={canSend ? { scale: 1.04 } : {}}
+                      whileTap={canSend ? { scale: 0.96 } : {}}
+                      className="flex items-center gap-2 px-5 py-3 rounded-full text-sm font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}
+                    >
+                      {(sending || uploading)
+                        ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: "#14213D", borderTopColor: "transparent" }} />
+                        : <><FiSend size={14} /> Send</>
+                      }
+                    </motion.button>
+                  );
+                })()}
               </div>
             </form>
           </motion.section>
@@ -277,11 +413,11 @@ const SessionChatPage = () => {
                 </div>
 
                 {booking.status === "accepted" && (() => {
-                  const sessionEnd = new Date(
-                    new Date(`${booking.session_date}T${booking.session_time}`).getTime() +
-                    booking.duration * 60 * 1000
-                  );
-                  const expired = sessionEnd < new Date();
+                  const sessionEndMs = booking.slot_end
+                    ? new Date(booking.slot_end).getTime()
+                    : new Date(`${booking.session_date}T${booking.session_time}Z`).getTime() +
+                      booking.duration * 60 * 1000;
+                  const expired = sessionEndMs + SESSION_GRACE_MS < Date.now();
                   return (
                     <motion.button
                       whileHover={!expired ? { scale: 1.02 } : {}}

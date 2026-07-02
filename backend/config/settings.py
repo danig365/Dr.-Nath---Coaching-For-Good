@@ -68,6 +68,10 @@ INSTALLED_APPS = [
     'messages.apps.MessagesConfig',
     'resources',
     'notifications',
+    'contact',
+    'newsletters',
+    'assistant',
+    'signatures',
 ]
 
 MIDDLEWARE = [
@@ -169,6 +173,21 @@ REST_FRAMEWORK = {
   'DEFAULT_AUTHENTICATION_CLASSES': (
       'rest_framework_simplejwt.authentication.JWTAuthentication',
   ),
+  'DEFAULT_THROTTLE_CLASSES': [],
+  'DEFAULT_THROTTLE_RATES': {
+      # Per-IP cap for the public AI assistant endpoint (paid API behind it).
+      'assistant': '20/min',
+  },
+}
+
+# JWT session lifetimes. The library defaults (5-min access token) were logging
+# users out mid-task — e.g. "Could not send the invite" was actually an expired
+# session. Keep coaches/clients signed in through a working session.
+from datetime import timedelta  # noqa: E402
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=12),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+    'ROTATE_REFRESH_TOKENS': True,
 }
 
 CORS_ALLOW_ALL_ORIGINS = True
@@ -183,6 +202,31 @@ STRIPE_PUBLISHABLE_KEY = os.environ.get(
     'STRIPE_PUBLISHABLE_KEY',
     'pk_test_51RCasKQOwqqD0Bo5Lzoz0xt4hMfh2bmrua5Vo3TchUsnI5ZpgDV1Pg7pZUlmBd0soZSOrkJLSTAWkMisLNxH1Pru00v8URzIRH',
 )
+
+# ─── AI Virtual Assistant ─────────────────────────────────────────────────────
+# Provider-agnostic website chatbot. AI_PROVIDER selects the backend:
+#   'auto'      → use whichever API key is set (Anthropic preferred, then OpenAI)
+#   'anthropic' → force Anthropic (needs ANTHROPIC_API_KEY)
+#   'openai'    → force OpenAI (needs OPENAI_API_KEY)
+# With no key set, the endpoint returns a graceful "not configured" reply.
+AI_PROVIDER = os.environ.get('AI_PROVIDER', 'auto')
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+# Optional model override. Defaults are chosen per provider in assistant/services.py.
+ASSISTANT_MODEL = os.environ.get('ASSISTANT_MODEL', '')
+
+# ─── LiveKit (video calls) ────────────────────────────────────────────────────
+# Used to mint room access tokens. The frontend connects to LIVEKIT_URL with a
+# token issued by the backend (see bookings/livekit_views.py).
+LIVEKIT_URL = os.environ.get('LIVEKIT_URL', '')
+LIVEKIT_API_KEY = os.environ.get('LIVEKIT_API_KEY', '')
+LIVEKIT_API_SECRET = os.environ.get('LIVEKIT_API_SECRET', '')
+# How long an issued room token stays valid (seconds).
+LIVEKIT_TOKEN_TTL = int(os.environ.get('LIVEKIT_TOKEN_TTL', '21600'))  # 6 hours
+
+# Grace window (minutes) a call stays joinable past its scheduled end. Mirrors
+# SESSION_GRACE_MS on the frontend — keep the two in sync.
+SESSION_GRACE_MINUTES = int(os.environ.get('SESSION_GRACE_MINUTES', '10'))
 
 # ─── Email configuration ──────────────────────────────────────────────────────
 # All values come from backend/.env. EMAIL_BACKEND defaults to console (prints

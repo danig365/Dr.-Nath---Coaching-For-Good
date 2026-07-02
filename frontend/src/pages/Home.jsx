@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { motion, AnimatePresence, useInView } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -16,6 +16,7 @@ import {
   CheckBadgeIcon,
 } from "@heroicons/react/24/outline";
 import { api } from "../utils/auth";
+import { toast } from "react-toastify";
 
 /* ── Brand tokens ─────────────────────────────────────────────── */
 const NAVY = "#1B2B4A";
@@ -54,11 +55,21 @@ function NewsletterModal({ onClose }) {
   const [email, setEmail] = useState("");
   const [first, setFirst] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setSubmitted(true);
-    setTimeout(onClose, 2000);
+    if (loading) return;
+    setLoading(true);
+    try {
+      await api.post("/newsletter/subscribe/", { email, first_name: first, source: "modal" });
+      setSubmitted(true);
+      setTimeout(onClose, 2000);
+    } catch (err) {
+      toast.error(err.response?.data?.email?.[0] || err.response?.data?.detail || "Subscription failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const inputCls = "w-full px-5 py-3 rounded-full border bg-white focus:outline-none focus:ring-2 text-[#1B2B4A] placeholder-[#1B2B4A]/40";
@@ -102,7 +113,9 @@ function NewsletterModal({ onClose }) {
                 className={inputCls} style={{ borderColor: "rgba(27,43,74,0.2)" }} />
               <input type="email" placeholder="Email Address" value={email} onChange={e => setEmail(e.target.value)} required
                 className={inputCls} style={{ borderColor: "rgba(27,43,74,0.2)" }} />
-              <button type="submit" className="gold-btn w-full py-3 rounded-xl text-base">Sign Me Up</button>
+              <button type="submit" disabled={loading} className="gold-btn w-full py-3 rounded-xl text-base disabled:opacity-60">
+                {loading ? "Signing up…" : "Sign Me Up"}
+              </button>
             </form>
           </>
         )}
@@ -184,9 +197,41 @@ function FaqItem({ q, a, isOpen, onToggle }) {
 
 /* ── Main component ───────────────────────────────────────────── */
 const Home = () => {
+  const location = useLocation();
   const [showModal, setShowModal] = useState(false);
   const [newsletter, setNewsletter] = useState({ first: "", last: "", email: "" });
+  const [newsletterStatus, setNewsletterStatus] = useState("idle"); // idle | loading | done
+
+  const subscribeBand = async (e) => {
+    e.preventDefault();
+    if (newsletterStatus === "loading") return;
+    setNewsletterStatus("loading");
+    try {
+      await api.post("/newsletter/subscribe/", {
+        email: newsletter.email, first_name: newsletter.first, source: "band",
+      });
+      setNewsletterStatus("done");
+    } catch (err) {
+      toast.error(err.response?.data?.email?.[0] || err.response?.data?.detail || "Subscription failed. Please try again.");
+      setNewsletterStatus("idle");
+    }
+  };
   const [openFaq, setOpenFaq] = useState(0);
+
+  // Scroll to the section in the URL hash (e.g. /#who, /#offerings) — used by
+  // the navbar "Who is Dr Nath" / "Offerings" links. Offsets for the fixed navbar.
+  useEffect(() => {
+    if (!location.hash) return;
+    const id = location.hash.slice(1);
+    const t = setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) {
+        const top = el.getBoundingClientRect().top + window.scrollY - 120;
+        window.scrollTo({ top, behavior: "smooth" });
+      }
+    }, 60);
+    return () => clearTimeout(t);
+  }, [location.hash, location.key]);
   const [showDrNathModal, setShowDrNathModal] = useState(false);
   const [drNathProfile, setDrNathProfile] = useState(null);
   const [drNathLoading, setDrNathLoading] = useState(false);
@@ -389,11 +434,12 @@ const Home = () => {
               A coach who helps you <em>become</em> more you.
             </h2>
             <p className="leading-relaxed mb-5" style={{ color: SLATE }}>
-              Dr. Nath holds a PhD and an MBA, and is a certified executive and life coach with a simple belief: real growth is personal.
-              Through a client-centered approach, every session is built around your story, your goals and your
+              Dr. Nath is a certified coach with this strong belief:{" "}
+              <strong style={{ color: NAVY }}>You are capable of finding your own solutions.</strong>{" "}
+              Through her client-centered approach, her coaching sessions are built around your stories, your goals and your
               potential — never a one-size-fits-all formula.
             </p>
-            <ul className="space-y-3 mb-8">
+            <ul className="space-y-3 mb-5">
               {promises.map((p, i) => (
                 <li key={i} className="flex items-start gap-3">
                   <CheckIcon className="w-5 h-5 shrink-0 mt-0.5" style={{ color: GOLD }} />
@@ -401,6 +447,10 @@ const Home = () => {
                 </li>
               ))}
             </ul>
+            <p className="leading-relaxed mb-8" style={{ color: SLATE }}>
+              Dr. Nath holds a PhD, an MBA, and a coaching certification from leading academic institutions in
+              South Africa and the United States of America (USA).
+            </p>
             <button onClick={openDrNathProfile} className="navy-btn inline-flex items-center gap-2 px-7 py-3 rounded-full">
               Explore More <ArrowRightIcon className="w-5 h-5" />
             </button>
@@ -419,17 +469,28 @@ const Home = () => {
             <p className="mb-8 max-w-xl mx-auto" style={{ color: "rgba(250,246,236,0.7)" }}>
               Practical coaching insights, career strategies and the occasional story — clarity, growth and impact in one tidy package.
             </p>
-            <form onSubmit={e => e.preventDefault()} className="flex flex-col sm:flex-row gap-3 max-w-2xl mx-auto">
-              <input type="text" placeholder="First Name" value={newsletter.first}
-                onChange={e => setNewsletter({ ...newsletter, first: e.target.value })}
-                className="flex-1 px-5 py-3 rounded-full text-white placeholder-white/40 focus:outline-none"
-                style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(200,169,81,0.3)" }} />
-              <input type="email" placeholder="Email Address" required value={newsletter.email}
-                onChange={e => setNewsletter({ ...newsletter, email: e.target.value })}
-                className="flex-1 px-5 py-3 rounded-full text-white placeholder-white/40 focus:outline-none"
-                style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(200,169,81,0.3)" }} />
-              <button type="submit" className="gold-btn px-8 py-3 rounded-full font-bold shrink-0">Sign Me Up</button>
-            </form>
+            {newsletterStatus === "done" ? (
+              <div className="flex items-center justify-center gap-3 max-w-2xl mx-auto py-4">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: GOLD }}>
+                  <CheckIcon className="w-6 h-6" style={{ color: NAVY }} />
+                </div>
+                <p className="text-lg text-white" style={{ fontFamily: serif }}>You&apos;re in! Watch your inbox for coaching insights.</p>
+              </div>
+            ) : (
+              <form onSubmit={subscribeBand} className="flex flex-col sm:flex-row gap-3 max-w-2xl mx-auto">
+                <input type="text" placeholder="First Name" value={newsletter.first}
+                  onChange={e => setNewsletter({ ...newsletter, first: e.target.value })}
+                  className="flex-1 px-5 py-3 rounded-full text-white placeholder-white/40 focus:outline-none"
+                  style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(200,169,81,0.3)" }} />
+                <input type="email" placeholder="Email Address" required value={newsletter.email}
+                  onChange={e => setNewsletter({ ...newsletter, email: e.target.value })}
+                  className="flex-1 px-5 py-3 rounded-full text-white placeholder-white/40 focus:outline-none"
+                  style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(200,169,81,0.3)" }} />
+                <button type="submit" disabled={newsletterStatus === "loading"} className="gold-btn px-8 py-3 rounded-full font-bold shrink-0 disabled:opacity-60">
+                  {newsletterStatus === "loading" ? "Signing up…" : "Sign Me Up"}
+                </button>
+              </form>
+            )}
           </motion.div>
         </div>
       </section>
@@ -481,8 +542,8 @@ const Home = () => {
 
           <div className="grid md:grid-cols-3 gap-8">
             {[
-              { num: "01", icon: <AcademicCapIcon className="w-9 h-9" />, title: "Discover Your Goals", desc: "We start by exploring your vision, your values and what's truly holding you back." },
-              { num: "02", icon: <CalendarIcon className="w-9 h-9" />, title: "Book Your Sessions", desc: "Schedule focused 1-on-1 coaching at times that work for your life and your pace." },
+              { num: "01", icon: <AcademicCapIcon className="w-9 h-9" />, title: "Discover Your Goals", desc: "We start by exploring your vision, your values and what you would like to move forward." },
+              { num: "02", icon: <CalendarIcon className="w-9 h-9" />, title: "Book Your Sessions", desc: "Schedule focused 1-on-1 coaching sessions." },
               { num: "03", icon: <ChartBarIcon className="w-9 h-9" />, title: "Grow & Track Impact", desc: "Apply tailored frameworks, track real progress and become who you're meant to be." },
             ].map((step, i) => (
               <motion.div

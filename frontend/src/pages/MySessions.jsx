@@ -3,13 +3,15 @@ import { useNavigate } from "react-router-dom";
 import {
   FiCalendar, FiClock, FiMessageSquare, FiX,
   FiVideo, FiDollarSign, FiUpload, FiCheck,
-  FiSearch, FiFilter, FiChevronDown, FiLink, FiUsers,
+  FiSearch, FiFilter, FiChevronDown, FiLink, FiUsers, FiFileText,
 } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 import { api } from "../utils/auth";
+import { SESSION_GRACE_MS } from "../utils/sessionTiming";
 import { useAuth } from "../context/AuthContext";
 import SessionFeedbackCard from "../components/SessionFeedbackCard";
+import { downloadFile } from "../utils/downloadFile";
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 const StatusBadge = ({ status }) => {
@@ -62,21 +64,27 @@ const ActionBtn = ({ onClick, icon: Icon, label, badge, variant = "default" }) =
 
 // ─── Session Card (compact) ────────────────────────────────────────────────────
 const SessionCard = ({ session, activeTab, onCancel, onSetMeetingLink, onUploadNotes, onJoin, navigate, index }) => {
-  const date = new Date(session.session_date).toLocaleDateString("en-US", {
-    weekday: "short", month: "short", day: "numeric",
+  const { timezone } = useAuth(); // viewer's display timezone (coach's set zone)
+  // Absolute UTC start, rendered in the viewer's timezone. slot_start is the
+  // source of truth; fall back to session_date/time treated as UTC ("Z").
+  const startDt = session.slot_start
+    ? new Date(session.slot_start)
+    : new Date(`${session.session_date}T${session.session_time}Z`);
+  const date = startDt.toLocaleDateString("en-US", {
+    weekday: "short", month: "short", day: "numeric", timeZone: timezone || undefined,
   });
-  const time = new Date(`2000-01-01T${session.session_time}`).toLocaleTimeString("en-US", {
-    hour: "2-digit", minute: "2-digit", hour12: true,
+  const time = startDt.toLocaleTimeString("en-US", {
+    hour: "2-digit", minute: "2-digit", hour12: true, timeZone: timezone || undefined,
   });
 
   const accentColor = session.status === "accepted" || session.status === "confirmed"
     ? "#34A853" : session.status === "pending" ? "#F59E0B" : "#C8A951";
 
-  const sessionEnd = new Date(
-    new Date(`${session.session_date}T${session.session_time}`).getTime() +
-    session.duration * 60 * 1000
-  );
-  const expired = sessionEnd < new Date();
+  const sessionEndMs = session.slot_end
+    ? new Date(session.slot_end).getTime()
+    : startDt.getTime() + session.duration * 60 * 1000;
+  // Joinable until a grace window after the scheduled end (matches the call timer).
+  const expired = sessionEndMs + SESSION_GRACE_MS < Date.now();
 
   return (
     <motion.div
@@ -94,10 +102,10 @@ const SessionCard = ({ session, activeTab, onCancel, onSetMeetingLink, onUploadN
           {/* Row 1: avatar · client + skill · tags · status */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "#C8A951", color: "#14213D" }}>
-              {session.learner_username?.charAt(0).toUpperCase()}
+              {(session.learner_name || session.learner_username)?.charAt(0).toUpperCase()}
             </div>
             <div className="flex flex-col min-w-0">
-              <span className="text-xs font-semibold" style={{ color: "#A9863A" }}>{session.learner_username}</span>
+              <span className="text-xs font-semibold" style={{ color: "#A9863A" }}>{session.learner_name || session.learner_username}</span>
               <span className="text-base font-normal text-[#1B2B4A] truncate" style={{ fontFamily: "'Playfair Display', serif" }}>{session.skill_title}</span>
             </div>
             <div className="flex items-center gap-2 ml-auto flex-wrap">
@@ -150,6 +158,9 @@ const SessionCard = ({ session, activeTab, onCancel, onSetMeetingLink, onUploadN
                         label={session.meeting_link ? "Update Link" : "Add Link"} />
                     </>
                   )}
+                  {session.payment_status === "paid" && Number(session.amount_paid) > 0 && (
+                    <ActionBtn onClick={() => downloadFile(`/bookings/${session.id}/invoice/`, "receipt.pdf")} icon={FiFileText} label="Receipt" />
+                  )}
                 </>
               )}
               {activeTab === "past" && (
@@ -159,6 +170,9 @@ const SessionCard = ({ session, activeTab, onCancel, onSetMeetingLink, onUploadN
                     label={session.notes_file ? "Notes ✓" : "Upload Notes"} />
                   <ActionBtn onClick={() => navigate(`/chat/${session.id}`)} icon={FiMessageSquare} label="Chat"
                     badge={<UnreadBadge count={session.unread_messages} />} />
+                  {session.payment_status === "paid" && Number(session.amount_paid) > 0 && (
+                    <ActionBtn onClick={() => downloadFile(`/bookings/${session.id}/invoice/`, "receipt.pdf")} icon={FiFileText} label="Receipt" />
+                  )}
                 </>
               )}
             </div>
@@ -190,10 +204,11 @@ const SessionCard = ({ session, activeTab, onCancel, onSetMeetingLink, onUploadN
 
 // ─── Group Session Card (coach-facing) ──────────────────────────────────────────
 const GroupCard = ({ s, index, onJoin, onChat, onRoster }) => {
-  const date = new Date(s.start_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-  const time = new Date(s.start_datetime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+  const { timezone } = useAuth();
+  const date = new Date(s.start_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: timezone || undefined });
+  const time = new Date(s.start_datetime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: timezone || undefined });
   const cancelled = s.status === "cancelled";
-  const upcoming = new Date(s.end_datetime) > new Date();
+  const upcoming = new Date(s.end_datetime).getTime() + SESSION_GRACE_MS > Date.now();
   // Joinable from 15 min before start until the scheduled end.
   const canJoin = !cancelled && upcoming && Date.now() >= new Date(s.start_datetime).getTime() - 15 * 60 * 1000;
   const badge = cancelled ? "cancelled" : upcoming ? "scheduled" : "completed";
@@ -352,12 +367,12 @@ const MySessions = () => {
 
   const now = new Date();
   const upcomingSessions = sessions.filter(s => {
-    const dt = new Date(`${s.session_date}T${s.session_time}`);
+    const dt = new Date(s.slot_start || `${s.session_date}T${s.session_time}Z`);
     // Still upcoming only if not yet completed and the scheduled time hasn't passed
     return (s.status === "pending" || s.status === "accepted") && dt > now;
   });
   const pastSessions = sessions.filter(s => {
-    const dt = new Date(`${s.session_date}T${s.session_time}`);
+    const dt = new Date(s.slot_start || `${s.session_date}T${s.session_time}Z`);
     // Completed sessions always belong here, plus accepted ones whose time has passed
     return s.status === "completed" || (s.status === "accepted" && dt <= now);
   });
@@ -430,14 +445,14 @@ const MySessions = () => {
     if (search.trim())
       out = out.filter(s => s.skill_title?.toLowerCase().includes(search.trim().toLowerCase()));
     if (learnerFilter.trim())
-      out = out.filter(s => s.learner_username?.toLowerCase().includes(learnerFilter.trim().toLowerCase()));
+      out = out.filter(s => `${s.learner_name || ""} ${s.learner_username || ""}`.toLowerCase().includes(learnerFilter.trim().toLowerCase()));
     if (dateFrom)
       out = out.filter(s => s.session_date >= dateFrom);
     if (dateTo)
       out = out.filter(s => s.session_date <= dateTo);
     out.sort((a, b) => {
-      const dtA = new Date(`${a.session_date}T${a.session_time}`);
-      const dtB = new Date(`${b.session_date}T${b.session_time}`);
+      const dtA = new Date(a.slot_start || `${a.session_date}T${a.session_time}Z`);
+      const dtB = new Date(b.slot_start || `${b.session_date}T${b.session_time}Z`);
       return sortOrder === "newest" ? dtB - dtA : dtA - dtB;
     });
     return out;
@@ -688,7 +703,7 @@ const MySessions = () => {
               <p className="text-4xl mb-4">⚠️</p>
               <h3 className="text-xl font-normal text-[#1B2B4A] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>Cancel Session</h3>
               <p className="text-sm text-[#4A5568] mb-6">
-                Cancel your session with <strong>{cancelTarget.learner_username}</strong>? The time slot reopens and the client is refunded.
+                Cancel your session with <strong>{cancelTarget.learner_name || cancelTarget.learner_username}</strong>? The time slot reopens and the client is refunded.
               </p>
               <div className="flex gap-3">
                 <button onClick={() => setCancelTarget(null)} className="flex-1 py-2.5 rounded-full text-sm font-semibold border" style={{ borderColor: "rgba(200,169,81,0.3)", color: "#4A5568" }}>

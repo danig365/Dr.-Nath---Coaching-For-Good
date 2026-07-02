@@ -37,7 +37,10 @@
     </td></tr>
   </table>
 
-  <a href="{% if meeting_link %}{{ meeting_link }}{% else %}{{ manage_url }}{% endif %}" style="display:inline-block; background:linear-gradient(135deg,#C8A951,#F0D98C); color:#14213D; text-decoration:none; font-weight:bold; font-size:14px; padding:12px 28px; border-radius:999px; font-family:Arial, sans-serif;">
-    {% if meeting_link %}Join the session{% elif role == 'coach' %}View in My Sessions{% else %}View in My Learning{% endif %}
+  <a href="{{ join_link }}" style="display:inline-block; background:linear-gradient(135deg,#C8A951,#F0D98C); color:#14213D; text-decoration:none; font-weight:bold; font-size:14px; padding:12px 28px; border-radius:999px; font-family:Arial, sans-serif;">
+    Join the session
   </a>
+  <p style="margin:16px 0 0; font-size:12px; color:#9aa3b0; font-family:Arial, sans-serif;">
+    Or open it from your dashboard: <a href="{{ manage_url }}" style="color:#A9863A;">{% if role == 'coach' %}My Sessions{% else %}My Learning{% endif %}</a>
+  </p>
 {% endblock %}

@@ -1,0 +1,5 @@
+{% extends "emails/base.txt" %}
+{% block content %}{{ client_name }} SIGNED "{{ title }}"
+
+Hi {{ recipient_name }}, {{ client_name }} has signed. Add your counter-signature to complete it:
+{{ link }}{% endblock %}

@@ -109,10 +109,14 @@ class ScheduledNotification(models.Model):
         obj.save()
         return obj
 
-    def send(self):
+    def send(self, attachments=None):
         """
         Render and send this notification now. Updates status/attempts in place.
         Returns True on success. Never raises — failures are recorded for retry.
+
+        `attachments` is an optional list of (filename, content_bytes, mimetype),
+        passed through for callers that send immediately (e.g. a PDF receipt on a
+        booking confirmation). Queued/dispatcher sends never set this.
         """
         from .services import send_email
 
@@ -124,6 +128,7 @@ class ScheduledNotification(models.Model):
                 template=self.template,
                 context=self.context,
                 fail_silently=True,
+                attachments=attachments,
             )
             if ok:
                 self.status = self.STATUS_SENT

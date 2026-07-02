@@ -33,13 +33,23 @@ class ResourceFolderViewSet(viewsets.ModelViewSet):
             return ResourceFolder.objects.filter(coach=user.profile)
         return ResourceFolder.objects.none()
 
+    def _validate_client(self, serializer):
+        """A private folder's `client` must be a real client account."""
+        client = serializer.validated_data.get('client')
+        if client is not None:
+            profile = getattr(client, 'profile', None)
+            if not profile or profile.role != 'client':
+                raise DRFValidationError({'client': 'Select a valid client for a private folder.'})
+
     def perform_create(self, serializer):
+        self._validate_client(serializer)
         serializer.save(coach=self._ensure_coach())
 
     def perform_update(self, serializer):
         self._ensure_coach()
         if serializer.instance.coach.user != self.request.user:
             raise DRFValidationError("You can only manage your own folders.")
+        self._validate_client(serializer)
         serializer.save()
 
     def perform_destroy(self, instance):
@@ -81,38 +91,55 @@ class ResourceViewSet(viewsets.ModelViewSet):
         if group and group.coach_id != profile.id:
             raise DRFValidationError({'group_session': "That group session isn't yours."})
 
+    def _private_folder_overrides(self, serializer, instance=None):
+        """A resource in a private (client-scoped) folder is forced to
+        visibility='specific' shared only with that folder's client — so it can
+        never be seen by anyone else, whatever the caller submitted."""
+        folder = serializer.validated_data.get('folder', getattr(instance, 'folder', None))
+        if folder and folder.client_id:
+            return {'visibility': 'specific', 'shared_clients': [folder.client]}
+        return {}
+
     def perform_create(self, serializer):
         profile = self._ensure_coach()
         self._validate_relations(profile, serializer)
+        overrides = self._private_folder_overrides(serializer)
         f = serializer.validated_data.get('file')
         if f is not None:
             # File resource: record metadata, ensure no stray link.
-            serializer.save(coach=profile, link_url='',
+            resource = serializer.save(coach=profile, link_url='',
                             file_size=getattr(f, 'size', None),
-                            content_type=getattr(f, 'content_type', '') or '')
+                            content_type=getattr(f, 'content_type', '') or '', **overrides)
         else:
             # Link resource: no file metadata.
-            serializer.save(coach=profile, file_size=None, content_type='')
+            resource = serializer.save(coach=profile, file_size=None, content_type='', **overrides)
+        # Email the specific clients it was shared with (best-effort).
+        try:
+            from .notifications import notify_resource_shared
+            notify_resource_shared(resource)
+        except Exception as e:  # noqa: BLE001 — never fail the upload on email
+            print(f"Resource {resource.id} saved but share-notify failed: {e}")
 
     def perform_update(self, serializer):
         profile = self._ensure_coach()
         if serializer.instance.coach.user != self.request.user:
             raise DRFValidationError("You can only manage your own resources.")
         self._validate_relations(profile, serializer)
+        overrides = self._private_folder_overrides(serializer, serializer.instance)
         f = serializer.validated_data.get('file')
         link_url = serializer.validated_data.get('link_url', None)
         if f is not None:
             # Replacing with a file clears any link.
             serializer.save(link_url='', file_size=getattr(f, 'size', None),
-                            content_type=getattr(f, 'content_type', '') or '')
+                            content_type=getattr(f, 'content_type', '') or '', **overrides)
         elif link_url:
             # Switching to a link clears the stored file.
             old = serializer.instance.file
-            serializer.save(file=None, file_size=None, content_type='')
+            serializer.save(file=None, file_size=None, content_type='', **overrides)
             if old:
                 old.delete(save=False)
         else:
-            serializer.save()
+            serializer.save(**overrides)
 
     def perform_destroy(self, instance):
         self._ensure_coach()
@@ -199,11 +226,17 @@ class ClientSubmissionViewSet(viewsets.ModelViewSet):
         if in_resp and in_resp.coach_id != coach.id:
             raise DRFValidationError({'in_response_to': "That assignment isn't from this coach."})
         f = serializer.validated_data.get('file')
-        serializer.save(
+        submission = serializer.save(
             client=user,
             file_size=getattr(f, 'size', None),
             content_type=getattr(f, 'content_type', '') or '',
         )
+        # Notify the coach a document landed in their inbox (best-effort).
+        try:
+            from .notifications import notify_submission_received
+            notify_submission_received(submission)
+        except Exception as e:  # noqa: BLE001 — never fail the upload on email
+            print(f"Submission {submission.id} saved but coach-notify failed: {e}")
 
     def perform_update(self, serializer):
         instance = serializer.instance

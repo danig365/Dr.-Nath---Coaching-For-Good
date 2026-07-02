@@ -4,10 +4,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 import {
   FiMic, FiMicOff, FiVideo, FiVideoOff,
-  FiPhoneOff, FiMessageSquare, FiClock, FiSend, FiX,
+  FiPhoneOff, FiMessageSquare, FiClock, FiSend, FiX, FiPaperclip, FiDownload, FiFile,
 } from "react-icons/fi";
 import { api } from "../utils/auth";
+import { MAX_UPLOAD_BYTES, formatBytes, isImageType } from "../utils/chatAttachments";
 import { useAuth } from "../context/AuthContext";
+import { SESSION_GRACE_MS } from "../utils/sessionTiming";
 
 const ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -43,8 +45,11 @@ export default function SessionCallPage() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [unreadChat, setUnreadChat] = useState(0);
+  const [chatFile, setChatFile] = useState(null);
+  const [chatUploading, setChatUploading] = useState(false);
   const chatEndRef = useRef(null);
   const chatOpenRef = useRef(false);
+  const chatFileInputRef = useRef(null);
 
   const wsRef = useRef(null);
   const pcRef = useRef(null);
@@ -52,8 +57,11 @@ export default function SessionCallPage() {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const timerRef = useRef(null);
-  const callStartRef = useRef(null);
+  const endRef = useRef(null);   // effective end (ms epoch) — adjusts on connect
+  const capRef = useRef(null);   // hard cap: scheduled end + grace
   const durationRef = useRef(null);
+  const timerStartedRef = useRef(false);
+  const connectedRef = useRef(false); // both sides present (set once)
   // Prevent re-sending ready acknowledgement in a loop
   const readyAckSentRef = useRef(false);
 
@@ -66,17 +74,22 @@ export default function SessionCallPage() {
           navigate(-1);
           return;
         }
+        // Use the slot's absolute UTC end (converted to local by Date). Fall back
+        // to session_date/time treated as UTC (append "Z") for legacy bookings.
         const sessionEnd = new Date(
-          new Date(`${res.data.session_date}T${res.data.session_time}`).getTime() +
-          res.data.duration * 60 * 1000
+          res.data.slot_end
+            ? new Date(res.data.slot_end).getTime()
+            : new Date(`${res.data.session_date}T${res.data.session_time}Z`).getTime() +
+              res.data.duration * 60 * 1000
         );
-        if (sessionEnd < new Date()) {
+        if (sessionEnd.getTime() + SESSION_GRACE_MS < Date.now()) {
           toast.error("This session's time has already passed.");
           navigate(-1);
           return;
         }
         setBooking(res.data);
         durationRef.current = res.data.duration * 60;
+        capRef.current = sessionEnd.getTime() + SESSION_GRACE_MS;
         setTimeLeft(res.data.duration * 60);
       })
       .catch(() => { toast.error("Could not load session."); navigate(-1); })
@@ -117,12 +130,15 @@ export default function SessionCallPage() {
   }, []);
 
   const startTimer = useCallback(() => {
-    callStartRef.current = Date.now();
-    const total = durationRef.current;
+    if (timerStartedRef.current) return;
+    timerStartedRef.current = true;
+    // Until the other side connects, the end is the no-show cap (scheduled end +
+    // grace). Once both are present we extend to a full booked duration from the
+    // actual start — still capped — so a slightly late start keeps full time.
+    endRef.current = capRef.current;
     timerRef.current = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - callStartRef.current) / 1000);
-      const remaining = total - elapsed;
-      setTimeLeft(remaining);
+      const remaining = Math.floor((endRef.current - Date.now()) / 1000);
+      setTimeLeft(Math.min(durationRef.current, remaining));
       if (remaining <= 0) finishSession("timeout");
     }, 1000);
   }, [finishSession]);
@@ -139,7 +155,11 @@ export default function SessionCallPage() {
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected") {
         setCallState("connected");
-        startTimer();
+        // First time both are present: full booked duration from now, capped.
+        if (!connectedRef.current) {
+          connectedRef.current = true;
+          endRef.current = Math.min(Date.now() + durationRef.current * 1000, capRef.current);
+        }
       } else if (["disconnected", "failed", "closed"].includes(pc.connectionState)) {
         finishSession("partner_left");
       }
@@ -166,7 +186,7 @@ export default function SessionCallPage() {
 
       // Chat messages have no "signal" wrapper — they carry content/sender.
       if (msg.type !== "signal") {
-        if (msg.content && msg.sender !== undefined) {
+        if ((msg.content || msg.attachment_url) && msg.sender !== undefined) {
           setChatMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
           if (msg.sender !== user?.user_id && !chatOpenRef.current) {
             setUnreadChat(c => c + 1);
@@ -227,11 +247,14 @@ export default function SessionCallPage() {
       // Tell the other side we're here. Coach will send offer upon receiving this.
       readyAckSentRef.current = false; // allow one ack response
       sendSignal({ type: "ready" });
+      // Start the scheduled-session clock on join — auto-ends at the booked end
+      // time even if the other side never connects.
+      startTimer();
     } catch {
       toast.error("Could not access camera or microphone.");
       setCallState("idle");
     }
-  }, [sendSignal]);
+  }, [sendSignal, startTimer]);
 
   const handleEndCall = useCallback(() => {
     sendSignal({ type: "end-call" });
@@ -251,19 +274,54 @@ export default function SessionCallPage() {
           sender: m.sender,
           sender_username: m.sender_username,
           timestamp: m.timestamp,
+          attachment_url: m.attachment_url,
+          attachment_name: m.attachment_name,
+          attachment_size: m.attachment_size,
+          content_type: m.content_type,
         })));
       })
       .catch(() => {});
   }, [booking, bookingId]);
 
-  const sendChat = useCallback((e) => {
+  const handleChatFile = useCallback((e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) { toast.error("File exceeds the 50 MB limit."); return; }
+    setChatFile(file);
+  }, []);
+
+  const sendChat = useCallback(async (e) => {
     e?.preventDefault();
+    if (chatUploading) return;
+
+    // Staged file → REST upload (with optional caption); backend broadcasts it.
+    if (chatFile) {
+      setChatUploading(true);
+      try {
+        const form = new FormData();
+        form.append("booking", Number(bookingId));
+        form.append("attachment", chatFile);
+        const caption = chatInput.trim();
+        if (caption) form.append("content", caption);
+        const res = await api.post("/messages/", form, { headers: { "Content-Type": "multipart/form-data" } });
+        setChatMessages(prev => prev.some(m => m.id === res.data.id) ? prev : [...prev, res.data]);
+        setChatFile(null);
+        setChatInput("");
+      } catch (err) {
+        toast.error(err.response?.data?.detail || err.response?.data?.attachment?.[0] || "Failed to send file.");
+      } finally {
+        setChatUploading(false);
+      }
+      return;
+    }
+
     const text = chatInput.trim();
     const ws = wsRef.current;
     if (!text || ws?.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ type: "chat", content: text }));
     setChatInput("");
-  }, [chatInput]);
+  }, [chatInput, chatFile, chatUploading, bookingId]);
 
   // Auto-scroll chat to bottom on new message
   useEffect(() => {
@@ -313,7 +371,7 @@ export default function SessionCallPage() {
   );
 
   return (
-    <div className="fixed inset-x-0 bottom-0 flex flex-col select-none overflow-hidden" style={{ top: "5rem", background: "#0D0D0D" }}>
+    <div className="fixed inset-x-0 bottom-0 flex flex-col select-none overflow-hidden" style={{ top: "7rem", background: "#0D0D0D" }}>
 
       {/* Remote video — full-bleed background filling the call area exactly */}
       <video
@@ -558,7 +616,25 @@ export default function SessionCallPage() {
                       }}
                     >
                       {!mine && <p className="text-[10px] font-bold mb-0.5" style={{ color: "#C8A951" }}>{m.sender_username}</p>}
-                      <p className="leading-snug break-words">{m.content}</p>
+                      {m.attachment_url && (
+                        isImageType(m.content_type) ? (
+                          <a href={m.attachment_url} target="_blank" rel="noopener noreferrer" className="block mb-1">
+                            <img src={m.attachment_url} alt={m.attachment_name || "attachment"} className="rounded-lg max-h-44 w-auto object-cover" />
+                          </a>
+                        ) : (
+                          <a href={m.attachment_url} target="_blank" rel="noopener noreferrer" download={m.attachment_name || true}
+                            className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1 transition-opacity hover:opacity-80"
+                            style={{ background: mine ? "rgba(20,33,61,0.12)" : "rgba(255,255,255,0.1)" }}>
+                            <FiFile size={16} className="shrink-0" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-semibold">{m.attachment_name || "Attachment"}</span>
+                              {m.attachment_size != null && <span className="block text-[10px] opacity-60">{formatBytes(m.attachment_size)}</span>}
+                            </span>
+                            <FiDownload size={13} className="shrink-0 opacity-70" />
+                          </a>
+                        )
+                      )}
+                      {m.content && <p className="leading-snug break-words">{m.content}</p>}
                     </div>
                   </div>
                 );
@@ -567,22 +643,45 @@ export default function SessionCallPage() {
             </div>
 
             {/* Input */}
-            <form onSubmit={sendChat} className="flex items-center gap-2 px-4 py-3 shrink-0" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-              <input
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                placeholder="Type a message…"
-                className="flex-1 px-4 py-2.5 rounded-full text-sm text-white outline-none"
-                style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.1)" }}
-              />
-              <button
-                type="submit"
-                disabled={!chatInput.trim()}
-                className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-all disabled:opacity-40"
-                style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)" }}
-              >
-                <FiSend size={16} style={{ color: "#14213D" }} />
-              </button>
+            <form onSubmit={sendChat} className="px-4 py-3 shrink-0" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+              {chatFile && (
+                <div className="mb-2 flex items-center gap-2 px-2.5 py-1.5 rounded-lg" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}>
+                  <FiFile size={14} className="shrink-0" style={{ color: "#C8A951" }} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-semibold text-white">{chatFile.name}</span>
+                    <span className="block text-[10px]" style={{ color: "rgba(255,255,255,0.5)" }}>{formatBytes(chatFile.size)} · ready to send</span>
+                  </span>
+                  <button type="button" onClick={() => setChatFile(null)} disabled={chatUploading} title="Remove file"
+                    className="text-base leading-none px-1.5 shrink-0 text-white transition-opacity hover:opacity-60 disabled:opacity-30">×</button>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <input type="file" ref={chatFileInputRef} onChange={handleChatFile} className="hidden" disabled={chatUploading} />
+                <button type="button" onClick={() => chatFileInputRef.current?.click()} disabled={chatUploading} title="Attach a file"
+                  className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-all disabled:opacity-40"
+                  style={{ background: chatFile ? "rgba(200,169,81,0.25)" : "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.1)", color: "#C8A951" }}>
+                  <FiPaperclip size={16} />
+                </button>
+                <input
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  placeholder={chatFile ? "Add a caption (optional)…" : "Type a message…"}
+                  disabled={chatUploading}
+                  className="flex-1 px-4 py-2.5 rounded-full text-sm text-white outline-none disabled:opacity-50"
+                  style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.1)" }}
+                />
+                <button
+                  type="submit"
+                  disabled={chatUploading || (!chatInput.trim() && !chatFile)}
+                  className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-all disabled:opacity-40"
+                  style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)" }}
+                >
+                  {chatUploading
+                    ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: "#14213D", borderTopColor: "transparent" }} />
+                    : <FiSend size={16} style={{ color: "#14213D" }} />
+                  }
+                </button>
+              </div>
             </form>
           </motion.div>
         )}

@@ -1,0 +1,39 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Invitations sent{% endblock %}
+
+{% block content %}
+  <h1 style="margin:0 0 8px; font-size:22px; font-weight:normal; color:#1B2B4A;">Your invitations were sent</h1>
+  <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;">
+    Hi {{ coach_name }}, this confirms you invited <strong>{{ count }}</strong> {% if count == 1 %}person{% else %}people{% endif %} to book the session below.
+  </p>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#FAF6EC; border:1px solid rgba(200,169,81,0.3); border-radius:12px; margin-bottom:20px;">
+    <tr><td style="padding:18px 20px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-family:Arial, sans-serif; font-size:14px; color:#1B2B4A;">
+        <tr>
+          <td style="padding:6px 0; color:#9aa3b0; width:90px;">Session</td>
+          <td style="padding:6px 0; font-weight:bold;">{{ skill_name }}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 0; color:#9aa3b0;">When</td>
+          <td style="padding:6px 0; font-weight:bold;">{{ when }}</td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+
+  <p style="margin:0 0 8px; font-size:12px; font-weight:bold; text-transform:uppercase; letter-spacing:1px; color:#A9863A; font-family:Arial, sans-serif;">Invited</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;">
+    {% for r in recipients %}
+    <tr><td style="padding:5px 0; font-size:14px; color:#1B2B4A; font-family:Arial, sans-serif; border-bottom:1px solid rgba(200,169,81,0.15);">
+      &bull; {{ r }}
+    </td></tr>
+    {% endfor %}
+  </table>
+
+  <p style="margin:0; font-size:13px; line-height:1.6; color:#9aa3b0; font-family:Arial, sans-serif;">
+    Whoever confirms first books this time slot. You'll get a separate booking confirmation once someone does.<br>
+    Booking link: <a href="{{ link }}" style="color:#A9863A;">{{ link }}</a>
+  </p>
+{% endblock %}

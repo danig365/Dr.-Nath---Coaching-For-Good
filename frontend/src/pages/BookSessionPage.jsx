@@ -73,6 +73,7 @@ const StepIndicator = ({ step }) => (
 
 // ─── Skill Summary Card ────────────────────────────────────────────────────────
 const SkillSummary = ({ skill, duration }) => {
+  const isFree = parseFloat(skill.price) === 0;
   const totalCost = ((parseFloat(skill.price) / 60) * parseInt(duration)).toFixed(2);
   return (
     <div className="rounded-2xl overflow-hidden mb-6" style={{ border: "1px solid rgba(200,169,81,0.2)" }}>
@@ -93,8 +94,8 @@ const SkillSummary = ({ skill, duration }) => {
             )}
           </div>
           <div className="text-right shrink-0">
-            <p className="text-xs text-[#4A5568]">${parseFloat(skill.price).toFixed(2)}/hr</p>
-            <p className="text-base font-bold text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>${totalCost}</p>
+            <p className="text-xs text-[#4A5568]">{isFree ? "No charge" : `$${parseFloat(skill.price).toFixed(2)}/hr`}</p>
+            <p className="text-base font-bold text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>{isFree ? "Free" : `$${totalCost}`}</p>
             <p className="text-xs text-[#4A5568]">for {duration} min</p>
           </div>
         </div>
@@ -360,7 +361,24 @@ const BookSessionPage = () => {
     try {
       // 1. Reserve the slot so nobody else can grab it during checkout.
       await api.post(`/bookings/slots/${slot.id}/hold/`);
-      // 2. Start payment for the slot's duration.
+
+      // 2a. Free session → confirm directly, no payment step.
+      const isFree = parseFloat(skill?.price ?? 0) === 0;
+      if (isFree) {
+        await api.post("/bookings/confirm-free-booking/", {
+          booking_data: {
+            skill: parseInt(skillId),
+            slot_id: slot.id,
+            skill_level: formData.skillLevel,
+            message: formData.message,
+          },
+        });
+        toast.success("Your session is booked! 🎉");
+        navigate("/my-learning");
+        return;
+      }
+
+      // 2b. Paid session → start payment for the slot's duration.
       const res = await api.post("/bookings/create-payment-intent/", {
         skill_id: parseInt(skillId),
         duration: slot.duration_minutes,
@@ -369,14 +387,14 @@ const BookSessionPage = () => {
       setPaymentAmount(res.data.amount);
       setPaymentStep(true);
     } catch (err) {
-      const msg = err.response?.data?.detail || "This slot is no longer available. Please pick another.";
+      const msg = err.response?.data?.detail || err.response?.data?.error || "This slot is no longer available. Please pick another.";
       toast.error(msg);
       fetchSlots();
       setSelectedSlot(null);
     } finally {
       setIsSubmitting(false);
     }
-  }, [skillId, fetchSlots]);
+  }, [skillId, skill, formData, fetchSlots, navigate]);
 
   const handleSubmit = async e => {
     e.preventDefault();
@@ -561,23 +579,30 @@ const BookSessionPage = () => {
                   </div>
 
                   {/* Price breakdown */}
-                  <div className="rounded-xl p-4" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.15)" }}>
-                    <div className="flex justify-between text-sm mb-1.5">
-                      <span style={{ color: "#4A5568" }}>Rate</span>
-                      <span className="font-medium text-[#1B2B4A]">${parseFloat(skill.price).toFixed(2)}/hr</span>
+                  {parseFloat(skill.price) === 0 ? (
+                    <div className="rounded-xl p-4 flex justify-between items-center" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.15)" }}>
+                      <span className="text-sm font-bold" style={{ color: "#1B2B4A" }}>Total</span>
+                      <span className="text-sm font-bold" style={{ color: "#2E7D32" }}>Free · no payment needed</span>
                     </div>
-                    <div className="flex justify-between text-sm mb-1.5">
-                      <span style={{ color: "#4A5568" }}>Duration</span>
-                      <span className="font-medium text-[#1B2B4A]">{selectedSlot ? `${duration} minutes` : "Select a slot"}</span>
+                  ) : (
+                    <div className="rounded-xl p-4" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.15)" }}>
+                      <div className="flex justify-between text-sm mb-1.5">
+                        <span style={{ color: "#4A5568" }}>Rate</span>
+                        <span className="font-medium text-[#1B2B4A]">${parseFloat(skill.price).toFixed(2)}/hr</span>
+                      </div>
+                      <div className="flex justify-between text-sm mb-1.5">
+                        <span style={{ color: "#4A5568" }}>Duration</span>
+                        <span className="font-medium text-[#1B2B4A]">{selectedSlot ? `${duration} minutes` : "Select a slot"}</span>
+                      </div>
+                      <div className="h-px my-2" style={{ background: "rgba(200,169,81,0.2)" }} />
+                      <div className="flex justify-between text-sm font-bold">
+                        <span style={{ color: "#1B2B4A" }}>Total</span>
+                        <span style={{ color: "#A9863A" }}>
+                          ${((parseFloat(skill.price) / 60) * duration).toFixed(2)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="h-px my-2" style={{ background: "rgba(200,169,81,0.2)" }} />
-                    <div className="flex justify-between text-sm font-bold">
-                      <span style={{ color: "#1B2B4A" }}>Total</span>
-                      <span style={{ color: "#A9863A" }}>
-                        ${((parseFloat(skill.price) / 60) * duration).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
+                  )}
 
                   <motion.button
                     type="submit"
@@ -592,9 +617,15 @@ const BookSessionPage = () => {
                         Processing...
                       </>
                     ) : isAuthenticated ? (
-                      <>
-                        <FiCreditCard size={14} /> Proceed to Payment
-                      </>
+                      parseFloat(skill.price) === 0 ? (
+                        <>
+                          <FiCheckCircle size={14} /> Confirm Booking
+                        </>
+                      ) : (
+                        <>
+                          <FiCreditCard size={14} /> Proceed to Payment
+                        </>
+                      )
                     ) : (
                       <>
                         <FiUser size={14} /> Sign In to Confirm

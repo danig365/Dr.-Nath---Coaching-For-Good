@@ -6,6 +6,7 @@ import {
   FiSearch, FiSliders, FiCheckCircle, FiX,
   FiArrowRight, FiStar, FiDollarSign, FiUsers,
 } from "react-icons/fi";
+import { FaLinkedin } from "react-icons/fa";
 
 // ─── Coach Card ───────────────────────────────────────────────────────────────
 const CoachCard = ({ coach, index, onView }) => (
@@ -46,6 +47,13 @@ const CoachCard = ({ coach, index, onView }) => (
               >
                 <FiCheckCircle size={10} /> Verified
               </span>
+            )}
+            {coach.linkedin_url && (
+              <a href={coach.linkedin_url} target="_blank" rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()} title="LinkedIn"
+                className="transition-colors" style={{ color: "#0A66C2" }}>
+                <FaLinkedin size={15} />
+              </a>
             )}
           </div>
           {coach.avg_rating && (

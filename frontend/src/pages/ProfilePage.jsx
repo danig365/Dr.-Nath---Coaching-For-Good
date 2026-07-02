@@ -60,6 +60,7 @@ const ProfilePage = () => {
         years_experience: d.profile.years_experience,
         languages: d.profile.languages || [],
         industries: d.profile.industries || [],
+        linkedin_url: d.profile.linkedin_url || "",
         approval_status: d.profile.approval_status,
         is_verified: d.profile.is_verified,
         organisation: d.profile.organisation,
@@ -67,7 +68,7 @@ const ProfilePage = () => {
         coaching_goals: d.profile.coaching_goals || [],
       };
       setProfile(p);
-      setFormData({ bio: p.bio || "", first_name: p.firstName, last_name: p.lastName });
+      setFormData({ bio: p.bio || "", first_name: p.firstName, last_name: p.lastName, linkedin_url: p.linkedin_url || "" });
     } catch (err) {
       toast.error("Failed to load profile.");
       if (err.message?.includes("Session expired")) logout();
@@ -84,11 +85,12 @@ const ProfilePage = () => {
       const res = await api.patch("/profile/", {
         first_name: formData.first_name,
         last_name: formData.last_name,
-        profile: { bio: formData.bio },
+        profile: { bio: formData.bio, linkedin_url: formData.linkedin_url },
       });
       setProfile(prev => ({
         ...prev,
         bio: res.data.profile.bio,
+        linkedin_url: res.data.profile.linkedin_url || "",
         fullName: res.data.full_name,
         firstName: res.data.first_name || "",
         lastName: res.data.last_name || "",
@@ -248,6 +250,32 @@ const ProfilePage = () => {
                 </p>
               )}
             </div>
+
+            {/* LinkedIn (coaches) */}
+            {isCoach() && (
+              <div className="mt-5 pt-5" style={{ borderTop: "1px solid rgba(200,169,81,0.15)" }}>
+                <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "rgba(200,169,81,0.8)" }}>LinkedIn</p>
+                {editMode ? (
+                  <input
+                    type="url"
+                    value={formData.linkedin_url}
+                    onChange={e => setFormData(f => ({ ...f, linkedin_url: e.target.value }))}
+                    placeholder="https://www.linkedin.com/in/your-profile/"
+                    className="w-full px-4 py-3 rounded-xl text-sm focus:outline-none transition-all duration-200"
+                    style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }}
+                    onFocus={e => e.target.style.borderColor = "#C8A951"}
+                    onBlur={e => e.target.style.borderColor = "rgba(200,169,81,0.3)"}
+                  />
+                ) : profile.linkedin_url ? (
+                  <a href={profile.linkedin_url} target="_blank" rel="noopener noreferrer"
+                    className="text-sm font-medium hover:underline break-all" style={{ color: "#0A66C2" }}>
+                    {profile.linkedin_url}
+                  </a>
+                ) : (
+                  <p className="text-sm" style={{ color: "rgba(74,85,104,0.5)" }}>No LinkedIn added yet.</p>
+                )}
+              </div>
+            )}
           </Card>
         </motion.div>
 

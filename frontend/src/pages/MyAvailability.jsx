@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { FiPlus, FiTrash2, FiClock, FiCalendar, FiZap, FiLock, FiUnlock, FiGlobe, FiSettings, FiChevronLeft, FiChevronRight, FiChevronDown, FiUsers, FiVideo, FiXCircle, FiMessageSquare, FiShare2, FiCopy, FiCheck, FiX } from "react-icons/fi";
+import { FiPlus, FiTrash2, FiClock, FiCalendar, FiZap, FiLock, FiUnlock, FiGlobe, FiSettings, FiChevronLeft, FiChevronRight, FiChevronDown, FiUsers, FiVideo, FiXCircle, FiMessageSquare, FiShare2, FiCopy, FiCheck, FiX, FiMail } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 import { useNavigate } from "react-router-dom";
 import { api } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
 import { GROUP_SESSIONS_ENABLED } from "../config/features";
+import { SESSION_GRACE_MS } from "../utils/sessionTiming";
+import SentInvitesPanel from "./SentInvitesPanel";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DURATIONS = [15, 30, 45, 60]; // 60 min is the maximum slot length
@@ -17,12 +19,31 @@ const COMMON_TZS = [
   "Asia/Kolkata", "Asia/Singapore", "Asia/Tokyo", "Australia/Sydney",
 ];
 
+// The coach's browser timezone — used as a sensible pre-fill when they haven't
+// confirmed one yet.
+const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
 const card = { background: "white", border: "1px solid rgba(200,169,81,0.15)", boxShadow: "0 2px 16px rgba(27,43,74,0.05)" };
 const inputStyle = { background: "#FAF6EC", border: "1px solid rgba(27,43,74,0.2)", color: "#1B2B4A" };
 const serif = { fontFamily: "'Playfair Display', serif" };
 
 const fmtTime = (iso, tz) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: tz || undefined });
 const fmtDateShort = (iso, tz) => new Date(iso).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: tz || undefined });
+
+// Interpret a wall-clock date + time as being IN `timeZone` (the coach's chosen
+// timezone) and return the corresponding UTC ISO string. Without this, the
+// browser would parse the typed time in the VIEWER's timezone, so a coach in a
+// different timezone than their browser would store the wrong instant.
+const wallTimeToUtcISO = (dateStr, timeStr, timeZone) => {
+  const [y, mo, d] = dateStr.split("-").map(Number);
+  const [h, mi] = timeStr.split(":").map(Number);
+  const asUtc = Date.UTC(y, mo - 1, d, h, mi, 0);
+  if (!timeZone) return new Date(asUtc).toISOString();
+  // Offset of `timeZone` from UTC at that instant, via locale round-trip.
+  const inTz = new Date(new Date(asUtc).toLocaleString("en-US", { timeZone }));
+  const inUtc = new Date(new Date(asUtc).toLocaleString("en-US", { timeZone: "UTC" }));
+  return new Date(asUtc - (inTz.getTime() - inUtc.getTime())).toISOString();
+};
 const RULES_PER_PAGE = 6;
 
 // ─── Slot status pill ───────────────────────────────────────────────────────
@@ -147,6 +168,9 @@ const CoachCalendar = ({ slots, tz, coachSkills = [], onBlockSlot, onUnblockSlot
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
 
   const todayKey = tzDateKey(new Date().toISOString(), tz);
+  // Past months/days are not selectable — the coach can only manage today onward.
+  const _now = new Date();
+  const prevDisabled = year < _now.getFullYear() || (year === _now.getFullYear() && month <= _now.getMonth());
   const monthLabel = viewMonth.toLocaleDateString([], { month: "long", year: "numeric" });
   const daySlots = selectedKey ? (slotsByDate[selectedKey] || []) : [];
 
@@ -163,10 +187,11 @@ const CoachCalendar = ({ slots, tz, coachSkills = [], onBlockSlot, onUnblockSlot
 
   const addOnDay = () => {
     if (!selectedKey) return;
-    const start = new Date(`${selectedKey}T${addForm.from}:00`);
-    const end = new Date(`${selectedKey}T${addForm.to}:00`);
-    if (end <= start) { toast.error("End time must be after start time."); return; }
-    onAddSlot(start.toISOString(), end.toISOString());
+    // Interpret the typed times in the coach's timezone (`tz`), not the browser's.
+    const startISO = wallTimeToUtcISO(selectedKey, addForm.from, tz);
+    const endISO = wallTimeToUtcISO(selectedKey, addForm.to, tz);
+    if (new Date(endISO) <= new Date(startISO)) { toast.error("End time must be after start time."); return; }
+    onAddSlot(startISO, endISO);
   };
 
   return (
@@ -174,8 +199,8 @@ const CoachCalendar = ({ slots, tz, coachSkills = [], onBlockSlot, onUnblockSlot
       {/* Month grid */}
       <div className="rounded-2xl p-5" style={card}>
         <div className="flex items-center justify-between mb-4">
-          <button type="button" onClick={() => setViewMonth(new Date(year, month - 1, 1))}
-            className="w-9 h-9 rounded-full flex items-center justify-center transition-all hover:bg-[rgba(200,169,81,0.12)]" style={{ color: "#A9863A" }}>
+          <button type="button" disabled={prevDisabled} onClick={() => !prevDisabled && setViewMonth(new Date(year, month - 1, 1))}
+            className="w-9 h-9 rounded-full flex items-center justify-center transition-all hover:bg-[rgba(200,169,81,0.12)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent" style={{ color: "#A9863A" }}>
             <FiChevronLeft size={16} />
           </button>
           <p className="text-base font-bold text-[#1B2B4A]" style={serif}>{monthLabel}</p>
@@ -199,18 +224,21 @@ const CoachCalendar = ({ slots, tz, coachSkills = [], onBlockSlot, onUnblockSlot
             const c = dayArr ? counts(dayArr) : null;
             const isSelected = key === selectedKey;
             const isToday = key === todayKey;
+            const isPast = key < todayKey;
             return (
-              <button key={key} type="button" onClick={() => setSelectedKey(key)}
-                className="relative aspect-square rounded-xl flex flex-col items-center justify-center text-sm font-medium transition-all"
+              <button key={key} type="button" disabled={isPast} onClick={() => !isPast && setSelectedKey(key)}
+                className="relative aspect-square rounded-xl flex flex-col items-center justify-center text-sm font-medium transition-all disabled:cursor-not-allowed"
                 style={
-                  isSelected
+                  isPast
+                    ? { background: "transparent", color: "rgba(74,85,104,0.25)", cursor: "not-allowed" }
+                    : isSelected
                     ? { background: "#1B2B4A", color: "#FAF6EC" }
                     : dayArr
                     ? { background: "rgba(200,169,81,0.12)", color: "#1B2B4A", cursor: "pointer" }
                     : { background: "transparent", color: "rgba(74,85,104,0.5)", cursor: "pointer", border: isToday ? "1px solid rgba(200,169,81,0.4)" : "1px solid transparent" }
                 }>
                 <span>{d}</span>
-                {c && (
+                {!isPast && c && (
                   <span className="flex items-center gap-0.5 mt-0.5">
                     {c.open > 0 && <span className="w-1.5 h-1.5 rounded-full" style={{ background: isSelected ? "#E8C96A" : "#2E7D32" }} />}
                     {c.booked > 0 && <span className="w-1.5 h-1.5 rounded-full" style={{ background: isSelected ? "#FAF6EC" : "#1B2B4A" }} />}
@@ -266,10 +294,19 @@ const CoachCalendar = ({ slots, tz, coachSkills = [], onBlockSlot, onUnblockSlot
               <div className="space-y-2 mb-5">
                 {daySlots.map((slot) => {
                   const locked = slot.status === "booked" || slot.status === "held";
+                  const invited = slot.invited_emails || [];
                   return (
-                    <div key={slot.id} className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: "#FAF6EC", border: "1px solid rgba(27,43,74,0.06)" }}>
+                    <div key={slot.id} className="rounded-xl px-3 py-2" style={{ background: "#FAF6EC", border: "1px solid rgba(27,43,74,0.06)" }}>
+                    <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-[#1B2B4A]">{fmtTime(slot.start_datetime, tz)}–{fmtTime(slot.end_datetime, tz)}</span>
                       <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full" style={STATUS_STYLE[slot.status] || STATUS_STYLE.open}>{slot.status}</span>
+                      {invited.length > 0 && slot.status === "open" && (
+                        <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full flex items-center gap-1"
+                          style={{ background: "rgba(200,169,81,0.18)", color: "#8a6d1f", border: "1px solid rgba(200,169,81,0.4)" }}
+                          title={`Invited: ${invited.join(", ")}`}>
+                          <FiMail size={9} /> Invited · {invited.length}
+                        </span>
+                      )}
                       <div className="ml-auto flex items-center gap-1">
                         {locked ? (
                           <span className="text-[11px] italic" style={{ color: "rgba(74,85,104,0.5)" }}>locked</span>
@@ -293,6 +330,12 @@ const CoachCalendar = ({ slots, tz, coachSkills = [], onBlockSlot, onUnblockSlot
                           </>
                         )}
                       </div>
+                    </div>
+                    {invited.length > 0 && (
+                      <p className="text-[11px] mt-1.5 leading-snug break-words" style={{ color: "rgba(74,85,104,0.8)" }}>
+                        <span style={{ color: "#A9863A", fontWeight: 600 }}>Invitation sent to:</span> {invited.join(", ")}
+                      </p>
+                    )}
                     </div>
                   );
                 })}
@@ -323,10 +366,37 @@ const CoachCalendar = ({ slots, tz, coachSkills = [], onBlockSlot, onUnblockSlot
 };
 
 // ─── Share-slot invite modal ──────────────────────────────────────────────────
-const ShareSlotModal = ({ slot, skills, tz, onClose }) => {
+const ShareSlotModal = ({ slot, skills, tz, onClose, onSent }) => {
   // Default to the slot's own skill if it has one, else the first offering.
   const [skillId, setSkillId] = useState(() => slot.skill ?? (skills[0]?.id ?? ""));
   const [copied, setCopied] = useState(false);
+  const [email, setEmail] = useState("");
+  const [note, setNote] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const sendInvite = async () => {
+    const addrs = email.trim();
+    if (!addrs) { toast.error("Enter at least one recipient email."); return; }
+    if (!skillId) { toast.error("Pick an offering first."); return; }
+    setSending(true);
+    try {
+      const res = await api.post(`/bookings/slots/${slot.id}/invite/`, {
+        emails: addrs, skill_id: skillId, message: note.trim(),
+      });
+      toast.success(res.data?.detail || "Invite sent.");
+      setEmail(""); setNote("");
+      onSent?.(); // refresh the calendar so the "Invited" badge appears
+
+    } catch (err) {
+      if (err.response?.status === 401) {
+        toast.error("Your session expired — please log in again, then resend the invite.");
+      } else {
+        toast.error(err.response?.data?.detail || "Could not send the invite. Please try again.");
+      }
+    } finally {
+      setSending(false);
+    }
+  };
 
   const link = skillId
     ? `${window.location.origin}/book/${skillId}?slot=${slot.id}`
@@ -394,6 +464,26 @@ const ShareSlotModal = ({ slot, skills, tz, onClose }) => {
         <p className="text-[11px] mt-3 leading-relaxed" style={{ color: "rgba(74,85,104,0.7)" }}>
           Anyone with this link lands on the booking page with this exact time pre-selected. They sign in only when they confirm.
         </p>
+
+        {/* Or email the invite directly */}
+        <div className="mt-5 pt-5" style={{ borderTop: "1px solid rgba(200,169,81,0.3)" }}>
+          <label className="block text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#A9863A" }}>Or email the invite</label>
+          <div className="flex items-start gap-2 mb-1">
+            <input type="text" value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="one@email.com; two@email.com; three@email.com"
+              className="flex-1 rounded-xl px-3 py-2.5 text-sm" style={inputStyle} />
+            <button onClick={sendInvite} disabled={sending || !link}
+              className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold navy-btn disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap">
+              {sending ? "Sending…" : "Send invite"}
+            </button>
+          </div>
+          <p className="text-[11px] mb-2" style={{ color: "rgba(74,85,104,0.7)" }}>
+            Separate multiple addresses with a semicolon (;) to invite several people at once.
+          </p>
+          <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
+            placeholder="Add a short personal note (optional)"
+            className="w-full rounded-xl px-3 py-2 text-sm resize-none" style={inputStyle} />
+        </div>
       </motion.div>
     </motion.div>
   );
@@ -407,6 +497,8 @@ const MyAvailability = () => {
   const [rules, setRules] = useState([]);
   const [slots, setSlots] = useState([]);
   const [settings, setSettings] = useState({ timezone: "UTC", booking_horizon_days: 30, min_notice_hours: 12 });
+  // The timezone actually saved on the server ('UTC' = the coach hasn't confirmed one).
+  const [savedTimezone, setSavedTimezone] = useState("UTC");
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [savingId, setSavingId] = useState(null);
@@ -424,10 +516,11 @@ const MyAvailability = () => {
   const [rosterFor, setRosterFor] = useState(null);
   const [rosterData, setRosterData] = useState([]);
 
-  // Coach can enter the call from 15 min before start until the scheduled end.
+  // Coach can enter the call from 15 min before start until a grace window
+  // after the scheduled end.
   const canJoinCall = (s) =>
     s.status !== "cancelled" &&
-    new Date(s.end_datetime) > new Date() &&
+    new Date(s.end_datetime).getTime() + SESSION_GRACE_MS > Date.now() &&
     Date.now() >= new Date(s.start_datetime).getTime() - 15 * 60 * 1000;
 
   const totalRulePages = Math.max(1, Math.ceil(rules.length / RULES_PER_PAGE));
@@ -450,8 +543,12 @@ const MyAvailability = () => {
       setGroupSessions(g.data);
       setCoachSkills(sk.data);
       const prof = p.data.profile || {};
+      const serverTz = prof.timezone || "UTC";
+      setSavedTimezone(serverTz);
       setSettings({
-        timezone: prof.timezone || "UTC",
+        // Pre-fill the browser timezone when none is confirmed yet, so the coach
+        // has a sensible value to review and save.
+        timezone: serverTz === "UTC" ? BROWSER_TZ : serverTz,
         booking_horizon_days: prof.booking_horizon_days ?? 30,
         min_notice_hours: prof.min_notice_hours ?? 12,
       });
@@ -509,6 +606,7 @@ const MyAvailability = () => {
   const saveSettings = async () => {
     try {
       await api.patch("/profile/", { profile: settings });
+      setSavedTimezone(settings.timezone); // now confirmed — hides the prompt
       toast.success("Booking settings updated.");
     } catch { toast.error("Failed to save settings."); }
   };
@@ -602,8 +700,9 @@ const MyAvailability = () => {
       const payload = {
         title: gsForm.title,
         description: gsForm.description,
-        start_datetime: new Date(gsForm.start).toISOString(),
-        end_datetime: new Date(gsForm.end).toISOString(),
+        // Interpret the chosen times in the coach's timezone, not the browser's.
+        start_datetime: wallTimeToUtcISO(...gsForm.start.split("T"), settings.timezone),
+        end_datetime: wallTimeToUtcISO(...gsForm.end.split("T"), settings.timezone),
         capacity: Number(gsForm.capacity),
         price_per_seat: gsForm.price_per_seat || 0,
       };
@@ -664,9 +763,10 @@ const MyAvailability = () => {
         </motion.div>
 
         {/* Tabs */}
-        <div className="flex gap-2 mb-6">
+        <div className="flex flex-wrap gap-2 mb-6">
           {[["rules", "Schedule", FiClock], ["slots", "Calendar", FiCalendar],
-            ...(GROUP_SESSIONS_ENABLED ? [["group", "Group Sessions", FiUsers]] : [])].map(([key, label, Icon]) => (
+            ...(GROUP_SESSIONS_ENABLED ? [["group", "Group Sessions", FiUsers]] : []),
+            ["invites", "Sent Invites", FiMail]].map(([key, label, Icon]) => (
             <button key={key} onClick={() => setTab(key)}
               className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all"
               style={tab === key
@@ -685,11 +785,24 @@ const MyAvailability = () => {
                 <h3 className="flex items-center gap-2 text-lg font-normal text-[#1B2B4A] mb-4" style={serif}>
                   <FiSettings size={16} style={{ color: "#C8A951" }} /> Booking Policy
                 </h3>
+
+                {savedTimezone === "UTC" && (
+                  <div className="flex items-start gap-2.5 rounded-xl px-4 py-3 mb-4"
+                    style={{ background: "rgba(200,169,81,0.12)", border: "1px solid rgba(200,169,81,0.35)" }}>
+                    <FiGlobe size={16} className="mt-0.5 shrink-0" style={{ color: "#A9863A" }} />
+                    <p className="text-sm leading-relaxed" style={{ color: "#8a6d1f" }}>
+                      Please confirm your timezone. We detected <strong>{BROWSER_TZ}</strong> — make sure it's
+                      right and click <strong>Save Policy</strong>. Your availability and slots use this timezone,
+                      so an incorrect value would offset your session times.
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap items-end gap-4">
                   <Field label="Timezone">
                     <select value={settings.timezone} onChange={(e) => setSettings((s) => ({ ...s, timezone: e.target.value }))}
                       className="rounded-xl px-3 py-2 text-sm w-52" style={inputStyle}>
-                      {COMMON_TZS.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
+                      {[...new Set([settings.timezone, ...COMMON_TZS])].map((tz) => <option key={tz} value={tz}>{tz}</option>)}
                     </select>
                   </Field>
                   <Field label="Booking horizon (days)">
@@ -887,7 +1000,7 @@ const MyAvailability = () => {
                       {/* Built-in call + group chat */}
                       {s.status !== "cancelled" && (
                         <div className="flex flex-wrap items-center gap-2 mt-4">
-                          {new Date(s.end_datetime) > new Date() && (
+                          {new Date(s.end_datetime).getTime() + SESSION_GRACE_MS > Date.now() && (
                             canJoinCall(s) ? (
                               <button onClick={() => navigate(`/group-session/${s.id}/call`)}
                                 className="px-4 py-2 rounded-full text-sm font-semibold flex items-center gap-1.5"
@@ -933,6 +1046,12 @@ const MyAvailability = () => {
               )}
             </motion.div>
           )}
+
+          {tab === "invites" && (
+            <motion.div key="invites" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <SentInvitesPanel tz={settings.timezone} />
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
 
@@ -944,6 +1063,7 @@ const MyAvailability = () => {
             skills={coachSkills}
             tz={settings.timezone}
             onClose={() => setShareSlot(null)}
+            onSent={async () => { try { const s = await api.get("/bookings/slots/"); setSlots(s.data); } catch { /* noop */ } }}
           />
         )}
       </AnimatePresence>

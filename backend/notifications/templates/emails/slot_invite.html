@@ -1,0 +1,46 @@
+{% extends "emails/base.html" %}
+
+{% block title %}You're invited{% endblock %}
+
+{% block content %}
+  <h1 style="margin:0 0 8px; font-size:22px; font-weight:normal; color:#1B2B4A;">You're invited to a coaching session</h1>
+  <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;">
+    {{ coach_name }} has invited you to book a coaching session. The time below is held for you — just confirm to book it.
+  </p>
+
+  {% if note %}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+    <tr><td style="padding:14px 16px; background-color:#FAF6EC; border-left:3px solid #C8A951; border-radius:6px;">
+      <p style="margin:0; font-size:14px; line-height:1.6; color:#4A5568; font-style:italic; font-family:Arial, sans-serif;">"{{ note }}"</p>
+    </td></tr>
+  </table>
+  {% endif %}
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#FAF6EC; border:1px solid rgba(200,169,81,0.3); border-radius:12px; margin-bottom:24px;">
+    <tr><td style="padding:18px 20px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-family:Arial, sans-serif; font-size:14px; color:#1B2B4A;">
+        <tr>
+          <td style="padding:6px 0; color:#9aa3b0; width:90px;">Session</td>
+          <td style="padding:6px 0; font-weight:bold;">{{ skill_name }}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 0; color:#9aa3b0;">When</td>
+          <td style="padding:6px 0; font-weight:bold;">{{ when }}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 0; color:#9aa3b0;">Coach</td>
+          <td style="padding:6px 0;">{{ coach_name }}</td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+
+  <a href="{{ link }}" style="display:inline-block; background:linear-gradient(135deg,#C8A951,#F0D98C); color:#14213D; text-decoration:none; font-weight:bold; font-size:14px; padding:12px 28px; border-radius:999px; font-family:Arial, sans-serif;">
+    Book this session
+  </a>
+
+  <p style="margin:20px 0 0; font-size:12px; line-height:1.6; color:#9aa3b0; font-family:Arial, sans-serif;">
+    Or paste this link into your browser:<br>
+    <a href="{{ link }}" style="color:#A9863A; word-break:break-all;">{{ link }}</a>
+  </p>
+{% endblock %}

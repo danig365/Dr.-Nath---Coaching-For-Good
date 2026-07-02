@@ -7,6 +7,6 @@ Hi {{ recipient_name }}, this is a reminder of your session with {{ other_name }
   Session  : {{ skill_name }}
   When     : {{ session_when }}
   Duration : {{ duration }} minutes
-{% if meeting_link %}  Join     : {{ meeting_link }}
-{% endif %}
-{% if meeting_link %}Join the session: {{ meeting_link }}{% elif role == 'coach' %}View in My Sessions: {{ manage_url }}{% else %}View in My Learning: {{ manage_url }}{% endif %}{% endblock %}
+
+Join the session: {{ join_link }}
+Or open it from your dashboard ({% if role == 'coach' %}My Sessions{% else %}My Learning{% endif %}): {{ manage_url }}{% endblock %}

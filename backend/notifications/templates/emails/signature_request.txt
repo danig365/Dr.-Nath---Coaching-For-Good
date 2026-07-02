@@ -1,0 +1,11 @@
+{% extends "emails/base.txt" %}
+{% block content %}{{ coach_name }} SENT YOU A DOCUMENT TO SIGN
+
+Hi {{ recipient_name }}, please review and sign:
+
+  {{ title }}
+{% if message %}
+  {{ message }}
+{% endif %}
+Review & sign (sign in required):
+{{ link }}{% endblock %}

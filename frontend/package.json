@@ -12,11 +12,13 @@
   "dependencies": {
     "@fontsource/playfair-display": "^5.2.8",
     "@heroicons/react": "^2.2.0",
+    "@livekit/track-processors": "^0.7.2",
     "@stripe/react-stripe-js": "^6.6.0",
     "@stripe/stripe-js": "^9.8.0",
     "axios": "^1.11.0",
     "framer-motion": "^12.18.1",
     "jwt-decode": "^4.0.0",
+    "livekit-client": "^2.19.2",
     "prop-types": "^15.8.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

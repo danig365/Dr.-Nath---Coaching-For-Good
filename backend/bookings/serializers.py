@@ -1,5 +1,8 @@
+from datetime import datetime, timedelta, timezone as dt_timezone
+
 from rest_framework import serializers
-from .models import SessionBooking, Review, TimeSlot, GroupSession, GroupEnrollment
+from django.utils import timezone as dj_timezone
+from .models import SessionBooking, Review, TimeSlot, GroupSession, GroupEnrollment, SlotInvite
 from profiles.models import CustomUser, UserProfile
 from skills.models import Skill
 
@@ -8,15 +11,26 @@ class TimeSlotSerializer(serializers.ModelSerializer):
     coach_username = serializers.CharField(source='coach.user.username', read_only=True)
     skill_title = serializers.CharField(source='skill.name', read_only=True)
     duration_minutes = serializers.IntegerField(read_only=True)
+    # Who this slot was invited to — only ever exposed to the slot's own coach,
+    # never on the public available-slots listing.
+    invited_emails = serializers.SerializerMethodField()
 
     class Meta:
         model = TimeSlot
         fields = [
             'id', 'coach', 'coach_username', 'skill', 'skill_title',
             'start_datetime', 'end_datetime', 'duration_minutes',
-            'status', 'source', 'held_until', 'created_at',
+            'status', 'source', 'held_until', 'created_at', 'invited_emails',
         ]
         read_only_fields = ['id', 'coach', 'source', 'held_until', 'created_at']
+
+    def get_invited_emails(self, obj):
+        request = self.context.get('request')
+        viewer = getattr(request, 'user', None)
+        # Guard the recipient list: only the slot's coach can see it.
+        if not viewer or not viewer.is_authenticated or obj.coach.user_id != viewer.id:
+            return []
+        return [i.email for i in obj.invites.all()]
 
     def validate(self, attrs):
         start = attrs.get('start_datetime', getattr(self.instance, 'start_datetime', None))
@@ -28,29 +42,118 @@ class TimeSlotSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("A slot can be at most 60 minutes long.")
         return attrs
 
+
+class SlotInviteSerializer(serializers.ModelSerializer):
+    """Read model for the coach's "Sent Invites" history."""
+    skill_title = serializers.CharField(source='skill.name', read_only=True, default=None)
+    slot_start = serializers.DateTimeField(source='slot.start_datetime', read_only=True)
+    slot_end = serializers.DateTimeField(source='slot.end_datetime', read_only=True)
+    duration_minutes = serializers.IntegerField(source='slot.duration_minutes', read_only=True)
+    status = serializers.SerializerMethodField()
+    can_resend = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SlotInvite
+        fields = [
+            'id', 'email', 'skill', 'skill_title', 'note',
+            'slot', 'slot_start', 'slot_end', 'duration_minutes',
+            'invited_at', 'last_sent_at', 'sent_count',
+            'status', 'can_resend',
+        ]
+
+    def get_status(self, obj):
+        """Pending (open, future) · Booked (this invitee took it) ·
+        Filled (someone else booked the slot) · Expired (slot passed)."""
+        booking = getattr(obj.slot, 'booking', None)
+        if booking is not None:
+            booker_email = (booking.learner.email or '').lower()
+            if booker_email and booker_email == obj.email.lower():
+                return 'booked'
+            return 'filled'
+        if obj.slot.start_datetime < dj_timezone.now():
+            return 'expired'
+        return 'pending'
+
+    def get_can_resend(self, obj):
+        # Re-send pending invites as long as a skill can be resolved to rebuild the
+        # booking link: the one stored on the invite, the slot's, or — for legacy
+        # invites that predate skill capture — any offering the coach has.
+        if self.get_status(obj) != 'pending':
+            return False
+        if obj.skill_id or obj.slot.skill_id:
+            return True
+        # Computed once per request in the viewset context to avoid an N+1 query.
+        return bool(self.context.get('coach_has_skills'))
+
+
 class SessionBookingSerializer(serializers.ModelSerializer):
     learner_username = serializers.CharField(source='learner.username', read_only=True)
     mentor_username = serializers.CharField(source='mentor.user.username', read_only=True)
+    # Display names: "First Last" when set, else the username.
+    learner_name = serializers.SerializerMethodField()
+    mentor_name = serializers.SerializerMethodField()
     skill_title = serializers.CharField(source='skill.name', read_only=True)
     price = serializers.DecimalField(source='skill.price', max_digits=10, decimal_places=2, read_only=True)
     feedback = serializers.SerializerMethodField()
     unread_messages = serializers.SerializerMethodField()
+    # Absolute UTC start/end (ISO) — the source of truth for the frontend to
+    # convert to each viewer's local timezone. session_date/session_time are kept
+    # for backward compatibility but must NOT be parsed as local on the client.
+    slot_start = serializers.SerializerMethodField()
+    slot_end = serializers.SerializerMethodField()
 
     class Meta:
         model = SessionBooking
         fields = [
         'id', 'learner', 'mentor', 'skill', 'session_date',
-        'session_time', 'created_at', 'status',
+        'session_time', 'slot_start', 'slot_end', 'created_at', 'status',
         'duration', 'skill_level', 'message', 'notes_file', 'meeting_link',
-        'learner_username', 'mentor_username', 'skill_title', 'price', 'feedback', 'unread_messages'
+        'learner_username', 'mentor_username', 'learner_name', 'mentor_name',
+        'skill_title', 'price', 'feedback', 'unread_messages',
+        'payment_status', 'amount_paid',
         ]
         # ⭐ Corrected read_only_fields list for the new create logic ⭐
         # 'learner' is not sent by frontend. 'mentor' is inferred from 'skill'.
         # So we remove 'learner' and 'mentor' from fields and add 'skill' here to allow it to be written.
         read_only_fields = [
         'id', 'created_at',
-        'learner_username', 'mentor_username', 'skill_title', 'learner', 'mentor', 'price', 'feedback'
+        'learner_username', 'mentor_username', 'skill_title', 'learner', 'mentor', 'price', 'feedback',
+        'payment_status', 'amount_paid',
        ]
+
+    @staticmethod
+    def _display_name(user):
+        if not user:
+            return ''
+        full = f"{user.first_name} {user.last_name}".strip()
+        return full or user.username
+
+    def get_learner_name(self, obj):
+        return self._display_name(obj.learner)
+
+    def get_mentor_name(self, obj):
+        return self._display_name(obj.mentor.user if obj.mentor else None)
+
+    def _start_utc(self, obj):
+        """Authoritative UTC start: the slot if present, else session_date/time
+        treated as UTC (they're derived from the slot's UTC start)."""
+        if obj.slot and obj.slot.start_datetime:
+            return obj.slot.start_datetime
+        if obj.session_date and obj.session_time:
+            return datetime.combine(obj.session_date, obj.session_time, tzinfo=dt_timezone.utc)
+        return None
+
+    def get_slot_start(self, obj):
+        start = self._start_utc(obj)
+        return start.isoformat() if start else None
+
+    def get_slot_end(self, obj):
+        if obj.slot and obj.slot.end_datetime:
+            return obj.slot.end_datetime.isoformat()
+        start = self._start_utc(obj)
+        if not start:
+            return None
+        return (start + timedelta(minutes=obj.duration or 60)).isoformat()
 
     def get_feedback(self, obj):
         review = Review.objects.filter(

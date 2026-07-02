@@ -44,6 +44,7 @@ class UserProfile(models.Model):
     years_experience = models.PositiveIntegerField(null=True, blank=True)
     languages = models.JSONField(default=list, blank=True)
     industries = models.JSONField(default=list, blank=True)
+    linkedin_url = models.URLField(max_length=300, blank=True, default='')
 
     # Vetting
     approval_status = models.CharField(max_length=10, choices=APPROVAL_CHOICES, default='pending')
@@ -54,6 +55,18 @@ class UserProfile(models.Model):
     organisation = models.CharField(max_length=255, blank=True, null=True)
     job_title = models.CharField(max_length=255, blank=True, null=True)
     coaching_goals = models.JSONField(default=list, blank=True)  # from quiz
+
+    @property
+    def is_profile_complete(self):
+        user = self.user
+        if not (user.first_name.strip() and user.last_name.strip()):
+            return False
+        if self.role == 'coach':
+            # Hourly rate is optional — a coach may choose not to publish it.
+            return bool(self.bio and self.bio.strip() and self.specialties)
+        if self.role == 'client':
+            return bool(self.job_title and self.job_title.strip() and self.organisation and self.organisation.strip())
+        return True  # admin
 
     def __str__(self):
         return f"{self.user.username} ({self.role})"

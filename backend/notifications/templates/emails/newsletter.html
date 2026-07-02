@@ -1,0 +1,20 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ subject }}{% endblock %}
+
+{% block content %}
+  {% if first_name %}
+  <p style="margin:0 0 18px; font-size:15px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;">
+    Hi {{ first_name }},
+  </p>
+  {% endif %}
+
+  <div style="font-size:15px; line-height:1.7; color:#1B2B4A; font-family:Arial, sans-serif;">
+    {{ body_html|safe }}
+  </div>
+
+  <p style="margin:28px 0 0; font-size:12px; line-height:1.6; color:#9aa3b0; font-family:Arial, sans-serif;">
+    You're receiving this because you subscribed at dr-nath.com.
+    <a href="{{ unsubscribe_url }}" style="color:#A9863A;">Unsubscribe</a>.
+  </p>
+{% endblock %}

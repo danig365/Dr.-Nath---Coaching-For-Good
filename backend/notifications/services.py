@@ -42,7 +42,7 @@ def render_email(template, context=None):
 
 
 def send_email(to, subject, template, context=None, from_email=None,
-               reply_to=None, fail_silently=True):
+               reply_to=None, fail_silently=True, attachments=None, bcc=None):
     """
     Send a branded email rendered from a template pair.
 
@@ -56,6 +56,10 @@ def send_email(to, subject, template, context=None, from_email=None,
         reply_to: optional list of reply-to addresses.
         fail_silently: when True (default), log and return False on error
             instead of raising — so callers in request paths stay safe.
+        attachments: optional list of (filename, content_bytes, mimetype) to
+            attach (e.g. a PDF receipt).
+        bcc: optional list of blind-copy addresses (e.g. copy the coach on an
+            invite so they have a record without the recipient seeing it).
 
     Returns:
         True if the message was handed to the backend, else False.
@@ -67,15 +71,20 @@ def send_email(to, subject, template, context=None, from_email=None,
 
     try:
         text_body, html_body = render_email(template, context)
+        bcc_list = [a for a in (bcc or []) if a and a not in recipients]
         msg = EmailMultiAlternatives(
             subject=subject,
             body=text_body,
             from_email=from_email or settings.DEFAULT_FROM_EMAIL,
             to=recipients,
             reply_to=reply_to,
+            bcc=bcc_list or None,
         )
         if html_body:
             msg.attach_alternative(html_body, 'text/html')
+        for att in (attachments or []):
+            filename, content, mimetype = att
+            msg.attach(filename, content, mimetype)
         msg.send(fail_silently=False)
         logger.info("Email '%s' sent to %s", template, ", ".join(recipients))
         return True

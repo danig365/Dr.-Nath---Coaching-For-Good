@@ -9,6 +9,7 @@ import {
   FiDollarSign, FiBriefcase, FiAward, FiShield,
   FiActivity, FiCalendar, FiTrendingUp, FiBarChart2,
   FiUserCheck, FiUserPlus, FiAlertCircle, FiTarget,
+  FiMail, FiTrash2, FiCornerUpLeft, FiSend, FiEdit2, FiPlus,
 } from "react-icons/fi";
 import {
   ResponsiveContainer,
@@ -170,6 +171,13 @@ export default function AdminPanel() {
   const [sessionDateFrom, setSessionDateFrom] = useState("");
   const [sessionDateTo, setSessionDateTo] = useState("");
   const [sessionSort, setSessionSort] = useState("newest");
+  const [messages, setMessages] = useState([]);
+  const [newsletters, setNewsletters] = useState([]);
+  const [subscriberInfo, setSubscriberInfo] = useState({ total: 0, active: 0, subscribers: [] });
+  const [compose, setCompose] = useState({ id: null, subject: "", body_html: "" });
+  const [composeSaving, setComposeSaving] = useState(false);
+  const [sendModal, setSendModal] = useState({ open: false, newsletter: null });
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated || !isAdmin()) { navigate("/"); return; }
@@ -188,6 +196,96 @@ export default function AdminPanel() {
       setSessions(res.data);
     } catch { /* non-critical */ }
   }, []);
+
+  const fetchMessages = useCallback(async () => {
+    try {
+      const res = await api.get("/contact/");
+      setMessages(Array.isArray(res.data) ? res.data : (res.data.results ?? []));
+    } catch { /* non-critical */ }
+  }, []);
+
+  const markMessageRead = async (id, is_read = true) => {
+    try {
+      await api.patch(`/contact/${id}/`, { is_read });
+      setMessages((ms) => ms.map((m) => (m.id === id ? { ...m, is_read } : m)));
+    } catch { toast.error("Failed to update message."); }
+  };
+
+  const deleteMessage = async (id) => {
+    try {
+      await api.delete(`/contact/${id}/`);
+      setMessages((ms) => ms.filter((m) => m.id !== id));
+    } catch { toast.error("Failed to delete message."); }
+  };
+
+  const fetchNewsletters = useCallback(async () => {
+    try {
+      const res = await api.get("/newsletter/admin/newsletters/");
+      setNewsletters(Array.isArray(res.data) ? res.data : (res.data.results ?? []));
+    } catch { /* non-critical */ }
+  }, []);
+
+  const fetchSubscribers = useCallback(async () => {
+    try {
+      const res = await api.get("/newsletter/admin/subscribers/");
+      setSubscriberInfo(res.data);
+    } catch { /* non-critical */ }
+  }, []);
+
+  const editDraft = (n) => setCompose({ id: n.id, subject: n.subject, body_html: n.body_html });
+  const resetCompose = () => setCompose({ id: null, subject: "", body_html: "" });
+
+  const saveDraft = async (e) => {
+    e.preventDefault();
+    if (!compose.subject.trim() || !compose.body_html.trim()) {
+      toast.error("Subject and body are required.");
+      return;
+    }
+    setComposeSaving(true);
+    try {
+      const payload = { subject: compose.subject, body_html: compose.body_html };
+      if (compose.id) {
+        await api.patch(`/newsletter/admin/newsletters/${compose.id}/`, payload);
+        toast.success("Draft updated.");
+      } else {
+        await api.post("/newsletter/admin/newsletters/", payload);
+        toast.success("Draft saved.");
+      }
+      resetCompose();
+      await fetchNewsletters();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to save draft.");
+    } finally {
+      setComposeSaving(false);
+    }
+  };
+
+  const deleteDraft = async (id) => {
+    try {
+      await api.delete(`/newsletter/admin/newsletters/${id}/`);
+      if (compose.id === id) resetCompose();
+      await fetchNewsletters();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to delete.");
+    }
+  };
+
+  const confirmSend = async () => {
+    const n = sendModal.newsletter;
+    if (!n) return;
+    setSending(true);
+    try {
+      const res = await api.post(`/newsletter/admin/newsletters/${n.id}/send/`);
+      toast.success(`Queued to ${res.data.sent_count} subscriber${res.data.sent_count === 1 ? "" : "s"}.`);
+      if (compose.id === n.id) resetCompose();
+      setSendModal({ open: false, newsletter: null });
+      await fetchNewsletters();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to send.");
+    } finally {
+      setSending(false);
+    }
+  };
 
   const fetchClientStats = useCallback(async () => {
     try {
@@ -234,6 +332,10 @@ export default function AdminPanel() {
           await fetchClientStats();
         } else if (tab === "sessions") {
           await fetchSessions();
+        } else if (tab === "messages") {
+          await fetchMessages();
+        } else if (tab === "newsletter") {
+          await Promise.all([fetchNewsletters(), fetchSubscribers()]);
         } else if (tab === "pending") {
           await fetchCoaches("pending");
         } else {
@@ -276,6 +378,9 @@ export default function AdminPanel() {
     { key: "coaches",   label: "Coach Management",    icon: FiUserCheck },
     { key: "clients",   label: "Client Management",   icon: FiUsers },
     { key: "sessions",  label: "All Sessions",         icon: FiCalendar },
+    { key: "messages",  label: "Messages",             icon: FiMail,
+      badge: messages.filter((m) => !m.is_read).length },
+    { key: "newsletter", label: "Newsletter",          icon: FiSend },
     { key: "all",       label: "All Coaches",          icon: FiUsers },
   ];
 
@@ -1074,7 +1179,166 @@ export default function AdminPanel() {
           );
         })()}
 
-        {!loading && tab !== "overview" && tab !== "analytics" && tab !== "coaches" && tab !== "clients" && tab !== "sessions" && (() => {
+        {!loading && tab === "messages" && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-[#1B2B4A]">Contact Messages</h2>
+              <span className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A" }}>
+                {messages.length} total · {messages.filter((m) => !m.is_read).length} unread
+              </span>
+            </div>
+            {messages.length === 0 ? (
+              <div className="text-center py-16 rounded-2xl" style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)" }}>
+                <p className="text-4xl mb-3">📭</p>
+                <p className="text-sm text-[#4A5568]">No contact messages yet.</p>
+              </div>
+            ) : (
+              messages.map((m) => (
+                <div key={m.id} className="rounded-2xl p-5"
+                  style={{ background: "white", border: m.is_read ? "1px solid rgba(200,169,81,0.15)" : "1px solid rgba(200,169,81,0.5)", boxShadow: "0 2px 12px rgba(27,43,74,0.04)" }}>
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        {!m.is_read && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: "#C8A951" }} />}
+                        <h3 className="text-sm font-bold text-[#1B2B4A] truncate">{m.subject}</h3>
+                      </div>
+                      <p className="text-xs mt-0.5" style={{ color: "#4A5568" }}>
+                        {m.name || "Anonymous"} · <a href={`mailto:${m.email}`} style={{ color: "#A9863A" }}>{m.email}</a>
+                      </p>
+                    </div>
+                    <span className="text-xs whitespace-nowrap" style={{ color: "rgba(74,85,104,0.6)" }}>
+                      {new Date(m.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-relaxed whitespace-pre-line mb-4" style={{ color: "#4A5568" }}>{m.message}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <a href={`mailto:${m.email}?subject=Re: ${encodeURIComponent(m.subject)}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A" }}>
+                      <FiCornerUpLeft size={12} /> Reply
+                    </a>
+                    <button onClick={() => markMessageRead(m.id, !m.is_read)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(27,43,74,0.06)", color: "#1B2B4A" }}>
+                      <FiCheckCircle size={12} /> Mark as {m.is_read ? "unread" : "read"}
+                    </button>
+                    <button onClick={() => deleteMessage(m.id)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ml-auto" style={{ background: "rgba(239,68,68,0.08)", color: "#B91C1C" }}>
+                      <FiTrash2 size={12} /> Delete
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </motion.div>
+        )}
+
+        {!loading && tab === "newsletter" && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h2 className="text-lg font-bold text-[#1B2B4A]">Newsletter</h2>
+              <span className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A" }}>
+                {subscriberInfo.active} active · {subscriberInfo.total} total subscribers
+              </span>
+            </div>
+
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.6fr)_320px]">
+              {/* Compose */}
+              <form onSubmit={saveDraft} className="rounded-2xl p-5 space-y-4"
+                style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)", boxShadow: "0 2px 12px rgba(27,43,74,0.04)" }}>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-[#1B2B4A]">{compose.id ? "Edit draft" : "Compose new"}</h3>
+                  {compose.id && (
+                    <button type="button" onClick={resetCompose}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(27,43,74,0.06)", color: "#1B2B4A" }}>
+                      <FiPlus size={12} /> New
+                    </button>
+                  )}
+                </div>
+                <input type="text" placeholder="Subject" value={compose.subject}
+                  onChange={(e) => setCompose({ ...compose, subject: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl text-sm focus:outline-none"
+                  style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }} />
+                <textarea placeholder="Body (HTML allowed)…" value={compose.body_html} rows={12}
+                  onChange={(e) => setCompose({ ...compose, body_html: e.target.value })}
+                  className="w-full resize-y px-4 py-3 rounded-xl text-sm font-mono focus:outline-none"
+                  style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }} />
+                <button type="submit" disabled={composeSaving}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold disabled:opacity-50"
+                  style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
+                  <FiEdit2 size={14} /> {composeSaving ? "Saving…" : compose.id ? "Update draft" : "Save draft"}
+                </button>
+              </form>
+
+              {/* Subscribers */}
+              <div className="rounded-2xl p-5"
+                style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)", boxShadow: "0 2px 12px rgba(27,43,74,0.04)" }}>
+                <h3 className="text-sm font-bold text-[#1B2B4A] mb-3">Subscribers</h3>
+                {subscriberInfo.subscribers.length === 0 ? (
+                  <p className="text-sm" style={{ color: "#4A5568" }}>No subscribers yet.</p>
+                ) : (
+                  <div className="space-y-2 max-h-80 overflow-y-auto">
+                    {subscriberInfo.subscribers.map((s) => (
+                      <div key={s.id} className="flex items-center justify-between gap-2 text-xs px-3 py-2 rounded-lg"
+                        style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.12)", opacity: s.is_active ? 1 : 0.5 }}>
+                        <span className="min-w-0 truncate text-[#1B2B4A]">{s.first_name ? `${s.first_name} · ` : ""}{s.email}</span>
+                        {!s.is_active && <span className="shrink-0" style={{ color: "#B91C1C" }}>unsub</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Drafts & sent */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-[#1B2B4A]">Issues</h3>
+              {newsletters.length === 0 ? (
+                <div className="text-center py-12 rounded-2xl" style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)" }}>
+                  <p className="text-sm text-[#4A5568]">No newsletters yet. Compose one above.</p>
+                </div>
+              ) : (
+                newsletters.map((n) => (
+                  <div key={n.id} className="rounded-2xl p-4 flex items-start justify-between gap-3"
+                    style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)", boxShadow: "0 2px 12px rgba(27,43,74,0.04)" }}>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-bold text-[#1B2B4A] truncate">{n.subject}</h4>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase shrink-0"
+                          style={n.status === "sent"
+                            ? { background: "rgba(52,168,83,0.12)", color: "#2E7D32" }
+                            : { background: "rgba(251,191,36,0.15)", color: "#92400E" }}>
+                          {n.status}
+                        </span>
+                      </div>
+                      <p className="text-xs mt-1" style={{ color: "rgba(74,85,104,0.7)" }}>
+                        {n.status === "sent"
+                          ? `Sent to ${n.sent_count} · ${new Date(n.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+                          : `Draft · updated ${new Date(n.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+                      </p>
+                    </div>
+                    {n.status === "draft" && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button onClick={() => setSendModal({ open: true, newsletter: n })}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold" style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
+                          <FiSend size={12} /> Send
+                        </button>
+                        <button onClick={() => editDraft(n)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A" }}>
+                          <FiEdit2 size={12} /> Edit
+                        </button>
+                        <button onClick={() => deleteDraft(n.id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(239,68,68,0.08)", color: "#B91C1C" }}>
+                          <FiTrash2 size={12} /> Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {!loading && tab !== "overview" && tab !== "analytics" && tab !== "coaches" && tab !== "clients" && tab !== "sessions" && tab !== "messages" && tab !== "newsletter" && (() => {
           const list = tab === "pending" ? pendingCoaches : allCoaches;
           return (
             <>
@@ -1112,6 +1376,53 @@ export default function AdminPanel() {
 
       {/* ── Reject Modal ──────────────────────────────────────────── */}
       <AnimatePresence>
+        {sendModal.open && (
+          <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !sending && setSendModal({ open: false, newsletter: null })} />
+            <motion.div
+              className="relative rounded-2xl w-full max-w-md z-10 overflow-hidden"
+              style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.2)" }}
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="h-1" style={{ background: "linear-gradient(90deg,#C8A951,#F0D98C)" }} />
+              <div className="p-8">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(200,169,81,0.15)" }}>
+                    <FiSend size={18} style={{ color: "#A9863A" }} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-normal text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>Send newsletter</h3>
+                    <p className="text-xs text-[#4A5568]">This cannot be undone.</p>
+                  </div>
+                </div>
+                <p className="text-sm leading-relaxed mb-6" style={{ color: "#4A5568" }}>
+                  Send <span className="font-bold text-[#1B2B4A]">&ldquo;{sendModal.newsletter?.subject}&rdquo;</span> to{" "}
+                  <span className="font-bold text-[#1B2B4A]">{subscriberInfo.active}</span> active subscriber{subscriberInfo.active === 1 ? "" : "s"}?
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={() => setSendModal({ open: false, newsletter: null })} disabled={sending}
+                    className="flex-1 py-3 rounded-xl text-sm font-semibold border disabled:opacity-50"
+                    style={{ borderColor: "rgba(200,169,81,0.3)", color: "#4A5568" }}>
+                    Cancel
+                  </button>
+                  <motion.button whileHover={!sending ? { scale: 1.02 } : {}} whileTap={!sending ? { scale: 0.97 } : {}}
+                    onClick={confirmSend} disabled={sending}
+                    className="flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60"
+                    style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
+                    {sending
+                      ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: "#14213D", borderTopColor: "transparent" }} />
+                      : <><FiSend size={13} /> Confirm Send</>}
+                  </motion.button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
         {rejectModal.open && (
           <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}

@@ -1,10 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { FiArrowLeft, FiCalendar, FiClock, FiMessageSquare, FiSend, FiUsers, FiVideo } from "react-icons/fi";
+import { FiArrowLeft, FiCalendar, FiClock, FiPaperclip, FiDownload, FiFile, FiMessageSquare, FiSend, FiUsers, FiVideo } from "react-icons/fi";
 import { motion } from "framer-motion";
 import { toast } from "react-toastify";
 import { api } from "../utils/auth";
+import { SESSION_GRACE_MS } from "../utils/sessionTiming";
 import { useAuth } from "../context/AuthContext";
+
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // keep in sync with backend guard
+
+const formatBytes = (bytes) => {
+  if (!bytes && bytes !== 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const isImageType = (type) => typeof type === "string" && type.startsWith("image/");
 
 const GroupChatPage = () => {
   const { id } = useParams();
@@ -14,7 +26,10 @@ const GroupChatPage = () => {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [pendingFile, setPendingFile] = useState(null);
   const endRef = useRef(null);
+  const fileInputRef = useRef(null);
   const wsRef = useRef(null);
   const currentUserId = user?.user_id;
 
@@ -60,8 +75,45 @@ const GroupChatPage = () => {
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  const send = (e) => {
+  // Selecting a file only stages it; nothing is sent until the user hits Send.
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.error("File exceeds the 50 MB limit.");
+      return;
+    }
+    setPendingFile(file);
+  };
+
+  const send = async (e) => {
     e.preventDefault();
+    if (uploading) return;
+
+    // A staged file is sent over REST (optionally with a caption), then broadcast.
+    if (pendingFile) {
+      setUploading(true);
+      try {
+        const form = new FormData();
+        form.append("attachment", pendingFile);
+        const caption = text.trim();
+        if (caption) form.append("content", caption);
+        const res = await api.post(`/bookings/group-sessions/${id}/messages/`, form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        // The upload is also broadcast over the WebSocket; dedup by id handles it.
+        setMessages((prev) => (prev.some((x) => x.id === res.data.id) ? prev : [...prev, res.data]));
+        setPendingFile(null);
+        setText("");
+      } catch (err) {
+        toast.error(err.response?.data?.detail || err.response?.data?.attachment?.[0] || "Failed to send file.");
+      } finally {
+        setUploading(false);
+      }
+      return;
+    }
+
     const t = text.trim();
     const ws = wsRef.current;
     if (!t || ws?.readyState !== WebSocket.OPEN) return;
@@ -71,7 +123,7 @@ const GroupChatPage = () => {
 
   const canJoinCall = session &&
     session.status !== "cancelled" &&
-    new Date(session.end_datetime) > new Date() &&
+    new Date(session.end_datetime).getTime() + SESSION_GRACE_MS > Date.now() &&
     Date.now() >= new Date(session.start_datetime).getTime() - 15 * 60 * 1000;
 
   if (loading) return (
@@ -128,7 +180,40 @@ const GroupChatPage = () => {
                         <span>{mine ? "You" : m.sender_username}</span>
                         <span>{new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                       </div>
-                      <p className="whitespace-pre-wrap">{m.content}</p>
+                      {m.attachment_url && (
+                        isImageType(m.content_type) ? (
+                          <a href={m.attachment_url} target="_blank" rel="noopener noreferrer" className="block mb-1">
+                            <img
+                              src={m.attachment_url}
+                              alt={m.attachment_name || "attachment"}
+                              className="rounded-lg max-h-60 w-auto object-cover"
+                              style={{ border: mine ? "1px solid rgba(20,33,61,0.15)" : "1px solid rgba(200,169,81,0.2)" }}
+                            />
+                          </a>
+                        ) : (
+                          <a
+                            href={m.attachment_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            download={m.attachment_name || true}
+                            className="flex items-center gap-2.5 px-3 py-2 rounded-xl mb-1 transition-opacity hover:opacity-80"
+                            style={mine
+                              ? { background: "rgba(20,33,61,0.1)" }
+                              : { background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.2)" }
+                            }
+                          >
+                            <FiFile size={18} className="shrink-0" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-semibold">{m.attachment_name || "Attachment"}</span>
+                              {m.attachment_size != null && (
+                                <span className="block text-xs opacity-60">{formatBytes(m.attachment_size)}</span>
+                              )}
+                            </span>
+                            <FiDownload size={15} className="shrink-0 opacity-70" />
+                          </a>
+                        )
+                      )}
+                      {m.content && <p className="whitespace-pre-wrap">{m.content}</p>}
                     </div>
                   </div>
                 );
@@ -147,18 +232,48 @@ const GroupChatPage = () => {
             </div>
 
             <form onSubmit={send} className="px-5 py-4" style={{ borderTop: "1px solid rgba(200,169,81,0.15)", background: "white" }}>
-              <div className="flex gap-3">
+              {pendingFile && (
+                <div className="mb-3 flex items-center gap-2.5 px-3 py-2 rounded-xl" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)" }}>
+                  <FiFile size={18} className="shrink-0" style={{ color: "#A9863A" }} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-[#1B2B4A]">{pendingFile.name}</span>
+                    <span className="block text-xs" style={{ color: "rgba(74,85,104,0.6)" }}>{formatBytes(pendingFile.size)} · ready to send</span>
+                  </span>
+                  <button type="button" onClick={() => setPendingFile(null)} disabled={uploading} title="Remove file"
+                    className="text-lg leading-none px-2 shrink-0 transition-opacity hover:opacity-60 disabled:opacity-30" style={{ color: "#A9863A" }}>
+                    ×
+                  </button>
+                </div>
+              )}
+              <div className="flex gap-3 items-end">
+                <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" disabled={uploading} />
+                <motion.button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}
+                  whileHover={!uploading ? { scale: 1.06 } : {}} whileTap={!uploading ? { scale: 0.94 } : {}}
+                  title="Attach a file"
+                  className="flex items-center justify-center w-12 h-12 rounded-xl shrink-0 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ background: pendingFile ? "rgba(200,169,81,0.18)" : "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#A9863A" }}>
+                  <FiPaperclip size={18} />
+                </motion.button>
                 <textarea value={text} onChange={(e) => setText(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(e); } }}
-                  placeholder="Write a message... (Enter to send)" rows={2}
-                  className="flex-1 resize-none px-4 py-3 rounded-xl text-sm focus:outline-none"
+                  placeholder={pendingFile ? "Add a caption (optional)…" : "Write a message... (Enter to send)"} rows={2}
+                  disabled={uploading}
+                  className="flex-1 resize-none px-4 py-3 rounded-xl text-sm focus:outline-none disabled:opacity-50"
                   style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }} />
-                <motion.button type="submit" disabled={!text.trim()}
-                  whileHover={text.trim() ? { scale: 1.04 } : {}} whileTap={text.trim() ? { scale: 0.96 } : {}}
-                  className="flex items-center gap-2 px-5 py-3 rounded-full text-sm font-bold transition-all disabled:opacity-40"
-                  style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
-                  <FiSend size={14} /> Send
-                </motion.button>
+                {(() => {
+                  const canSend = !uploading && (!!text.trim() || !!pendingFile);
+                  return (
+                    <motion.button type="submit" disabled={!canSend}
+                      whileHover={canSend ? { scale: 1.04 } : {}} whileTap={canSend ? { scale: 0.96 } : {}}
+                      className="flex items-center gap-2 px-5 py-3 rounded-full text-sm font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
+                      {uploading
+                        ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: "#14213D", borderTopColor: "transparent" }} />
+                        : <><FiSend size={14} /> Send</>
+                      }
+                    </motion.button>
+                  );
+                })()}
               </div>
             </form>
           </motion.section>

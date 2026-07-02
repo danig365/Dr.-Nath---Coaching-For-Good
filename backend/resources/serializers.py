@@ -34,11 +34,13 @@ def validate_upload_file(f):
 
 class ResourceFolderSerializer(serializers.ModelSerializer):
     resource_count = serializers.IntegerField(source='resources.count', read_only=True)
+    client_username = serializers.CharField(source='client.username', read_only=True)
+    is_private = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = ResourceFolder
-        fields = ['id', 'name', 'resource_count', 'created_at']
-        read_only_fields = ['id', 'resource_count', 'created_at']
+        fields = ['id', 'name', 'client', 'client_username', 'is_private', 'resource_count', 'created_at']
+        read_only_fields = ['id', 'client_username', 'is_private', 'resource_count', 'created_at']
 
 
 class ResourceSerializer(serializers.ModelSerializer):

@@ -1,0 +1,14 @@
+{% extends "emails/base.txt" %}
+
+{% block content %}YOU'RE INVITED TO A COACHING SESSION
+
+{{ coach_name }} has invited you to book a coaching session. The time below is held for you — just confirm to book it.
+{% if note %}
+Note from {{ coach_name }}: "{{ note }}"
+{% endif %}
+  Session : {{ skill_name }}
+  When    : {{ when }}
+  Coach   : {{ coach_name }}
+
+Book this session:
+{{ link }}{% endblock %}

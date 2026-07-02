@@ -1,0 +1,9 @@
+{% extends "emails/base.txt" %}
+
+{% block content %}{% if first_name %}Hi {{ first_name }},
+
+{% endif %}{{ body_html|striptags }}
+
+--------------------------------------------------------------
+You're receiving this because you subscribed at dr-nath.com.
+Unsubscribe: {{ unsubscribe_url }}{% endblock %}

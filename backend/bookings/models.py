@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 from skills.models import Skill, Availability # Ensure Availability is imported
 from profiles.models import CustomUser, UserProfile
 from django.core.validators import MinValueValidator
@@ -192,6 +193,40 @@ class TimeSlot(models.Model):
         return f"{coach_username} · {self.start_datetime:%Y-%m-%d %H:%M} ({self.status})"
 
 
+class SlotInvite(models.Model):
+    """A record that the coach emailed an invite for a slot to a given address.
+
+    Lets the availability calendar show which open slots have pending invites
+    (and to whom), and powers the "Sent Invites" history + one-click resend.
+    Stores the skill and note used so a resend reproduces the original email.
+    Cleared with the slot if it's deleted.
+    """
+    slot = models.ForeignKey(
+        TimeSlot, on_delete=models.CASCADE, related_name='invites'
+    )
+    email = models.EmailField()
+    # The offering the invite link pointed at, and the personal note, kept so a
+    # one-click resend reproduces the same email. Nullable for legacy rows.
+    skill = models.ForeignKey(
+        Skill, on_delete=models.SET_NULL, related_name='slot_invites',
+        null=True, blank=True,
+    )
+    note = models.TextField(blank=True, default='')
+    invited_at = models.DateTimeField(auto_now_add=True)        # first time sent
+    last_sent_at = models.DateTimeField(default=timezone.now)   # most recent (re)send
+    sent_count = models.PositiveIntegerField(default=1)         # total times emailed
+
+    class Meta:
+        ordering = ['-last_sent_at']
+        # One invite record per (slot, email) — re-inviting refreshes it.
+        constraints = [
+            models.UniqueConstraint(fields=['slot', 'email'], name='unique_slot_invite'),
+        ]
+
+    def __str__(self):
+        return f"{self.email} → slot {self.slot_id}"
+
+
 class Milestone(models.Model):
     booking = models.ForeignKey(
         SessionBooking,
@@ -222,6 +257,54 @@ class Milestone(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.client.username} ← {self.coach.user.username})"
+
+
+class Habit(models.Model):
+    """A daily behaviour a coach assigns to a client for between-session
+    accountability. The client logs a HabitCheckIn for each day they do it.
+    Archived (active=False) instead of deleted to preserve check-in history."""
+    coach = models.ForeignKey(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name='created_habits',
+        limit_choices_to={'role': 'coach'},
+    )
+    client = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='habits',
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-active', '-created_at']
+
+    def __str__(self):
+        return f"{self.title} ({self.client.username} ← {self.coach.user.username})"
+
+
+class HabitCheckIn(models.Model):
+    """One row per day the client marks a habit done. Presence = done that day;
+    removing the row = not done. One check-in per habit per date."""
+    habit = models.ForeignKey(
+        Habit,
+        on_delete=models.CASCADE,
+        related_name='check_ins',
+    )
+    date = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date']
+        constraints = [
+            models.UniqueConstraint(fields=['habit', 'date'], name='uniq_habit_checkin_per_day'),
+        ]
+
+    def __str__(self):
+        return f"{self.habit.title} · {self.date}"
 
 
 class Review(models.Model):

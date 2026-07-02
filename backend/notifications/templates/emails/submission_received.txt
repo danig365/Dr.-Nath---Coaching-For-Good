@@ -1,0 +1,12 @@
+{% extends "emails/base.txt" %}
+
+{% block content %}NEW DOCUMENT FROM {{ client_name }}
+
+Hi {{ recipient_name }}, {{ client_name }} submitted a document to you:
+
+  {{ title }}
+{% if note %}
+  Note: {{ note }}
+{% endif %}
+Review it in your Resources inbox (sign in required):
+{{ link }}{% endblock %}

@@ -2,15 +2,17 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   FiCalendar, FiClock, FiCheckCircle, FiXCircle,
-  FiEdit, FiMessageSquare, FiStar, FiDownload,
+  FiEdit, FiMessageSquare, FiStar, FiDownload, FiFileText,
   FiArrowRight, FiVideo, FiBookOpen, FiUsers,
   FiSearch, FiFilter, FiChevronDown,
 } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 import { api } from "../utils/auth";
+import { SESSION_GRACE_MS } from "../utils/sessionTiming";
 import { useAuth } from "../context/AuthContext";
 import SessionFeedbackCard from "../components/SessionFeedbackCard";
+import { downloadFile } from "../utils/downloadFile";
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 const StatusBadge = ({ status }) => {
@@ -64,22 +66,28 @@ const ActionBtn = ({ onClick, icon: Icon, label, badge, variant = "default", dis
 
 // ─── Session Card (compact) ────────────────────────────────────────────────────
 const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, navigate, index }) => {
-  const date = new Date(session.session_date).toLocaleDateString("en-US", {
-    weekday: "short", month: "short", day: "numeric",
+  const { timezone } = useAuth(); // viewer's display timezone
+  // Absolute UTC start, rendered in the viewer's timezone. slot_start is the
+  // source of truth; fall back to session_date/time treated as UTC ("Z").
+  const startDt = session.slot_start
+    ? new Date(session.slot_start)
+    : new Date(`${session.session_date}T${session.session_time}Z`);
+  const date = startDt.toLocaleDateString("en-US", {
+    weekday: "short", month: "short", day: "numeric", timeZone: timezone || undefined,
   });
-  const time = new Date(`2000-01-01T${session.session_time}`).toLocaleTimeString("en-US", {
-    hour: "2-digit", minute: "2-digit", hour12: true,
+  const time = startDt.toLocaleTimeString("en-US", {
+    hour: "2-digit", minute: "2-digit", hour12: true, timeZone: timezone || undefined,
   });
 
   const accentColor = activeTab === "upcoming"
     ? (session.status === "accepted" ? "#34A853" : "#F59E0B")
     : "#C8A951";
 
-  const sessionEnd = new Date(
-    new Date(`${session.session_date}T${session.session_time}`).getTime() +
-    session.duration * 60 * 1000
-  );
-  const expired = sessionEnd < new Date();
+  const sessionEndMs = session.slot_end
+    ? new Date(session.slot_end).getTime()
+    : startDt.getTime() + session.duration * 60 * 1000;
+  // Joinable until a grace window after the scheduled end (matches the call timer).
+  const expired = sessionEndMs + SESSION_GRACE_MS < Date.now();
 
   return (
     <motion.div
@@ -96,10 +104,10 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, nav
           {/* Row 1: avatar · coach + skill */}
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "#C8A951", color: "#14213D" }}>
-              {session.mentor_username?.charAt(0).toUpperCase()}
+              {(session.mentor_name || session.mentor_username)?.charAt(0).toUpperCase()}
             </div>
             <div className="flex flex-col min-w-0 flex-1">
-              <span className="text-xs font-semibold" style={{ color: "#A9863A" }}>{session.mentor_username}</span>
+              <span className="text-xs font-semibold" style={{ color: "#A9863A" }}>{session.mentor_name || session.mentor_username}</span>
               <span className="text-base font-normal text-[#1B2B4A] truncate" style={{ fontFamily: "'Playfair Display', serif" }}>{session.skill_title}</span>
             </div>
             <StatusBadge status={session.status} />
@@ -153,6 +161,9 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, nav
                   )}
                   {!expired && <ActionBtn onClick={() => onCancel(session.id)} icon={FiXCircle} label="Cancel" variant="danger" />}
                   {session.notes_file && <ActionBtn onClick={() => onDownload(session)} icon={FiDownload} label="Notes" />}
+                  {session.payment_status === "paid" && Number(session.amount_paid) > 0 && (
+                    <ActionBtn onClick={() => downloadFile(`/bookings/${session.id}/invoice/`, "receipt.pdf")} icon={FiFileText} label="Receipt" />
+                  )}
                 </>
               )}
               {activeTab === "past" && (
@@ -163,6 +174,9 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, nav
                   <ActionBtn onClick={() => navigate(`/chat/${session.id}`)} icon={FiMessageSquare} label="Chat"
                     badge={<UnreadBadge count={session.unread_messages} />} />
                   {session.notes_file && <ActionBtn onClick={() => onDownload(session)} icon={FiDownload} label="Notes" />}
+                  {session.payment_status === "paid" && Number(session.amount_paid) > 0 && (
+                    <ActionBtn onClick={() => downloadFile(`/bookings/${session.id}/invoice/`, "receipt.pdf")} icon={FiFileText} label="Receipt" />
+                  )}
                   <ActionBtn onClick={() => navigate("/skills")} icon={FiArrowRight} label="Book Again" />
                 </>
               )}
@@ -173,7 +187,7 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, nav
             <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(200,169,81,0.1)" }}>
               <SessionFeedbackCard
                 title="Your review"
-                subtitle={`Shared with ${session.mentor_username}`}
+                subtitle={`Shared with ${session.mentor_name || session.mentor_username}`}
                 badgeLabel="Submitted"
                 rating={session.feedback.rating}
                 comment={session.feedback.comment}
@@ -190,10 +204,11 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, nav
 
 // ─── Group Session Card ─────────────────────────────────────────────────────────
 const GroupCard = ({ e, index, onCancel, onJoin, onChat }) => {
-  const date = new Date(e.start_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-  const time = new Date(e.start_datetime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+  const { timezone } = useAuth();
+  const date = new Date(e.start_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: timezone || undefined });
+  const time = new Date(e.start_datetime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: timezone || undefined });
   const cancelled = e.session_status === "cancelled";
-  const upcoming = new Date(e.end_datetime) > new Date();
+  const upcoming = new Date(e.end_datetime).getTime() + SESSION_GRACE_MS > Date.now();
   // Joinable from 15 min before start until the scheduled end.
   const canJoin = !cancelled && upcoming && Date.now() >= new Date(e.start_datetime).getTime() - 15 * 60 * 1000;
   const badge = cancelled ? "cancelled" : upcoming ? "upcoming" : "completed";
@@ -243,6 +258,9 @@ const GroupCard = ({ e, index, onCancel, onJoin, onChat }) => {
                 : <ActionBtn icon={FiVideo} label="Opens 15 min before" disabled />
             )}
             {!cancelled && <ActionBtn onClick={() => onChat(e.group_session)} icon={FiMessageSquare} label="Group Chat" />}
+            {e.payment_status === "paid" && Number(e.amount_paid) > 0 && (
+              <ActionBtn onClick={() => downloadFile(`/bookings/group-enrollments/${e.id}/invoice/`, "receipt.pdf")} icon={FiFileText} label="Receipt" />
+            )}
             {!cancelled && upcoming && (
               <ActionBtn onClick={() => onCancel(e.id)} icon={FiXCircle} label="Cancel" variant="danger" />
             )}
@@ -341,11 +359,11 @@ const MyLearning = () => {
 
   const now = new Date();
   const upcomingSessions = sessions.filter(s => {
-    const dt = new Date(`${s.session_date}T${s.session_time}`);
+    const dt = new Date(s.slot_start || `${s.session_date}T${s.session_time}Z`);
     return (s.status === "pending" || s.status === "accepted") && dt > now;
   });
   const pastSessions = sessions.filter(s => {
-    const dt = new Date(`${s.session_date}T${s.session_time}`);
+    const dt = new Date(s.slot_start || `${s.session_date}T${s.session_time}Z`);
     // Completed sessions always belong here, plus accepted ones whose time has passed
     return s.status === "completed" || (s.status === "accepted" && dt <= now);
   });
@@ -407,14 +425,14 @@ const MyLearning = () => {
     if (search.trim())
       out = out.filter(s => s.skill_title?.toLowerCase().includes(search.trim().toLowerCase()));
     if (coachFilter.trim())
-      out = out.filter(s => s.mentor_username?.toLowerCase().includes(coachFilter.trim().toLowerCase()));
+      out = out.filter(s => `${s.mentor_name || ""} ${s.mentor_username || ""}`.toLowerCase().includes(coachFilter.trim().toLowerCase()));
     if (dateFrom)
       out = out.filter(s => s.session_date >= dateFrom);
     if (dateTo)
       out = out.filter(s => s.session_date <= dateTo);
     out.sort((a, b) => {
-      const dtA = new Date(`${a.session_date}T${a.session_time}`);
-      const dtB = new Date(`${b.session_date}T${b.session_time}`);
+      const dtA = new Date(a.slot_start || `${a.session_date}T${a.session_time}Z`);
+      const dtB = new Date(b.slot_start || `${b.session_date}T${b.session_time}Z`);
       return sortOrder === "newest" ? dtB - dtA : dtA - dtB;
     });
     return out;
@@ -685,7 +703,7 @@ const MyLearning = () => {
                     <p className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: "#C8A951" }}>Session Feedback</p>
                     <h3 className="text-2xl font-normal text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>Leave a Review</h3>
                     <p className="text-sm text-[#4A5568] mt-1">
-                      For your session with <span className="font-semibold text-[#1B2B4A]">{feedbackSession.mentor_username}</span>
+                      For your session with <span className="font-semibold text-[#1B2B4A]">{feedbackSession.mentor_name || feedbackSession.mentor_username}</span>
                     </p>
                   </div>
                   <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(200,169,81,0.15)" }}>

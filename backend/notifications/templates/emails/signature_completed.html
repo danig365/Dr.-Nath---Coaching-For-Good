@@ -1,0 +1,7 @@
+{% extends "emails/base.html" %}
+{% block title %}Signed & completed{% endblock %}
+{% block content %}
+  <h1 style="margin:0 0 8px; font-size:22px; font-weight:normal; color:#1B2B4A;">"{{ title }}" is signed & completed</h1>
+  <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;">Hi {{ recipient_name }}, the document has been signed by {{ client_name }} and {{ coach_name }}. A copy of the signed PDF is attached, and it's also available on the platform.</p>
+  <a href="{{ link }}" style="display:inline-block; background:linear-gradient(135deg,#C8A951,#F0D98C); color:#14213D; text-decoration:none; font-weight:bold; font-size:14px; padding:12px 28px; border-radius:999px; font-family:Arial, sans-serif;">View on the platform</a>
+{% endblock %}

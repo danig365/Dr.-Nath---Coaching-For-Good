@@ -14,6 +14,7 @@ import {
   refreshAuthTokens,
   clearAuthTokens,
 } from "../utils/auth"; // Import all necessary functions from your auth utility
+import { syncTimezone } from "../utils/syncTimezone";
 
 const AuthContext = createContext(null);
 
@@ -23,6 +24,14 @@ export const AuthProvider = ({ children }) => {
   // This will return null if no valid token or expired
   const [user, setUser] = useState(() => getAuthUser());
   const [loading, setLoading] = useState(true); // State to indicate if initial auth check is complete
+  const [profileComplete, setProfileComplete] = useState(() => {
+    const u = getAuthUser();
+    return u ? (u.is_profile_complete ?? false) : true;
+  });
+  // The viewer's display timezone (their profile timezone; browser as fallback).
+  // Every page formats session/booking times in this zone so a coach sees their
+  // chosen timezone and a client sees theirs.
+  const [timezone, setTimezone] = useState(null);
 
   // Function to perform initial user check and token refresh on app load
   const initializeAuth = useCallback(async () => {
@@ -56,6 +65,19 @@ export const AuthProvider = ({ children }) => {
     initializeAuth();
   }, [initializeAuth]);
 
+  // Keep profileComplete in sync whenever the user object changes (login / refresh / logout).
+  useEffect(() => {
+    if (!user) { setProfileComplete(true); return; }
+    setProfileComplete(user.is_profile_complete ?? false);
+  }, [user]);
+
+  // Once authenticated, resolve the viewer's display timezone (and backfill the
+  // profile from the browser if it was never set). Used for all time displays.
+  useEffect(() => {
+    if (!user) { setTimezone(null); return; }
+    syncTimezone().then(setTimezone);
+  }, [user]);
+
   // Login function for components to call
   const login = useCallback(async (username, password) => {
     try {
@@ -79,28 +101,40 @@ export const AuthProvider = ({ children }) => {
     navigate("/login"); // Redirect to login page after logout
   }, [navigate]);
 
-  // role-based helpers derived from `user` state (kept simple and synchronous)
+  // Call after a successful profile PATCH. Optimistically opens the gate, then
+  // mints a fresh JWT from the backend so the new is_profile_complete=true value
+  // is baked into the stored token — surviving refreshes and page reloads.
+  const markProfileComplete = useCallback(async () => {
+    // 1. Optimistic: open the gate immediately for snappy navigation.
+    setUser(prev => prev ? { ...prev, is_profile_complete: true } : prev);
+    setProfileComplete(true);
+    // 2. Durable: refresh the token so the stored JWT reflects the new state.
+    const refreshed = await refreshAuthTokens();
+    if (refreshed) setUser(getAuthUser());
+  }, []);
 
   const contextData = {
     user, // The decoded JWT payload (or null)
     loading, // True during initial auth check
     login, // Function to log in
     logout, // Function to log out
+    timezone, // The viewer's display timezone (profile tz; browser fallback)
     role: user?.role || null,
     isCoach: () => user?.role === "coach",
     isClient: () => user?.role === "client",
     isAdmin: () => user?.role === 'admin',
     approvalStatus: user?.approval_status || null,
-    // Backwards compatibility: many components still call `isMentor()`
-    // Treat either 'mentor' or 'coach' as mentor-equivalent until all components are updated.
     isMentor: () => {
       const r = user?.role;
       return r === 'coach' || r === 'mentor';
     },
-    isAuthenticated: !!user, // Convenience boolean
+    isAuthenticated: !!user,
+    // Profile completion
+    profileComplete,
+    markProfileComplete, // call this after a successful profile PATCH
+    firstName: user?.first_name || '',
+    lastName: user?.last_name || '',
   };
-
-  console.log("user object:", user);
 
   return (
     <AuthContext.Provider value={contextData}>

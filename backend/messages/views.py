@@ -1,7 +1,55 @@
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 from rest_framework import viewsets, permissions
 from rest_framework.exceptions import ValidationError
 from .models import Message
 from .serializers import MessageSerializer
+
+
+def broadcast_message(message):
+    """Push a saved Message to its booking's chat group so connected peers get
+    it in real time (mirrors the WebSocket text path for REST/file uploads)."""
+    layer = get_channel_layer()
+    if layer is None:
+        return
+    async_to_sync(layer.group_send)(
+        f'chat_{message.booking_id}',
+        {
+            'type': 'chat_message',
+            'id': message.id,
+            'content': message.content,
+            'sender': message.sender_id,
+            'sender_username': message.sender.username,
+            'timestamp': message.timestamp.isoformat(),
+            'attachment_url': message.attachment.url if message.attachment else None,
+            'attachment_name': message.attachment_name or None,
+            'attachment_size': message.attachment_size,
+            'content_type': message.content_type or None,
+        },
+    )
+
+
+def broadcast_group_message(message):
+    """Push a saved GroupMessage to its session's group-chat group so connected
+    members get it in real time (mirrors the WebSocket text path for uploads)."""
+    layer = get_channel_layer()
+    if layer is None:
+        return
+    async_to_sync(layer.group_send)(
+        f'groupchat_{message.group_session_id}',
+        {
+            'type': 'group_message',
+            'id': message.id,
+            'content': message.content,
+            'sender': message.sender_id,
+            'sender_username': message.sender.username,
+            'timestamp': message.timestamp.isoformat(),
+            'attachment_url': message.attachment.url if message.attachment else None,
+            'attachment_name': message.attachment_name or None,
+            'attachment_size': message.attachment_size,
+            'content_type': message.content_type or None,
+        },
+    )
 
 class MessageViewSet(viewsets.ModelViewSet):
     serializer_class = MessageSerializer
@@ -56,4 +104,20 @@ class MessageViewSet(viewsets.ModelViewSet):
             raise ValidationError("You can only chat in your own sessions.")
 
         receiver = booking.learner if is_mentor else booking.mentor.user
-        serializer.save(sender=user, receiver=receiver)
+
+        attachment = serializer.validated_data.get('attachment')
+        extra = {}
+        if attachment:
+            extra = {
+                'attachment_name': (getattr(attachment, 'name', '') or '')[:255],
+                'attachment_size': getattr(attachment, 'size', None),
+                'content_type': getattr(attachment, 'content_type', '') or '',
+            }
+
+        message = serializer.save(sender=user, receiver=receiver, **extra)
+
+        # File uploads come over REST, so broadcast them to the chat group; text
+        # already travels over the WebSocket. Broadcasting only attachments here
+        # avoids double-delivery of plain text messages.
+        if attachment:
+            broadcast_message(message)

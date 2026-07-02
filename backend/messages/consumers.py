@@ -84,6 +84,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'sender': event['sender'],
             'sender_username': event['sender_username'],
             'timestamp': event['timestamp'],
+            'attachment_url': event.get('attachment_url'),
+            'attachment_name': event.get('attachment_name'),
+            'attachment_size': event.get('attachment_size'),
+            'content_type': event.get('content_type'),
         }))
 
     @database_sync_to_async
@@ -262,8 +266,10 @@ class GroupCallConsumer(AsyncWebsocketConsumer):
         if session.status == 'cancelled':
             return False
         now = dj_tz.now()
-        # Joinable from 15 minutes before start until the scheduled end.
-        if now < session.start_datetime - timedelta(minutes=15) or now > session.end_datetime:
+        # Joinable from 15 minutes before start until a grace window after the end.
+        from django.conf import settings
+        grace = timedelta(minutes=settings.SESSION_GRACE_MINUTES)
+        if now < session.start_datetime - timedelta(minutes=15) or now > session.end_datetime + grace:
             return False
         is_coach = session.coach.user_id == user.id
         is_booked = GroupEnrollment.objects.filter(
@@ -330,6 +336,10 @@ class GroupChatConsumer(AsyncWebsocketConsumer):
             'sender': event['sender'],
             'sender_username': event['sender_username'],
             'timestamp': event['timestamp'],
+            'attachment_url': event.get('attachment_url'),
+            'attachment_name': event.get('attachment_name'),
+            'attachment_size': event.get('attachment_size'),
+            'content_type': event.get('content_type'),
         }))
 
     @database_sync_to_async

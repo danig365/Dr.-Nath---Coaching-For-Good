@@ -14,6 +14,15 @@ class ResourceFolder(models.Model):
         limit_choices_to={'role': 'coach'},
     )
     name = models.CharField(max_length=120)
+    # When set, this is a PRIVATE folder for one client: every resource inside is
+    # auto-scoped to that client only (visibility 'specific'). Null = a normal
+    # shared/organisational folder.
+    client = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='private_resource_folders',
+        null=True, blank=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -22,6 +31,10 @@ class ResourceFolder(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['coach', 'name'], name='unique_folder_per_coach'),
         ]
+
+    @property
+    def is_private(self):
+        return self.client_id is not None
 
     def __str__(self):
         coach = self.coach.user.username if self.coach and hasattr(self.coach, 'user') else 'N/A'

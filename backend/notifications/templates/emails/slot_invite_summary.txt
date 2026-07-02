@@ -1,0 +1,15 @@
+{% extends "emails/base.txt" %}
+
+{% block content %}YOUR INVITATIONS WERE SENT
+
+Hi {{ coach_name }}, this confirms you invited {{ count }} {% if count == 1 %}person{% else %}people{% endif %} to book the session below.
+
+  Session : {{ skill_name }}
+  When    : {{ when }}
+
+Invited:
+{% for r in recipients %}  - {{ r }}
+{% endfor %}
+Whoever confirms first books this time slot. You'll get a separate booking confirmation once someone does.
+
+Booking link: {{ link }}{% endblock %}

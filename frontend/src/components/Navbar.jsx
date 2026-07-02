@@ -56,6 +56,7 @@ const Navbar = () => {
         { to: "/", label: "Home" },
         { to: "/#who", label: "Who is Dr Nath" },
         { to: "/#offerings", label: "Offerings" },
+        { to: "/contact", label: "Contact" },
       ]
     : isAdmin()
     ? [
@@ -65,11 +66,13 @@ const Navbar = () => {
         { to: "/admin?tab=coaches", label: "Coaches" },
         { to: "/admin?tab=clients", label: "Clients" },
         { to: "/admin?tab=sessions", label: "Sessions" },
+        { to: "/admin?tab=messages", label: "Messages" },
+        { to: "/admin?tab=newsletter", label: "Newsletter" },
         { to: "/admin?tab=all", label: "All Coaches" },
       ]
     : [
         { to: isCoach() ? "/my-skills" : "/skills", label: isCoach() ? "My Skills" : "Browse Skills" },
-        ...(isCoach() ? [{ to: "/add-skill", label: "Add Skill" }, { to: "/my-availability", label: "Nath's Availability" }, { to: "/my-resources", label: "Resources" }] : []),
+        ...(isCoach() ? [{ to: "/add-skill", label: "Add Skill" }, { to: "/my-availability", label: "Dr Nath's Availability" }, { to: "/my-resources", label: "Resources" }] : []),
         { to: isCoach() ? "/my-sessions" : "/my-learning", label: isCoach() ? "My Sessions" : "My Learning", badge: upcomingCount },
         ...(!isCoach() ? [
           ...(GROUP_SESSIONS_ENABLED ? [{ to: "/group-sessions", label: "Group Sessions" }] : []),
@@ -77,6 +80,8 @@ const Navbar = () => {
         ] : []),
 
         { to: "/milestones", label: "Milestones" },
+        { to: "/habits", label: "Habits" },
+        { to: "/agreements", label: "Agreements" },
         { to: "/coaches", label: "Coaches" },
         ...(!isCoach() ? [{ to: "/match", label: "Find Match" }] : []),
         { to: "/profile", label: "Profile" },

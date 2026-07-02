@@ -1,17 +1,17 @@
 from django.urls import path
-from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
-    RegisterView, CustomTokenObtainPairView,
+    RegisterView, CustomTokenObtainPairView, CustomTokenRefreshView,
     CurrentUserProfileView, CoachDirectoryView,
     SmartMatchView, PendingCoachesView, CoachApprovalView,
     AdminStatsView, AdminAnalyticsView, AdminCoachStatsView, AdminClientStatsView,
-    AdminSessionsView, CoachDetailView,
+    AdminSessionsView, CoachDetailView, CoachClientsView,
 )
 urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
     path('login/', CustomTokenObtainPairView.as_view(), name='login'),
-    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
     path('profile/', CurrentUserProfileView.as_view(), name='profile'),
+    path('clients/', CoachClientsView.as_view(), name='coach-clients'),
     path('coaches/', CoachDirectoryView.as_view(), name='coach-directory'),
     path('coaches/match/', SmartMatchView.as_view(), name='smart-match'),
     path('admin/coaches/pending/', PendingCoachesView.as_view(), name='pending-coaches'),

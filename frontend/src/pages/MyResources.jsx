@@ -106,7 +106,7 @@ const MyResources = () => {
       const res = await api.post("/resources/submissions/", fd);
       setSubmissions((s) => [res.data, ...s]);
       setForm((f) => ({ ...emptyForm, coach: f.coach }));
-      toast.success("Uploaded to your coach.");
+      toast.success("Sent to your coach — they've been notified by email.");
     } catch (err) {
       toast.error(err.response?.data?.file?.[0] || err.response?.data?.detail || "Upload failed.");
     } finally { setUploading(false); }

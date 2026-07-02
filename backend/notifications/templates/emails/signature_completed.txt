@@ -1,0 +1,5 @@
+{% extends "emails/base.txt" %}
+{% block content %}"{{ title }}" IS SIGNED & COMPLETED
+
+Hi {{ recipient_name }}, the document has been signed by {{ client_name }} and {{ coach_name }}. The signed PDF is attached and also available here:
+{{ link }}{% endblock %}

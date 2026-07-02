@@ -1,0 +1,12 @@
+{% extends "emails/base.txt" %}
+
+{% block content %}{{ coach_name }} SHARED A DOCUMENT WITH YOU
+
+Hi {{ recipient_name }}, your coach has shared a new resource with you:
+
+  {{ title }}
+{% if note %}
+  Note: {{ note }}
+{% endif %}
+View it in your Resources (sign in required):
+{{ link }}{% endblock %}

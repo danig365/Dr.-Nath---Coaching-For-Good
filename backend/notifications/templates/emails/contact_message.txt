@@ -1,0 +1,13 @@
+{% extends "emails/base.txt" %}
+
+{% block content %}NEW CONTACT MESSAGE
+
+You received a message through the website contact form.
+
+From    : {{ name }} <{{ email }}>
+Subject : {{ subject }}
+
+{{ message }}
+
+View in dashboard: {{ admin_url }}
+Reply directly to this email to respond.{% endblock %}

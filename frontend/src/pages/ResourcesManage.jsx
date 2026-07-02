@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
-import { FiFolder, FiPlus, FiTrash2, FiUploadCloud, FiFile, FiUsers, FiUser, FiEdit2, FiX, FiDownload, FiInbox, FiCheckCircle, FiClock, FiLink, FiExternalLink } from "react-icons/fi";
+import { FiFolder, FiPlus, FiTrash2, FiUploadCloud, FiFile, FiUsers, FiUser, FiEdit2, FiX, FiDownload, FiInbox, FiCheckCircle, FiClock, FiLink, FiExternalLink, FiLock } from "react-icons/fi";
 import { api, downloadResource, downloadSubmission } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
 
@@ -67,6 +67,7 @@ const ResourcesManage = () => {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newFolder, setNewFolder] = useState("");
+  const [newFolderClient, setNewFolderClient] = useState(""); // "" = shared folder; id = private per-client
   const [form, setForm] = useState(emptyForm);
   const [uploading, setUploading] = useState(false);
   const [edit, setEdit] = useState(null); // resource being edited
@@ -109,10 +110,12 @@ const ResourcesManage = () => {
   const createFolder = async () => {
     if (!newFolder.trim()) return;
     try {
-      const res = await api.post("/resources/folders/", { name: newFolder.trim() });
-      setFolders((f) => [...f, res.data]); setNewFolder("");
-      toast.success("Folder created.");
-    } catch (err) { toast.error(err.response?.data?.name?.[0] || err.response?.data?.detail || "Failed to create folder."); }
+      const payload = { name: newFolder.trim() };
+      if (newFolderClient) payload.client = newFolderClient;
+      const res = await api.post("/resources/folders/", payload);
+      setFolders((f) => [...f, res.data]); setNewFolder(""); setNewFolderClient("");
+      toast.success(res.data.is_private ? "Private client folder created." : "Folder created.");
+    } catch (err) { toast.error(err.response?.data?.name?.[0] || err.response?.data?.client?.[0] || err.response?.data?.detail || "Failed to create folder."); }
   };
 
   const deleteFolder = async (id) => {
@@ -134,8 +137,9 @@ const ResourcesManage = () => {
     setUploading(true);
     try {
       const res = await api.post("/resources/", buildForm(form));
+      const n = form.visibility === "specific" ? form.shared_clients.length : 0;
       setResources((r) => [res.data, ...r]); setForm(emptyForm);
-      toast.success("Resource uploaded.");
+      toast.success(n ? `Shared — emailed to ${n} client${n === 1 ? "" : "s"}.` : "Resource uploaded.");
     } catch (err) {
       toast.error(err.response?.data?.file?.[0] || err.response?.data?.detail || "Upload failed.");
     } finally { setUploading(false); }
@@ -209,6 +213,9 @@ const ResourcesManage = () => {
     </div>
   );
 
+  const selectedFolder = folders.find((f) => String(f.id) === String(form.folder));
+  const privateFolder = selectedFolder?.is_private ? selectedFolder : null;
+
   return (
     <div className="min-h-screen pt-36 pb-16 px-6" style={{ background: "#FAF6EC" }}>
       <div className="max-w-5xl mx-auto">
@@ -245,20 +252,34 @@ const ResourcesManage = () => {
           <div className="flex flex-wrap gap-2 mb-4">
             {folders.length === 0 && <span className="text-sm text-[#4A5568]">No folders yet.</span>}
             {folders.map((f) => (
-              <span key={f.id} className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm" style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A" }}>
-                <FiFolder size={12} /> {f.name} <span className="opacity-60">({f.resource_count})</span>
+              <span key={f.id} className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm"
+                style={f.is_private
+                  ? { background: "rgba(10,102,194,0.1)", color: "#0A66C2", border: "1px solid rgba(10,102,194,0.2)" }
+                  : { background: "rgba(200,169,81,0.12)", color: "#A9863A" }}>
+                {f.is_private ? <FiLock size={12} /> : <FiFolder size={12} />}
+                {f.name}{f.is_private && f.client_username ? ` · ${f.client_username}` : ""} <span className="opacity-60">({f.resource_count})</span>
                 <button onClick={() => deleteFolder(f.id)} title="Delete folder"><FiX size={13} /></button>
               </span>
             ))}
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap items-center">
             <input value={newFolder} onChange={(e) => setNewFolder(e.target.value)} placeholder="New folder name (e.g. Month 1)"
               className="rounded-xl px-3 py-2 text-sm flex-1 max-w-xs" style={inputStyle} />
+            <select value={newFolderClient} onChange={(e) => setNewFolderClient(e.target.value)}
+              className="rounded-xl px-3 py-2 text-sm" style={inputStyle} title="Make this a private folder for one client">
+              <option value="">Shared folder</option>
+              {clients.map((c) => <option key={c.id} value={c.id}>🔒 Private · {c.username}</option>)}
+            </select>
             <button onClick={createFolder} className="px-4 py-2 rounded-full text-sm font-semibold flex items-center gap-1.5"
               style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.25)" }}>
               <FiPlus size={14} /> Add
             </button>
           </div>
+          {newFolderClient && (
+            <p className="text-xs mt-2" style={{ color: "#0A66C2" }}>
+              🔒 A private folder is visible only to that client — anything you put in it stays between you two.
+            </p>
+          )}
         </div>
 
         {/* Upload */}
@@ -278,28 +299,37 @@ const ResourcesManage = () => {
             <Field label="Folder (optional)">
               <select value={form.folder} onChange={(e) => setForm((f) => ({ ...f, folder: e.target.value }))} className="rounded-xl px-3 py-2 text-sm w-full" style={inputStyle}>
                 <option value="">— None —</option>
-                {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                {folders.map((f) => <option key={f.id} value={f.id}>{f.is_private ? `🔒 ${f.name} · ${f.client_username}` : f.name}</option>)}
               </select>
             </Field>
             <Field label="Share with">
-              <select value={form.visibility} onChange={(e) => setForm((f) => ({ ...f, visibility: e.target.value }))} className="rounded-xl px-3 py-2 text-sm w-full" style={inputStyle}>
-                <option value="all_platform">All clients (incl. no booking)</option>
-                <option value="all_clients">Clients with a booking (coachees)</option>
-                <option value="specific">Specific clients</option>
-                <option value="group">A group session</option>
-              </select>
+              {privateFolder ? (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm" style={{ background: "rgba(10,102,194,0.08)", border: "1px solid rgba(10,102,194,0.2)", color: "#0A66C2" }}>
+                  <FiLock size={13} className="shrink-0" /> Private to {privateFolder.client_username} — only they can see files in this folder.
+                </div>
+              ) : (
+                <select value={form.visibility} onChange={(e) => setForm((f) => ({ ...f, visibility: e.target.value }))} className="rounded-xl px-3 py-2 text-sm w-full" style={inputStyle}>
+                  <option value="all_platform">All clients (incl. no booking)</option>
+                  <option value="all_clients">Clients with a booking (coachees)</option>
+                  <option value="specific">Specific clients</option>
+                  <option value="group">A group session</option>
+                </select>
+              )}
             </Field>
-            {form.visibility === "specific" && (
+            {!privateFolder && form.visibility === "specific" && (
               <div className="md:col-span-2">
                 <Field label="Clients (Ctrl/Cmd-click to select multiple)">
                   <select multiple value={form.shared_clients} onChange={(e) => setForm((f) => ({ ...f, shared_clients: Array.from(e.target.selectedOptions, (o) => o.value) }))}
                     className="rounded-xl px-3 py-2 text-sm w-full h-28" style={inputStyle}>
                     {clients.map((c) => <option key={c.id} value={c.id}>{c.username}</option>)}
                   </select>
+                  <p className="text-xs mt-1.5" style={{ color: "rgba(74,85,104,0.7)" }}>
+                    ✉️ Selected clients are emailed a secure link to view this document.
+                  </p>
                 </Field>
               </div>
             )}
-            {form.visibility === "group" && (
+            {!privateFolder && form.visibility === "group" && (
               <div className="md:col-span-2">
                 <Field label="Group session">
                   <select value={form.group_session} onChange={(e) => setForm((f) => ({ ...f, group_session: e.target.value }))} className="rounded-xl px-3 py-2 text-sm w-full" style={inputStyle}>

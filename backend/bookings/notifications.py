@@ -99,6 +99,9 @@ def _context(booking, recipient, start_utc, *, reminder_label=None):
         'session_when': _fmt_when(start_utc, recipient['tz']),
         'duration': booking.duration,
         'meeting_link': booking.meeting_link or '',
+        # One-click join: the coach's external meeting link if set, else the
+        # in-app call page (same room for both parties).
+        'join_link': booking.meeting_link or f"{settings.SITE_URL}/session/{booking.id}",
         'manage_url': recipient['manage_url'],
         'reminder_label': reminder_label or '',
     }
@@ -119,6 +122,16 @@ def schedule_booking_notifications(booking):
     skill_name = booking.skill.name if booking.skill else 'your session'
     recipients = _recipients(booking)
 
+    # Attach the PDF receipt to the buyer's confirmation when the booking was paid.
+    invoice_attachment = None
+    if booking.payment_status == 'paid' and booking.amount_paid and booking.amount_paid > 0:
+        try:
+            from .invoices import build_booking_invoice_pdf
+            pdf, filename = build_booking_invoice_pdf(booking)
+            invoice_attachment = [(filename, pdf, 'application/pdf')]
+        except Exception as inv_err:  # noqa: BLE001 — never block emails on a receipt
+            logger.warning("Booking %s: receipt generation failed: %s", booking.id, inv_err)
+
     # 1) Confirmation — due now, sent immediately for instant feedback.
     for r in recipients:
         if not r['email']:
@@ -135,7 +148,8 @@ def schedule_booking_notifications(booking):
             dedupe_key=f"booking:{booking.id}:confirmation:{r['role']}",
         )
         if note and note.status == ScheduledNotification.STATUS_PENDING:
-            note.send()
+            # Only the buyer (client) receives the receipt PDF.
+            note.send(attachments=invoice_attachment if r['role'] == 'client' else None)
 
     # 2) Reminders — queued for the dispatcher to send when due.
     for kind, delta, label in REMINDER_LADDER:
@@ -173,5 +187,129 @@ def cancel_booking_notifications(booking):
     return ScheduledNotification.objects.filter(
         content_type=ct,
         object_id=booking.id,
+        status=ScheduledNotification.STATUS_PENDING,
+    ).update(status=ScheduledNotification.STATUS_CANCELLED, updated_at=dj_tz.now())
+
+
+# ─── Group sessions ─────────────────────────────────────────────────────────────
+def _group_recipients(session):
+    """Coach + every booked attendee, with the data each reminder email needs."""
+    coach_user = session.coach.user
+    coach_tz = getattr(session.coach, 'timezone', 'UTC')
+    recipients = [{
+        'role': 'coach',
+        'user': coach_user,
+        'email': coach_user.email,
+        'tz': coach_tz,
+        'name': _display_name(coach_user),
+        'other_name': 'your attendees',
+        'manage_url': f"{settings.SITE_URL}/my-availability",
+    }]
+    booked = session.enrollments.filter(status='booked').select_related('learner')
+    for enr in booked:
+        learner = enr.learner
+        recipients.append({
+            'role': 'client',
+            'user': learner,
+            'email': learner.email,
+            'tz': getattr(getattr(learner, 'profile', None), 'timezone', 'UTC'),
+            'name': _display_name(learner),
+            'other_name': _display_name(coach_user),
+            'manage_url': f"{settings.SITE_URL}/my-learning",
+        })
+    return recipients
+
+
+def _group_context(session, recipient, *, reminder_label=None):
+    start_utc = session.start_datetime
+    duration = int((session.end_datetime - start_utc).total_seconds() // 60) if session.end_datetime else 60
+    return {
+        'role': recipient['role'],
+        'recipient_name': recipient['name'],
+        'other_name': recipient['other_name'],
+        'skill_name': session.title,
+        'session_when': _fmt_when(start_utc, recipient['tz']),
+        'duration': duration,
+        'meeting_link': session.meeting_link or '',
+        'join_link': session.meeting_link or f"{settings.SITE_URL}/group-session/{session.id}/call",
+        'manage_url': recipient['manage_url'],
+        'reminder_label': reminder_label or '',
+    }
+
+
+def schedule_group_notifications(session):
+    """
+    Queue a confirmation + the reminder ladder for a group session's coach and
+    all booked attendees. Idempotent (dedupe keys keyed by user id), so it's safe
+    to call again whenever a new attendee books — existing recipients aren't
+    re-notified, the new one is.
+    """
+    start_utc = session.start_datetime
+    if not start_utc:
+        logger.warning("Group session %s has no start time; skipping notifications.", session.id)
+        return
+    now = dj_tz.now()
+
+    for r in _group_recipients(session):
+        if not r['email']:
+            continue
+        uid = r['user'].id
+
+        # Confirmation — sent immediately, once per recipient.
+        note = ScheduledNotification.queue(
+            kind='booking_confirmation',
+            recipient_email=r['email'],
+            recipient_user=r['user'],
+            subject=f"Group session confirmed — {session.title}",
+            template='booking_confirmation',
+            context=_group_context(session, r),
+            scheduled_for=now,
+            related=session,
+            dedupe_key=f"group:{session.id}:confirmation:{uid}",
+        )
+        if note and note.status == ScheduledNotification.STATUS_PENDING:
+            note.send()
+
+        # Reminder ladder.
+        for kind, delta, label in REMINDER_LADDER:
+            fire_at = start_utc - delta
+            if fire_at <= now:
+                continue
+            subject = (
+                f"Reminder — {session.title} {label}"
+                if kind != 'reminder_start'
+                else f"{session.title} is starting now"
+            )
+            ScheduledNotification.queue(
+                kind=kind,
+                recipient_email=r['email'],
+                recipient_user=r['user'],
+                subject=subject,
+                template='session_reminder',
+                context=_group_context(session, r, reminder_label=label),
+                scheduled_for=fire_at,
+                related=session,
+                dedupe_key=f"group:{session.id}:{kind}:{uid}",
+            )
+
+
+def cancel_group_notifications(session):
+    """Cancel all still-pending notifications for a group session (session-wide
+    cancellation). Returns the number cancelled."""
+    ct = ContentType.objects.get_for_model(session.__class__)
+    return ScheduledNotification.objects.filter(
+        content_type=ct, object_id=session.id,
+        status=ScheduledNotification.STATUS_PENDING,
+    ).update(status=ScheduledNotification.STATUS_CANCELLED, updated_at=dj_tz.now())
+
+
+def cancel_group_enrollment_notifications(enrollment):
+    """Cancel pending notifications for one attendee who left a group session,
+    leaving other attendees' reminders intact. Returns the number cancelled."""
+    session = enrollment.group_session
+    ct = ContentType.objects.get_for_model(session.__class__)
+    return ScheduledNotification.objects.filter(
+        content_type=ct, object_id=session.id,
+        recipient_user=enrollment.learner,
         status=ScheduledNotification.STATUS_PENDING,
     ).update(status=ScheduledNotification.STATUS_CANCELLED, updated_at=dj_tz.now())

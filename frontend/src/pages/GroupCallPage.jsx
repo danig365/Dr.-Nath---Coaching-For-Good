@@ -4,10 +4,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 import {
   FiMic, FiMicOff, FiVideo, FiVideoOff,
-  FiPhoneOff, FiMessageSquare, FiClock, FiSend, FiX, FiUsers,
+  FiPhoneOff, FiMessageSquare, FiClock, FiSend, FiX, FiUsers, FiPaperclip, FiDownload, FiFile,
 } from "react-icons/fi";
 import { api } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
+import { SESSION_GRACE_MS } from "../utils/sessionTiming";
+import { MAX_UPLOAD_BYTES, formatBytes, isImageType } from "../utils/chatAttachments";
 
 const ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -56,9 +58,12 @@ export default function GroupCallPage() {
   const [chat, setChat] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [unread, setUnread] = useState(0);
+  const [chatFile, setChatFile] = useState(null);
+  const [chatUploading, setChatUploading] = useState(false);
 
   const wsRef = useRef(null);
   const chatWsRef = useRef(null);       // persisted group-chat socket
+  const chatFileInputRef = useRef(null);
   const peersRef = useRef(new Map());   // peerId -> RTCPeerConnection
   const localStreamRef = useRef(null);
   const localVideoRef = useRef(null);
@@ -85,7 +90,7 @@ export default function GroupCallPage() {
         }
         if (!found) { toast.error("Session not found or you're not enrolled."); navigate(-1); return; }
         if (found.status === "cancelled") { toast.error("This session was cancelled."); navigate(-1); return; }
-        if (new Date(found.end_datetime) < new Date()) { toast.error("This session has already ended."); navigate(-1); return; }
+        if (new Date(found.end_datetime).getTime() + SESSION_GRACE_MS < Date.now()) { toast.error("This session has already ended."); navigate(-1); return; }
         endRef.current = new Date(found.end_datetime).getTime();
         setSession(found);
         setTimeLeft(Math.floor((endRef.current - Date.now()) / 1000));
@@ -187,9 +192,11 @@ export default function GroupCallPage() {
 
   const startTimer = useCallback(() => {
     timerRef.current = setInterval(() => {
+      // Display counts to the scheduled end (shows 00:00 once reached), but the
+      // call only force-closes after a grace window past it.
       const remaining = Math.floor((endRef.current - Date.now()) / 1000);
       setTimeLeft(remaining);
-      if (remaining <= 0) finishSession("timeout");
+      if (Date.now() > endRef.current + SESSION_GRACE_MS) finishSession("timeout");
     }, 1000);
   }, [finishSession]);
 
@@ -250,14 +257,44 @@ export default function GroupCallPage() {
   }, [id, createPeer, removePeer, sendSignal, startTimer, connectChat]);
 
   // Send a persisted group-chat message
-  const sendChat = useCallback((e) => {
+  const handleChatFile = useCallback((e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) { toast.error("File exceeds the 50 MB limit."); return; }
+    setChatFile(file);
+  }, []);
+
+  const sendChat = useCallback(async (e) => {
     e?.preventDefault();
+    if (chatUploading) return;
+
+    // Staged file → REST upload (with optional caption); backend broadcasts it.
+    if (chatFile) {
+      setChatUploading(true);
+      try {
+        const form = new FormData();
+        form.append("attachment", chatFile);
+        const caption = chatInput.trim();
+        if (caption) form.append("content", caption);
+        const res = await api.post(`/bookings/group-sessions/${id}/messages/`, form, { headers: { "Content-Type": "multipart/form-data" } });
+        setChat((prev) => (prev.some((x) => x.id === res.data.id) ? prev : [...prev, res.data]));
+        setChatFile(null);
+        setChatInput("");
+      } catch (err) {
+        toast.error(err.response?.data?.detail || err.response?.data?.attachment?.[0] || "Failed to send file.");
+      } finally {
+        setChatUploading(false);
+      }
+      return;
+    }
+
     const text = chatInput.trim();
     const ws = chatWsRef.current;
     if (!text || ws?.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ content: text }));
     setChatInput("");
-  }, [chatInput]);
+  }, [chatInput, chatFile, chatUploading, id]);
 
   useEffect(() => { chatOpenRef.current = chatOpen; if (chatOpen) setUnread(0); }, [chatOpen]);
   useEffect(() => { if (chatOpen) chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chat, chatOpen]);
@@ -280,7 +317,7 @@ export default function GroupCallPage() {
   );
 
   return (
-    <div className="fixed inset-x-0 bottom-0 flex flex-col select-none overflow-hidden" style={{ top: "5rem", background: "#0D0D0D" }}>
+    <div className="fixed inset-x-0 bottom-0 flex flex-col select-none overflow-hidden" style={{ top: "7rem", background: "#0D0D0D" }}>
 
       {/* Top bar */}
       <div className="flex items-center justify-between px-6 py-4 z-20 shrink-0" style={{ background: "rgba(0,0,0,0.7)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
@@ -411,19 +448,61 @@ export default function GroupCallPage() {
                   <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                     <div className="max-w-[80%] px-3.5 py-2 rounded-2xl text-sm" style={{ background: mine ? "linear-gradient(135deg,#C8A951,#F0D98C)" : "rgba(255,255,255,0.08)", color: mine ? "#14213D" : "white" }}>
                       {!mine && <p className="text-[10px] font-bold mb-0.5" style={{ color: "#C8A951" }}>{m.sender_username}</p>}
-                      <p className="leading-snug break-words">{m.content}</p>
+                      {m.attachment_url && (
+                        isImageType(m.content_type) ? (
+                          <a href={m.attachment_url} target="_blank" rel="noopener noreferrer" className="block mb-1">
+                            <img src={m.attachment_url} alt={m.attachment_name || "attachment"} className="rounded-lg max-h-44 w-auto object-cover" />
+                          </a>
+                        ) : (
+                          <a href={m.attachment_url} target="_blank" rel="noopener noreferrer" download={m.attachment_name || true}
+                            className="flex items-center gap-2 px-2.5 py-2 rounded-lg mb-1 transition-opacity hover:opacity-80"
+                            style={{ background: mine ? "rgba(20,33,61,0.12)" : "rgba(255,255,255,0.1)" }}>
+                            <FiFile size={16} className="shrink-0" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-semibold">{m.attachment_name || "Attachment"}</span>
+                              {m.attachment_size != null && <span className="block text-[10px] opacity-60">{formatBytes(m.attachment_size)}</span>}
+                            </span>
+                            <FiDownload size={13} className="shrink-0 opacity-70" />
+                          </a>
+                        )
+                      )}
+                      {m.content && <p className="leading-snug break-words">{m.content}</p>}
                     </div>
                   </div>
                 );
               })}
               <div ref={chatEndRef} />
             </div>
-            <form onSubmit={sendChat} className="flex items-center gap-2 px-4 py-3 shrink-0" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-              <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Type a message…"
-                className="flex-1 px-4 py-2.5 rounded-full text-sm text-white outline-none" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.1)" }} />
-              <button type="submit" disabled={!chatInput.trim()} className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 disabled:opacity-40" style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)" }}>
-                <FiSend size={16} style={{ color: "#14213D" }} />
-              </button>
+            <form onSubmit={sendChat} className="px-4 py-3 shrink-0" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+              {chatFile && (
+                <div className="mb-2 flex items-center gap-2 px-2.5 py-1.5 rounded-lg" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}>
+                  <FiFile size={14} className="shrink-0" style={{ color: "#C8A951" }} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-semibold text-white">{chatFile.name}</span>
+                    <span className="block text-[10px]" style={{ color: "rgba(255,255,255,0.5)" }}>{formatBytes(chatFile.size)} · ready to send</span>
+                  </span>
+                  <button type="button" onClick={() => setChatFile(null)} disabled={chatUploading} title="Remove file"
+                    className="text-base leading-none px-1.5 shrink-0 text-white transition-opacity hover:opacity-60 disabled:opacity-30">×</button>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <input type="file" ref={chatFileInputRef} onChange={handleChatFile} className="hidden" disabled={chatUploading} />
+                <button type="button" onClick={() => chatFileInputRef.current?.click()} disabled={chatUploading} title="Attach a file"
+                  className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-all disabled:opacity-40"
+                  style={{ background: chatFile ? "rgba(200,169,81,0.25)" : "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.1)", color: "#C8A951" }}>
+                  <FiPaperclip size={16} />
+                </button>
+                <input value={chatInput} onChange={(e) => setChatInput(e.target.value)}
+                  placeholder={chatFile ? "Add a caption (optional)…" : "Type a message…"} disabled={chatUploading}
+                  className="flex-1 px-4 py-2.5 rounded-full text-sm text-white outline-none disabled:opacity-50" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.1)" }} />
+                <button type="submit" disabled={chatUploading || (!chatInput.trim() && !chatFile)}
+                  className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 disabled:opacity-40" style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)" }}>
+                  {chatUploading
+                    ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: "#14213D", borderTopColor: "transparent" }} />
+                    : <FiSend size={16} style={{ color: "#14213D" }} />
+                  }
+                </button>
+              </div>
             </form>
           </motion.div>
         )}

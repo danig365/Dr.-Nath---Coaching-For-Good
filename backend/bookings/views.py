@@ -6,19 +6,21 @@ from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_400_BAD_
 from rest_framework.exceptions import ValidationError as DRFValidationError # Use DRF's ValidationError for API responses
 
 # Import all models used in this file
-from .models import SessionBooking, Review, Milestone, TimeSlot, GroupSession, GroupEnrollment
+from .models import SessionBooking, Review, Milestone, TimeSlot, GroupSession, GroupEnrollment, SlotInvite, Habit, HabitCheckIn
 # Import models from other apps
 from profiles.models import UserProfile, CustomUser
 # Import all serializers used in this file
 from .serializers import (
     ReviewSerializer, SessionBookingSerializer, TimeSlotSerializer,
     GroupSessionSerializer, GroupEnrollmentSerializer, MyGroupEnrollmentSerializer,
+    SlotInviteSerializer,
 )
 from .services import generate_slots_for_coach, release_expired_holds, HOLD_MINUTES, reserve_seat, SeatUnavailable
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.utils import timezone as dj_tz
 from datetime import timedelta, date as date_cls
+from django.utils.dateparse import parse_date
 # Note: DjangoValidationError is not directly used in this file's logic, but can be kept if needed elsewhere.
 # from django.core.exceptions import ValidationError as DjangoValidationError
 
@@ -60,6 +62,37 @@ def cancel_booking(booking, new_status='declined', refund=True):
     except Exception as notify_err:  # noqa: BLE001
         print(f"Failed to cancel notifications for booking {booking.id}: {notify_err}")
     return booking
+
+
+def send_slot_invite_email(slot, skill, addr, note):
+    """Email one recipient an invite to book `slot` for `skill`.
+
+    Shared by the initial invite send and the history "resend" action so both
+    produce an identical email. Returns True on success.
+    """
+    from notifications.services import send_email
+    from .notifications import _display_name, _fmt_when
+    coach_name = _display_name(slot.coach.user)
+    when = _fmt_when(slot.start_datetime, getattr(slot.coach, 'timezone', 'UTC'))
+    link = f"{settings.SITE_URL}/book/{skill.id}?slot={slot.id}"
+    coach_email = slot.coach.user.email
+    reply_to = [coach_email] if coach_email else None
+    return send_email(
+        to=addr,
+        subject=f"You're invited to a coaching session with {coach_name}",
+        template='slot_invite',
+        context={
+            'coach_name': coach_name,
+            'skill_name': skill.name,
+            'when': when,
+            'link': link,
+            'note': note,
+        },
+        reply_to=reply_to,
+        # Blind-copy the coach so they get a record of every invite/resend in
+        # their own inbox (the invitee doesn't see this).
+        bcc=[coach_email] if coach_email else None,
+    )
 
 
 class SessionBookingViewSet(viewsets.ModelViewSet):
@@ -206,7 +239,7 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated or not hasattr(user, 'profile'):
             return TimeSlot.objects.none()
         if user.profile.role in ('coach', 'admin'):
-            return TimeSlot.objects.filter(coach=user.profile)
+            return TimeSlot.objects.filter(coach=user.profile).prefetch_related('invites')
         return TimeSlot.objects.none()
 
     def _ensure_coach(self):
@@ -365,6 +398,172 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
                 slot.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
         return Response(self.get_serializer(slot).data, status=HTTP_200_OK)
 
+    @action(detail=True, methods=['post'])
+    def invite(self, request, pk=None):
+        """Email a slot invite link to a recipient (coach-only)."""
+        self._ensure_coach()
+        slot = self.get_object()  # queryset restricts to this coach's own slots
+        if slot.coach.user != request.user:
+            return Response({'detail': 'You can only share your own slots.'}, status=HTTP_403_FORBIDDEN)
+        if slot.status != 'open':
+            return Response({'detail': 'Only open slots can be shared.'}, status=HTTP_400_BAD_REQUEST)
+
+        note = (request.data.get('message') or '').strip()
+
+        # Recipients may be a list, or one string with addresses separated by
+        # ';', ',' or newlines. Dedupe (case-insensitive) and validate.
+        import re
+        from django.core.validators import validate_email
+        from django.core.exceptions import ValidationError
+        raw = request.data.get('emails', request.data.get('email', ''))
+        candidates = raw if isinstance(raw, list) else re.split(r'[;,\n]+', str(raw))
+        seen, valid, invalid = set(), [], []
+        for e in candidates:
+            e = (e or '').strip()
+            if not e or e.lower() in seen:
+                continue
+            seen.add(e.lower())
+            try:
+                validate_email(e)
+                valid.append(e)
+            except ValidationError:
+                invalid.append(e)
+        if not valid:
+            return Response({'detail': 'Enter at least one valid recipient email.'}, status=HTTP_400_BAD_REQUEST)
+
+        from skills.models import Skill
+        try:
+            skill = Skill.objects.get(id=request.data.get('skill_id'), profile=slot.coach)
+        except Skill.DoesNotExist:
+            return Response({'detail': 'Pick a valid offering for this invite.'}, status=HTTP_400_BAD_REQUEST)
+
+        # Send each recipient their own copy (so addresses aren't exposed to others).
+        sent_addrs, failed = [], []
+        for addr in valid:
+            if send_slot_invite_email(slot, skill, addr, note):
+                sent_addrs.append(addr)
+            else:
+                failed.append(addr)
+
+        sent = len(sent_addrs)
+        if sent == 0:
+            return Response({'detail': 'Could not send the invite. Please try again.'},
+                            status=status.HTTP_502_BAD_GATEWAY)
+
+        # Record the invites so the calendar can show this slot has pending
+        # invites, and so the history/resend can reproduce this exact email.
+        from django.utils import timezone as dj_timezone
+        from django.db.models import F
+        from .models import SlotInvite
+        now = dj_timezone.now()
+        for addr in sent_addrs:
+            invite, created = SlotInvite.objects.update_or_create(
+                slot=slot, email=addr,
+                defaults={'skill': skill, 'note': note, 'last_sent_at': now},
+            )
+            if not created:
+                SlotInvite.objects.filter(pk=invite.pk).update(sent_count=F('sent_count') + 1)
+
+        # Confirmation summary to the coach: who they just invited (best-effort).
+        if slot.coach.user.email:
+            from notifications.services import send_email
+            from .notifications import _display_name, _fmt_when
+            coach_name = _display_name(slot.coach.user)
+            when = _fmt_when(slot.start_datetime, getattr(slot.coach, 'timezone', 'UTC'))
+            link = f"{settings.SITE_URL}/book/{skill.id}?slot={slot.id}"
+            send_email(
+                to=slot.coach.user.email,
+                subject=f"Invitations sent — {skill.name}",
+                template='slot_invite_summary',
+                context={
+                    'coach_name': coach_name,
+                    'skill_name': skill.name,
+                    'when': when,
+                    'link': link,
+                    'recipients': sent_addrs,
+                    'count': sent,
+                    'note': note,
+                },
+            )
+
+        detail = f"Invite sent to {sent} recipient{'s' if sent != 1 else ''}."
+        if invalid:
+            detail += f" Skipped invalid: {', '.join(invalid)}."
+        if failed:
+            detail += f" Failed: {', '.join(failed)}."
+        return Response({'detail': detail, 'sent': sent}, status=HTTP_200_OK)
+
+
+class SlotInviteViewSet(viewsets.ReadOnlyModelViewSet):
+    """The coach's "Sent Invites" history, plus one-click resend.
+
+    Lists every invite the coach has emailed (newest send first) and lets them
+    re-send a still-pending invite without re-typing the recipient or message.
+    """
+    serializer_class = SlotInviteSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated or not hasattr(user, 'profile'):
+            return SlotInvite.objects.none()
+        if user.profile.role in ('coach', 'admin'):
+            return (
+                SlotInvite.objects
+                .filter(slot__coach=user.profile)
+                .select_related('skill', 'slot', 'slot__skill', 'slot__booking', 'slot__booking__learner', 'slot__coach__user')
+            )
+        return SlotInvite.objects.none()
+
+    def get_serializer_context(self):
+        # Whether the coach has any offering — lets the serializer mark legacy
+        # (skill-less) invites resendable without a per-row query.
+        ctx = super().get_serializer_context()
+        user = self.request.user
+        from skills.models import Skill
+        ctx['coach_has_skills'] = (
+            user.is_authenticated and hasattr(user, 'profile')
+            and Skill.objects.filter(profile=user.profile).exists()
+        )
+        return ctx
+
+    @action(detail=True, methods=['post'])
+    def resend(self, request, pk=None):
+        """Re-email a pending invite, reproducing the original skill + note.
+
+        Resolves the booking link's offering from the invite, the slot, or — for
+        legacy invites that predate skill capture — the coach's first offering,
+        then persists it so the row shows the offering from then on.
+        """
+        from skills.models import Skill
+        invite = self.get_object()  # queryset already restricts to this coach
+        slot = invite.slot
+
+        if slot.status != 'open':
+            return Response({'detail': 'This slot is no longer open, so the invite can\'t be resent.'},
+                            status=HTTP_400_BAD_REQUEST)
+        if slot.start_datetime < dj_tz.now():
+            return Response({'detail': 'This slot has already passed.'}, status=HTTP_400_BAD_REQUEST)
+
+        skill = invite.skill or slot.skill or Skill.objects.filter(profile=slot.coach).first()
+        if skill is None:
+            return Response({'detail': 'Add an offering first, then resend this invite.'},
+                            status=HTTP_400_BAD_REQUEST)
+
+        if not send_slot_invite_email(slot, skill, invite.email, invite.note):
+            return Response({'detail': 'Could not resend the invite. Please try again.'},
+                            status=status.HTTP_502_BAD_GATEWAY)
+
+        # Backfill the resolved skill so the history row no longer shows "—".
+        if invite.skill_id is None:
+            invite.skill = skill
+        invite.sent_count = (invite.sent_count or 0) + 1
+        invite.last_sent_at = dj_tz.now()
+        invite.save(update_fields=['skill', 'sent_count', 'last_sent_at'])
+
+        data = self.get_serializer(invite).data
+        return Response({'detail': f'Invite resent to {invite.email}.', 'invite': data}, status=HTTP_200_OK)
+
 
 class GroupSessionViewSet(viewsets.ModelViewSet):
     """
@@ -441,6 +640,12 @@ class GroupSessionViewSet(viewsets.ModelViewSet):
                 enr.save(update_fields=['status', 'held_until', 'payment_status', 'updated_at'])
             session.status = 'cancelled'
             session.save(update_fields=['status', 'updated_at'])
+        # Stop any pending reminders for the cancelled session.
+        try:
+            from .notifications import cancel_group_notifications
+            cancel_group_notifications(session)
+        except Exception as e:  # noqa: BLE001
+            print(f"Failed to cancel group notifications for session {session.id}: {e}")
         return Response(self.get_serializer(session).data)
 
     @action(detail=False, methods=['get'])
@@ -456,19 +661,39 @@ class GroupSessionViewSet(viewsets.ModelViewSet):
             qs = qs.filter(skill_id=skill_id)
         return Response(self.get_serializer(qs, many=True).data)
 
-    @action(detail=True, methods=['get'], url_path='messages')
+    @action(detail=True, methods=['get', 'post'], url_path='messages')
     def messages(self, request, pk=None):
-        """Group chat history — coach or booked client only."""
+        """Group chat history (GET) and file uploads (POST) — coach or booked
+        client only. Text messages travel over the WebSocket; file attachments
+        come through this POST endpoint and are then broadcast to the group."""
         from messages.models import GroupMessage
         from messages.serializers import GroupMessageSerializer
+        from messages.views import broadcast_group_message
         session = get_object_or_404(GroupSession, pk=pk)
         user = request.user
         is_coach = session.coach.user_id == user.id
         is_booked = session.enrollments.filter(learner=user, status='booked').exists()
         if not (is_coach or is_booked):
             return Response({'detail': 'Not allowed.'}, status=HTTP_403_FORBIDDEN)
+
+        if request.method == 'POST':
+            serializer = GroupMessageSerializer(data=request.data, context={'request': request})
+            serializer.is_valid(raise_exception=True)
+            attachment = serializer.validated_data.get('attachment')
+            extra = {}
+            if attachment:
+                extra = {
+                    'attachment_name': (getattr(attachment, 'name', '') or '')[:255],
+                    'attachment_size': getattr(attachment, 'size', None),
+                    'content_type': getattr(attachment, 'content_type', '') or '',
+                }
+            message = serializer.save(group_session=session, sender=user, **extra)
+            if attachment:
+                broadcast_group_message(message)
+            return Response(GroupMessageSerializer(message, context={'request': request}).data, status=201)
+
         qs = GroupMessage.objects.filter(group_session=session).select_related('sender')
-        return Response(GroupMessageSerializer(qs, many=True).data)
+        return Response(GroupMessageSerializer(qs, many=True, context={'request': request}).data)
 
     @action(detail=False, methods=['get'])
     def mine(self, request):
@@ -533,6 +758,12 @@ class GroupSessionViewSet(viewsets.ModelViewSet):
             if session.status == 'full' and session.seats_taken < session.capacity:
                 session.status = 'scheduled'
                 session.save(update_fields=['status', 'updated_at'])
+        # Cancel just this attendee's pending reminders (others keep theirs).
+        try:
+            from .notifications import cancel_group_enrollment_notifications
+            cancel_group_enrollment_notifications(enr)
+        except Exception as e:  # noqa: BLE001
+            print(f"Failed to cancel notifications for enrollment {enr.id}: {e}")
         return Response(self.get_serializer(session).data, status=HTTP_200_OK)
 
 
@@ -697,6 +928,80 @@ class ConfirmBookingPaymentView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+class ConfirmFreeBookingView(APIView):
+    """
+    Book a free ($0) session — no Stripe involved.
+
+    Mirrors ConfirmBookingPaymentView's slot handling but skips payment. The
+    skill price is re-checked server-side so a paid offering can never be booked
+    for free by a crafted request.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        booking_data = request.data.get('booking_data') or {}
+        slot_id = booking_data.get('slot_id')
+        if not slot_id:
+            return Response({'error': 'A time slot is required to book a session.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        from skills.models import Skill
+        try:
+            with transaction.atomic():
+                skill = Skill.objects.get(id=booking_data['skill'])
+                # Authoritative check: only genuinely free offerings skip payment.
+                if float(skill.price) != 0:
+                    return Response({'error': 'This session requires payment.'},
+                                    status=status.HTTP_400_BAD_REQUEST)
+                mentor_profile = skill.profile
+
+                slot = TimeSlot.objects.select_for_update().get(id=slot_id)
+                if slot.status == 'booked':
+                    return Response(
+                        {'error': 'This time slot was just booked by someone else. Please pick another.'},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                if slot.status == 'held' and slot.held_by_id and slot.held_by_id != request.user.id:
+                    return Response(
+                        {'error': 'This time slot is reserved by someone else. Please pick another.'},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                if slot.coach_id != mentor_profile.id:
+                    return Response({'error': 'Slot does not belong to this coach.'},
+                                    status=status.HTTP_400_BAD_REQUEST)
+
+                booking = SessionBooking.objects.create(
+                    learner=request.user,
+                    mentor=mentor_profile,
+                    skill=skill,
+                    session_date=slot.start_datetime.date(),
+                    session_time=slot.start_datetime.time(),
+                    duration=slot.duration_minutes,
+                    skill_level=booking_data.get('skill_level', 'Beginner'),
+                    message=booking_data.get('message', ''),
+                    status='accepted',
+                    payment_status='paid',  # nothing owed
+                    amount_paid=0,
+                    slot=slot,
+                )
+                slot.status = 'booked'
+                slot.held_until = None
+                slot.held_by = None
+                slot.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
+
+            try:
+                from .notifications import schedule_booking_notifications
+                schedule_booking_notifications(booking)
+            except Exception as notify_err:  # noqa: BLE001
+                print(f"Free booking {booking.id} created but notification scheduling failed: {notify_err}")
+
+            return Response({'booking_id': booking.id, 'status': 'free'})
+        except TimeSlot.DoesNotExist:
+            return Response({'error': 'Selected slot no longer exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 class CreateGroupPaymentIntentView(APIView):
     """Create a Stripe intent for one seat in a group session."""
     permission_classes = [IsAuthenticated]
@@ -773,6 +1078,13 @@ class ConfirmGroupPaymentView(APIView):
                 if session.seats_taken >= session.capacity and session.status == 'scheduled':
                     session.status = 'full'
                     session.save(update_fields=['status', 'updated_at'])
+
+            # Confirmation + reminder ladder for this attendee (and the coach).
+            try:
+                from .notifications import schedule_group_notifications
+                schedule_group_notifications(session)
+            except Exception as notify_err:  # noqa: BLE001 — never fail a paid booking
+                print(f"Group session {session.id} booked but notifications failed: {notify_err}")
 
             return Response({'enrollment_id': enrollment.id, 'status': 'paid'})
         except GroupSession.DoesNotExist:
@@ -907,3 +1219,193 @@ class MilestoneDetailView(APIView):
             return Response({'error': 'Only the coach can delete milestones.'}, status=status.HTTP_403_FORBIDDEN)
         m.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ─── Habit tracker ──────────────────────────────────────────────────────────────
+HABIT_WINDOW_DAYS = 30  # window used for the consistency % and returned check-in dates
+
+
+def _serialize_habit(habit, today=None):
+    """Habit + recent check-in history, current streak, and consistency %.
+
+    `check_in_dates` are the last HABIT_WINDOW_DAYS days the client logged it.
+    `streak` counts consecutive logged days ending today (or yesterday if today
+    isn't logged yet, so the day-in-progress doesn't break the streak).
+    `consistency` is logged-days / elapsed-days over the window (0–100).
+    """
+    today = today or dj_tz.localdate()
+    window_start = today - timedelta(days=HABIT_WINDOW_DAYS - 1)
+    dates = set(
+        habit.check_ins.filter(date__gte=window_start, date__lte=today)
+        .values_list('date', flat=True)
+    )
+
+    # Current streak (with a one-day grace for today).
+    streak = 0
+    cursor = today if today in dates else today - timedelta(days=1)
+    while cursor in dates:
+        streak += 1
+        cursor -= timedelta(days=1)
+
+    elapsed = (today - max(window_start, habit.created_at.date() if habit.created_at else window_start)).days + 1
+    elapsed = max(1, min(elapsed, HABIT_WINDOW_DAYS))
+    logged = len([d for d in dates if d >= window_start])
+    consistency = round(min(logged, elapsed) / elapsed * 100)
+
+    return {
+        'id': habit.id,
+        'coach': habit.coach.user.username,
+        'coach_id': habit.coach.user_id,
+        'client': habit.client.username,
+        'client_id': habit.client_id,
+        'title': habit.title,
+        'description': habit.description,
+        'active': habit.active,
+        'created_at': habit.created_at.isoformat(),
+        'check_in_dates': sorted(d.isoformat() for d in dates),
+        'checked_today': today in dates,
+        'streak': streak,
+        'consistency': consistency,
+    }
+
+
+class HabitView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        profile = getattr(request.user, 'profile', None)
+        if profile and profile.role == 'coach':
+            qs = Habit.objects.filter(coach=profile).select_related('client', 'coach__user')
+            client_id = request.query_params.get('client_id')
+            if client_id:
+                qs = qs.filter(client_id=client_id)
+            if request.query_params.get('include_archived') not in ('1', 'true', 'True'):
+                qs = qs.filter(active=True)
+        else:
+            # Clients only ever see their own active habits.
+            qs = Habit.objects.filter(client=request.user, active=True).select_related('client', 'coach__user')
+        return Response([_serialize_habit(h) for h in qs])
+
+    def post(self, request):
+        profile = getattr(request.user, 'profile', None)
+        if not profile or profile.role != 'coach':
+            return Response({'error': 'Only coaches can create habits.'}, status=status.HTTP_403_FORBIDDEN)
+        client_id = request.data.get('client_id')
+        title = (request.data.get('title') or '').strip()
+        if not client_id or not title:
+            return Response({'error': 'client_id and title are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        client = get_object_or_404(CustomUser, id=client_id)
+        habit = Habit.objects.create(
+            coach=profile,
+            client=client,
+            title=title,
+            description=(request.data.get('description') or '').strip(),
+        )
+        return Response(_serialize_habit(habit), status=status.HTTP_201_CREATED)
+
+
+class HabitDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        habit = get_object_or_404(Habit, pk=pk)
+        profile = getattr(request.user, 'profile', None)
+        if not profile or profile.role != 'coach' or habit.coach != profile:
+            return Response({'error': 'Only the assigning coach can edit habits.'}, status=status.HTTP_403_FORBIDDEN)
+        for field in ('title', 'description'):
+            if field in request.data:
+                setattr(habit, field, (request.data[field] or '').strip())
+        if 'active' in request.data:
+            habit.active = bool(request.data['active'])
+        habit.save()
+        return Response(_serialize_habit(habit))
+
+    def delete(self, request, pk):
+        habit = get_object_or_404(Habit, pk=pk)
+        if habit.coach.user != request.user:
+            return Response({'error': 'Only the assigning coach can delete habits.'}, status=status.HTTP_403_FORBIDDEN)
+        habit.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class HabitCheckInView(APIView):
+    """Client toggles a habit's check-in for a given day (default today)."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        habit = get_object_or_404(Habit, pk=pk)
+        if habit.client_id != request.user.id:
+            return Response({'error': 'You can only check in your own habits.'}, status=status.HTTP_403_FORBIDDEN)
+        if not habit.active:
+            return Response({'error': 'This habit is archived.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Parse target date (default today); never allow logging the future.
+        raw = request.data.get('date')
+        target = dj_tz.localdate()
+        if raw:
+            parsed = parse_date(raw)
+            if not parsed:
+                return Response({'error': 'Invalid date.'}, status=status.HTTP_400_BAD_REQUEST)
+            target = parsed
+        if target > dj_tz.localdate():
+            return Response({'error': 'Cannot check in for a future date.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        done = request.data.get('done')
+        if done is None:
+            # No explicit state → toggle.
+            existing = habit.check_ins.filter(date=target).first()
+            done = existing is None
+        if done:
+            HabitCheckIn.objects.get_or_create(habit=habit, date=target)
+        else:
+            habit.check_ins.filter(date=target).delete()
+        return Response(_serialize_habit(habit))
+
+
+# ─── PDF receipts / invoices ────────────────────────────────────────────────────
+class BookingInvoiceView(APIView):
+    """Stream a PDF receipt for a paid 1:1 session. Accessible to the learner who
+    paid, the assigned coach, or an admin."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        booking = get_object_or_404(SessionBooking, pk=pk)
+        user = request.user
+        is_owner = booking.learner_id == user.id
+        is_coach = booking.mentor and booking.mentor.user_id == user.id
+        if not (is_owner or is_coach or user.is_staff):
+            return Response({'error': 'You do not have access to this receipt.'}, status=status.HTTP_403_FORBIDDEN)
+        if booking.payment_status != 'paid' or not (booking.amount_paid and booking.amount_paid > 0):
+            return Response({'error': 'No receipt available — this session was not a paid transaction.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        from django.http import HttpResponse
+        from .invoices import build_booking_invoice_pdf
+        pdf, filename = build_booking_invoice_pdf(booking)
+        resp = HttpResponse(pdf, content_type='application/pdf')
+        resp['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return resp
+
+
+class GroupEnrollmentInvoiceView(APIView):
+    """Stream a PDF receipt for a paid group-session enrollment. Accessible to the
+    enrolled learner, the session's coach, or an admin."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        enrollment = get_object_or_404(
+            GroupEnrollment.objects.select_related('learner', 'group_session__coach__user'), pk=pk
+        )
+        user = request.user
+        is_owner = enrollment.learner_id == user.id
+        is_coach = enrollment.group_session and enrollment.group_session.coach.user_id == user.id
+        if not (is_owner or is_coach or user.is_staff):
+            return Response({'error': 'You do not have access to this receipt.'}, status=status.HTTP_403_FORBIDDEN)
+        if enrollment.payment_status != 'paid' or not (enrollment.amount_paid and enrollment.amount_paid > 0):
+            return Response({'error': 'No receipt available — this enrollment was not a paid transaction.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        from django.http import HttpResponse
+        from .invoices import build_group_invoice_pdf
+        pdf, filename = build_group_invoice_pdf(enrollment)
+        resp = HttpResponse(pdf, content_type='application/pdf')
+        resp['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return resp

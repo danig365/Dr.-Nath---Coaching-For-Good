@@ -6,7 +6,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
         model = UserProfile
         fields = [
             'role', 'bio', 'photo', 'specialties', 'certifications',
-            'hourly_rate', 'years_experience', 'languages', 'industries',
+            'hourly_rate', 'years_experience', 'languages', 'industries', 'linkedin_url',
             'approval_status', 'is_verified', 'organisation', 'job_title',
             'coaching_goals', 'timezone', 'booking_horizon_days', 'min_notice_hours'
         ]
@@ -41,6 +41,8 @@ class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True)
     password2 = serializers.CharField(write_only=True, required=True)
     role = serializers.ChoiceField(choices=[('coach', 'Coach'), ('client', 'Client')], default='client')
+    first_name = serializers.CharField(required=False, allow_blank=True, default='')
+    last_name = serializers.CharField(required=False, allow_blank=True, default='')
     # Coach fields
     specialties = serializers.ListField(child=serializers.CharField(), required=False, default=list)
     certifications = serializers.ListField(child=serializers.CharField(), required=False, default=list)
@@ -57,6 +59,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = CustomUser
         fields = (
             'username', 'email', 'password', 'password2', 'role',
+            'first_name', 'last_name',
             'bio', 'specialties', 'certifications', 'hourly_rate',
             'years_experience', 'languages', 'industries',
             'organisation', 'job_title'
@@ -71,6 +74,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         password = validated_data.pop('password')
         validated_data.pop('password2')
         role = validated_data.pop('role', 'client')
+        # first_name/last_name stay in validated_data — passed to create_user
         profile_fields = {
             'bio': validated_data.pop('bio', ''),
             'specialties': validated_data.pop('specialties', []),
@@ -106,7 +110,7 @@ class CoachDirectorySerializer(serializers.ModelSerializer):
         fields = [
             'user_id', 'username', 'display_name', 'email', 'bio', 'photo',
             'specialties', 'certifications', 'hourly_rate',
-            'years_experience', 'languages', 'industries', 'is_verified'
+            'years_experience', 'languages', 'industries', 'linkedin_url', 'is_verified'
         ]
 
     def get_display_name(self, obj):

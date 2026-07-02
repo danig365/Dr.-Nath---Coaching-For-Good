@@ -26,12 +26,16 @@ from rest_framework_simplejwt.views import (
 
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path('django-admin/', admin.site.urls),
     path('api/', include('profiles.urls')),
     path('api/skills/', include('skills.urls')),
     path('api/bookings/', include('bookings.urls')),
     path('api/messages/', include('messages.urls')),
     path('api/resources/', include('resources.urls')),
+    path('api/contact/', include('contact.urls')),
+    path('api/newsletter/', include('newsletters.urls')),
+    path('api/assistant/', include('assistant.urls')),
+    path('api/signatures/', include('signatures.urls')),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     # path('api/notifications/', include('notifications.urls')),

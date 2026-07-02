@@ -1,0 +1,7 @@
+{% extends "emails/base.txt" %}
+{% block content %}{{ client_name }} DECLINED "{{ title }}"
+
+Hi {{ recipient_name }}, {{ client_name }} declined to sign.
+{% if reason %}Reason: {{ reason }}
+{% endif %}
+{{ link }}{% endblock %}

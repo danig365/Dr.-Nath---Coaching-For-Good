@@ -10,23 +10,63 @@ from .serializers import (
     CurrentUserAndProfileSerializer, RegisterSerializer,
     CoachDirectorySerializer, CoachApprovalSerializer
 )
-from rest_framework_simplejwt.views import TokenObtainPairView
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
+from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
+
+
+def inject_user_claims(token, user):
+    """Stamp a token with the user's current identity/profile state.
+
+    Reads live from the DB so a freshly issued token (login OR refresh) always
+    reflects the latest profile — e.g. is_profile_complete flips to True the
+    moment the user finishes the completion form and we mint a new token.
+    """
+    profile = user.profile
+    token['username'] = user.username
+    token['email'] = user.email
+    token['user_id'] = user.id
+    token['first_name'] = user.first_name
+    token['last_name'] = user.last_name
+    token['role'] = profile.role
+    token['is_verified'] = profile.is_verified
+    token['approval_status'] = profile.approval_status
+    token['is_profile_complete'] = profile.is_profile_complete
+    return token
+
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
-        token['username'] = user.username
-        token['email'] = user.email
-        token['user_id'] = user.id
-        token['role'] = user.profile.role
-        token['is_verified'] = user.profile.is_verified
-        token['approval_status'] = user.profile.approval_status
-        return token
+        return inject_user_claims(token, user)
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+
+
+class CustomTokenRefreshSerializer(TokenRefreshSerializer):
+    """Re-mint the access token with FRESH claims read from the DB.
+
+    The default refresh copies stale claims off the refresh token. We instead
+    rebuild them from the user's current state so the gate (is_profile_complete)
+    and role/approval changes take effect on the next refresh without re-login.
+    """
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        refresh = RefreshToken(attrs['refresh'])
+        user_id = refresh.payload.get('user_id')
+        try:
+            user = CustomUser.objects.select_related('profile').get(id=user_id)
+        except CustomUser.DoesNotExist:
+            return data
+        access = AccessToken(data['access'])
+        inject_user_claims(access, user)
+        data['access'] = str(access)
+        return data
+
+class CustomTokenRefreshView(TokenRefreshView):
+    serializer_class = CustomTokenRefreshSerializer
 
 class RegisterView(generics.CreateAPIView):
     queryset = CustomUser.objects.all()
@@ -319,6 +359,49 @@ class AdminClientStatsView(APIView):
                     'reviews_given': reviews_given,
                     'unique_coaches': coaches_set.count(),
                 },
+            })
+        return Response(result)
+
+
+class CoachClientsView(APIView):
+    """
+    All registered clients, visible to coaches (and staff). Lets the coach see
+    everyone who has signed up — including people who haven't booked yet — with
+    how many sessions each has booked with them.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        profile = getattr(request.user, 'profile', None)
+        is_coach = bool(profile and profile.role == 'coach')
+        if not (is_coach or request.user.is_staff):
+            return Response({'detail': 'Coaches only.'}, status=403)
+
+        from bookings.models import SessionBooking
+
+        clients = (
+            UserProfile.objects.filter(role='client')
+            .select_related('user')
+            .order_by('-user__date_joined')
+        )
+        result = []
+        for c in clients:
+            u = c.user
+            all_bookings = SessionBooking.objects.filter(learner=u)
+            mine = all_bookings.filter(mentor=profile).count() if is_coach else all_bookings.count()
+            last = all_bookings.order_by('-session_date', '-session_time').first()
+            full = f"{u.first_name} {u.last_name}".strip()
+            result.append({
+                'user_id': u.id,
+                'name': full or u.username,
+                'username': u.username,
+                'email': u.email,
+                'joined': u.date_joined.strftime('%Y-%m-%d'),
+                'organisation': c.organisation or '',
+                'job_title': c.job_title or '',
+                'bookings_with_me': mine,
+                'total_bookings': all_bookings.count(),
+                'last_session': last.session_date.strftime('%Y-%m-%d') if last and last.session_date else None,
             })
         return Response(result)
 
