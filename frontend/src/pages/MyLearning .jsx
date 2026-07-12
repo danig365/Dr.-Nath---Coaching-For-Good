@@ -12,6 +12,10 @@ import { api } from "../utils/auth";
 import { SESSION_GRACE_MS } from "../utils/sessionTiming";
 import { useAuth } from "../context/AuthContext";
 import SessionFeedbackCard from "../components/SessionFeedbackCard";
+import AddToCalendar from "../components/AddToCalendar";
+import SessionReflectionModal from "../components/SessionReflectionModal";
+import SessionSummaryModal from "../components/SessionSummaryModal";
+import GoogleCalendarCard from "../components/GoogleCalendarCard";
 import { downloadFile } from "../utils/downloadFile";
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
@@ -22,13 +26,27 @@ const StatusBadge = ({ status }) => {
     completed: { bg: "rgba(200,169,81,0.12)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.3)" },
     cancelled: { bg: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" },
     declined:  { bg: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" },
+    no_show:   { bg: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" },
   };
   const s = map[status] || map.pending;
+  const label = status === "no_show" ? "No Show" : status.charAt(0).toUpperCase() + status.slice(1);
   return (
     <span className="text-xs font-semibold px-3 py-1 rounded-full shrink-0" style={{ background: s.bg, color: s.color, border: s.border }}>
-      {status.charAt(0).toUpperCase() + status.slice(1)}
+      {label}
     </span>
   );
+};
+
+// Why a session is a no-show (factual — same wording for coach + client).
+const noShowReason = (session) => {
+  const by = session.no_show_by;
+  const fmtJoin = (ts) => (ts ? "joined" : "didn't join");
+  const detail = `Coach ${fmtJoin(session.coach_joined_at)} · Client ${fmtJoin(session.client_joined_at)}.`;
+  const lead = by === "both" ? "Neither of you joined, so the session didn't take place."
+    : by === "coach" ? "The coach didn't join this session."
+      : by === "client" ? "The client didn't join this session."
+        : "This session wasn't attended by both parties.";
+  return `${lead} ${detail} A session completes only when both people join.`;
 };
 
 // ─── Unread Badge ─────────────────────────────────────────────────────────────
@@ -65,7 +83,7 @@ const ActionBtn = ({ onClick, icon: Icon, label, badge, variant = "default", dis
 };
 
 // ─── Session Card (compact) ────────────────────────────────────────────────────
-const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, navigate, index }) => {
+const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, onReflect, onSummary, navigate, index }) => {
   const { timezone } = useAuth(); // viewer's display timezone
   // Absolute UTC start, rendered in the viewer's timezone. slot_start is the
   // source of truth; fall back to session_date/time treated as UTC ("Z").
@@ -159,6 +177,7 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, nav
                     <ActionBtn onClick={() => navigate(`/chat/${session.id}`)} icon={FiMessageSquare} label="Chat"
                       badge={<UnreadBadge count={session.unread_messages} />} />
                   )}
+                  {session.status === "accepted" && !expired && <AddToCalendar session={session} />}
                   {!expired && <ActionBtn onClick={() => onCancel(session.id)} icon={FiXCircle} label="Cancel" variant="danger" />}
                   {session.notes_file && <ActionBtn onClick={() => onDownload(session)} icon={FiDownload} label="Notes" />}
                   {session.payment_status === "paid" && Number(session.amount_paid) > 0 && (
@@ -174,6 +193,11 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, nav
                   <ActionBtn onClick={() => navigate(`/chat/${session.id}`)} icon={FiMessageSquare} label="Chat"
                     badge={<UnreadBadge count={session.unread_messages} />} />
                   {session.notes_file && <ActionBtn onClick={() => onDownload(session)} icon={FiDownload} label="Notes" />}
+                  <ActionBtn onClick={() => onReflect(session)} icon={FiEdit}
+                    label={session.has_reflection ? "My Notes ✓" : "Add Notes"} />
+                  {session.has_summary && (
+                    <ActionBtn onClick={() => onSummary(session)} icon={FiFileText} label="AI Summary" />
+                  )}
                   {session.payment_status === "paid" && Number(session.amount_paid) > 0 && (
                     <ActionBtn onClick={() => downloadFile(`/bookings/${session.id}/invoice/`, "receipt.pdf")} icon={FiFileText} label="Receipt" />
                   )}
@@ -181,6 +205,17 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, nav
                 </>
               )}
           </div>
+
+          {/* No-show explanation */}
+          {session.status === "no_show" && (
+            <div className="mt-3 flex items-start gap-2 rounded-xl px-3 py-2.5" style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.15)" }}>
+              <FiXCircle size={15} style={{ color: "#B91C1C" }} className="mt-0.5 shrink-0" />
+              <p className="text-xs leading-relaxed" style={{ color: "#4A5568" }}>
+                <span className="font-bold" style={{ color: "#B91C1C" }}>Marked no-show. </span>
+                {noShowReason(session)}
+              </p>
+            </div>
+          )}
 
           {/* Feedback display (past only) */}
           {activeTab === "past" && session.feedback && (
@@ -332,14 +367,21 @@ const MyLearning = () => {
   const [cancelKind, setCancelKind] = useState("session"); // "session" | "group"
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackSession, setFeedbackSession] = useState(null);
+  const [reflectSession, setReflectSession] = useState(null);
+  const [summarySession, setSummarySession] = useState(null);
   const [feedbackRating, setFeedbackRating] = useState(5);
   const [feedbackComment, setFeedbackComment] = useState("");
 
   const navigate = useNavigate();
-  const { isAuthenticated, isCoach, logout } = useAuth();
+  const { isAuthenticated, isCoach, isAdmin } = useAuth();
 
   const fetchSessions = useCallback(async () => {
-    if (!isAuthenticated || isCoach()) { toast.error("Access denied."); logout(); return; }
+    // This is the client page. Send anyone else to their own area instead of
+    // logging them out (a coach following a client link must not get bounced
+    // out — that caused a login → "access denied" → logout loop).
+    if (!isAuthenticated) { navigate("/login", { replace: true }); return; }
+    if (isAdmin()) { navigate("/admin", { replace: true }); return; }
+    if (isCoach()) { navigate("/my-sessions", { replace: true }); return; }
     setLoading(true);
     try {
       const [res, gres] = await Promise.all([
@@ -353,20 +395,26 @@ const MyLearning = () => {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, isCoach, logout]);
+  }, [isAuthenticated, isCoach, isAdmin, navigate]);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
-  const now = new Date();
-  const upcomingSessions = sessions.filter(s => {
-    const dt = new Date(s.slot_start || `${s.session_date}T${s.session_time}Z`);
-    return (s.status === "pending" || s.status === "accepted") && dt > now;
-  });
-  const pastSessions = sessions.filter(s => {
-    const dt = new Date(s.slot_start || `${s.session_date}T${s.session_time}Z`);
-    // Completed sessions always belong here, plus accepted ones whose time has passed
-    return s.status === "completed" || (s.status === "accepted" && dt <= now);
-  });
+  // Keep a session in "Upcoming" (with a working Join button) until its scheduled
+  // end + grace — so a session that has already started, or that you join a few
+  // minutes late, stays joinable instead of dropping into Past at its start time.
+  const sessionEndMs = (s) => {
+    const start = new Date(s.slot_start || `${s.session_date}T${s.session_time}Z`).getTime();
+    return s.slot_end ? new Date(s.slot_end).getTime() : start + (s.duration || 60) * 60 * 1000;
+  };
+  const isLive = (s) => Date.now() < sessionEndMs(s) + SESSION_GRACE_MS;
+  const upcomingSessions = sessions.filter(s =>
+    (s.status === "pending" || s.status === "accepted") && isLive(s)
+  );
+  const pastSessions = sessions.filter(s =>
+    s.status === "completed" ||
+    ((s.status === "pending" || s.status === "accepted") && !isLive(s))
+  );
+  const noShowSessions = sessions.filter(s => s.status === "no_show");
 
   const handleCancelSession = (id) => { setCancelKind("session"); setSessionToCancelId(id); setShowCancelModal(true); };
   const handleCancelGroup = (id) => { setCancelKind("group"); setSessionToCancelId(id); setShowCancelModal(true); };
@@ -441,7 +489,11 @@ const MyLearning = () => {
   const hasActiveFilters = search || coachFilter || dateFrom || dateTo || sortOrder !== "newest";
   const resetFilters = () => { setSearch(""); setCoachFilter(""); setDateFrom(""); setDateTo(""); setSortOrder("newest"); setPage(1); };
 
-  const filtered = applyFilters(activeTab === "upcoming" ? upcomingSessions : pastSessions);
+  const filtered = applyFilters(
+    activeTab === "upcoming" ? upcomingSessions
+      : activeTab === "no_show" ? noShowSessions
+        : pastSessions
+  );
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const pagedSessions = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -462,6 +514,9 @@ const MyLearning = () => {
         <motion.div className="mb-6" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <h1 className="text-2xl md:text-4xl font-normal text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>My Learning Journey</h1>
         </motion.div>
+
+        {/* Google Calendar connect (auto-add sessions) */}
+        <GoogleCalendarCard />
 
         {/* ── Stats ───────────────────────────────────────── */}
         <motion.div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}>
@@ -484,6 +539,7 @@ const MyLearning = () => {
               {[
                 { key: "upcoming", label: "Upcoming", count: upcomingSessions.length, icon: FiCalendar },
                 { key: "past",     label: "Past Sessions", count: pastSessions.length, icon: FiCheckCircle },
+                { key: "no_show",  label: "No Show", count: noShowSessions.length, icon: FiXCircle },
                 { key: "group",    label: "Group Sessions", count: groupEnrollments.length, icon: FiUsers },
               ].map(tab => (
                 <button
@@ -646,6 +702,8 @@ const MyLearning = () => {
                   onCancel={handleCancelSession}
                   onFeedback={handleLeaveFeedback}
                   onDownload={handleDownload}
+                  onReflect={setReflectSession}
+                  onSummary={setSummarySession}
                   navigate={navigate}
                 />
               ))}
@@ -757,6 +815,25 @@ const MyLearning = () => {
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {reflectSession && (
+          <SessionReflectionModal
+            session={reflectSession}
+            onClose={() => setReflectSession(null)}
+            onSaved={fetchSessions}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {summarySession && (
+          <SessionSummaryModal
+            session={summarySession}
+            onClose={() => setSummarySession(null)}
+          />
         )}
       </AnimatePresence>
     </div>

@@ -1,0 +1,28 @@
+# systemd unit for the E7 Phase 3 server-side transcription worker.
+#
+# Install:
+#   sudo cp transcription-worker.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now transcription-worker
+# Logs:
+#   journalctl -u transcription-worker -f
+#
+# Prereqs: venv-worker created (requirements-worker.txt) and TRANSCRIPTION_ENABLED
+# + STT provider key set in the backend .env.
+
+[Unit]
+Description=Dr. Nath — LiveKit session transcription worker (AI summaries)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/dr-nath-coaching/backend
+# Loads the same .env the API uses (LiveKit creds, STT key, Anthropic key).
+EnvironmentFile=/root/dr-nath-coaching/backend/.env
+ExecStart=/root/dr-nath-coaching/backend/venv-worker/bin/python transcription_worker.py start
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

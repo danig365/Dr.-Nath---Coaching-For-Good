@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { FiPlus, FiEdit2, FiTrash2, FiStar, FiDollarSign, FiUsers, FiToggleLeft, FiToggleRight } from "react-icons/fi";
+import { FiPlus, FiEdit2, FiTrash2, FiStar, FiDollarSign, FiUsers, FiToggleLeft, FiToggleRight, FiLink } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 import { api } from "../utils/auth";
@@ -18,6 +18,22 @@ const StatCard = ({ title, value, icon, bg = "#F3ECD9" }) => (
 );
 
 // ─── Skill Card ───────────────────────────────────────────────────────────────
+// Build the public, shareable booking link for a program/skill and copy it to
+// the clipboard. Sharing this with a preselected participant lands them (after
+// login/registration) straight on this exact program's booking page — so they
+// can't accidentally book the wrong program.
+const copyBookingLink = async (skill) => {
+  const url = `${window.location.origin}/book/${skill.id}`;
+  try {
+    await navigator.clipboard.writeText(url);
+    toast.success("Booking link copied — share it with your participant.");
+  } catch {
+    // Clipboard API can be blocked (e.g. insecure context); show the link so
+    // the coach can copy it manually.
+    toast.info(url, { autoClose: false });
+  }
+};
+
 const SkillCard = ({ skill, onEdit, onDelete, onToggleActive, index }) => (
   <motion.div
     initial={{ opacity: 0, y: 16 }}
@@ -92,6 +108,15 @@ const SkillCard = ({ skill, onEdit, onDelete, onToggleActive, index }) => (
           style={{ background: "rgba(200,169,81,0.1)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.25)" }}
         >
           <FiEdit2 size={13} /> Edit
+        </button>
+
+        <button
+          onClick={() => copyBookingLink(skill)}
+          title="Copy a shareable link that books this exact program"
+          className="flex-1 md:flex-none flex items-center justify-center gap-2 px-3 py-2.5 rounded-full text-sm font-semibold transition-all duration-200"
+          style={{ background: "rgba(27,43,74,0.06)", color: "#1B2B4A", border: "1px solid rgba(27,43,74,0.15)" }}
+        >
+          <FiLink size={13} /> Booking link
         </button>
 
         <button

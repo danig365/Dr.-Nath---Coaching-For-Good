@@ -1,0 +1,25 @@
+{% extends "emails/base.txt" %}
+{% block content %}THANK YOU FOR YOUR SESSION
+
+Hi {{ recipient_name }},
+
+Thank you for your {{ skill_name }} session with {{ coach_name }} — it was a pleasure. We hope it was valuable for you.
+{% if reflect_link %}
+CAPTURE YOUR TAKEAWAYS:
+While it's fresh, jot down what stood out and any action items from your
+session. Sign in and open the session under My Learning to add your notes:
+{{ reflect_link }}
+{% endif %}{% if slots %}
+Would you like to book your next session? Here are {{ coach_name }}'s next available times — just pick one:
+{% for s in slots %}
+  {{ s.when }}
+  Book this time: {{ s.link }}
+{% endfor %}
+See all available times:
+{{ browse_link }}
+{% else %}
+Ready for your next session? You can book here:
+{{ browse_link }}
+{% endif %}
+Warm regards,
+{{ coach_name }}{% endblock %}

@@ -2,7 +2,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
+import { Bars3Icon, XMarkIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
 import { api } from "../utils/auth";
 import { GROUP_SESSIONS_ENABLED } from "../config/features";
 
@@ -51,41 +51,80 @@ const Navbar = () => {
     : "linear-gradient(180deg, rgba(243,233,205,0.94), rgba(230,210,156,0.92))";
 
 
-  const desktopLinks = !isAuthenticated
-    ? [
-        { to: "/", label: "Home" },
-        { to: "/#who", label: "Who is Dr Nath" },
-        { to: "/#offerings", label: "Offerings" },
-        { to: "/contact", label: "Contact" },
-      ]
-    : isAdmin()
-    ? [
-        { to: "/admin", label: "Overview" },
-        { to: "/admin?tab=pending", label: "Approvals" },
-        { to: "/admin?tab=analytics", label: "Analytics" },
-        { to: "/admin?tab=coaches", label: "Coaches" },
-        { to: "/admin?tab=clients", label: "Clients" },
-        { to: "/admin?tab=sessions", label: "Sessions" },
-        { to: "/admin?tab=messages", label: "Messages" },
-        { to: "/admin?tab=newsletter", label: "Newsletter" },
-        { to: "/admin?tab=all", label: "All Coaches" },
-      ]
-    : [
-        { to: isCoach() ? "/my-skills" : "/skills", label: isCoach() ? "My Skills" : "Browse Skills" },
-        ...(isCoach() ? [{ to: "/add-skill", label: "Add Skill" }, { to: "/my-availability", label: "Dr Nath's Availability" }, { to: "/my-resources", label: "Resources" }] : []),
-        { to: isCoach() ? "/my-sessions" : "/my-learning", label: isCoach() ? "My Sessions" : "My Learning", badge: upcomingCount },
-        ...(!isCoach() ? [
-          ...(GROUP_SESSIONS_ENABLED ? [{ to: "/group-sessions", label: "Group Sessions" }] : []),
-          { to: "/resources", label: "Resources" },
-        ] : []),
+  // Guest + admin keep a flat link bar. Signed-in coach/client are consolidated
+  // into ≤4 dropdown categories (client request: "at most 4 main tabs").
+  const guestLinks = [
+    { to: "/", label: "Home" },
+    { to: "/#who", label: "Who is Dr Nath" },
+    { to: "/#offerings", label: "Offerings" },
+    { to: "/contact", label: "Contact" },
+  ];
+  const adminGroups = [
+    { label: "Dashboard", items: [
+      { to: "/admin", label: "Overview" },
+      { to: "/admin?tab=analytics", label: "Analytics" },
+    ]},
+    { label: "Coaches", items: [
+      { to: "/admin?tab=pending", label: "Approvals" },
+      { to: "/admin?tab=coaches", label: "Coach Management" },
+      { to: "/admin?tab=all", label: "All Coaches" },
+    ]},
+    { label: "Clients", items: [
+      { to: "/admin?tab=clients", label: "Client Management" },
+      { to: "/admin?tab=onboard", label: "Onboard Clients" },
+    ]},
+    { label: "Activity", items: [
+      { to: "/admin?tab=sessions", label: "Sessions" },
+      { to: "/admin?tab=messages", label: "Messages" },
+      { to: "/admin?tab=newsletter", label: "Newsletter" },
+    ]},
+  ];
 
-        { to: "/milestones", label: "Milestones" },
-        { to: "/habits", label: "Habits" },
-        { to: "/agreements", label: "Agreements" },
-        { to: "/coaches", label: "Coaches" },
-        ...(!isCoach() ? [{ to: "/match", label: "Find Match" }] : []),
-        { to: "/profile", label: "Profile" },
-      ];
+  const coachGroups = [
+    { label: "Sessions", badge: upcomingCount, items: [
+      { to: "/my-sessions", label: "My Sessions", badge: upcomingCount },
+      { to: "/my-availability", label: "My Availability" },
+      ...(GROUP_SESSIONS_ENABLED ? [{ to: "/group-sessions", label: "Group Sessions" }] : []),
+    ]},
+    { label: "Clients", items: [
+      { to: "/clients", label: "My Clients" },
+      { to: "/coaches", label: "Coaches" },
+    ]},
+    { label: "Offerings", items: [
+      { to: "/my-skills", label: "My Skills" },
+      { to: "/add-skill", label: "Add Skill" },
+    ]},
+    { label: "Workspace", items: [
+      { to: "/my-resources", label: "Resources" },
+      { to: "/milestones", label: "Milestones" },
+      { to: "/habits", label: "Habits" },
+    ]},
+  ];
+  const clientGroups = [
+    { label: "Sessions", badge: upcomingCount, items: [
+      { to: "/my-learning", label: "My Learning", badge: upcomingCount },
+      ...(GROUP_SESSIONS_ENABLED ? [{ to: "/group-sessions", label: "Group Sessions" }] : []),
+    ]},
+    { label: "Coaches", items: [
+      { to: "/coaches", label: "Browse Coaches" },
+      { to: "/match", label: "Find Match" },
+      { to: "/skills", label: "Browse Skills" },
+    ]},
+    { label: "Workspace", items: [
+      { to: "/resources", label: "Resources" },
+      { to: "/milestones", label: "Milestones" },
+      { to: "/habits", label: "Habits" },
+    ]},
+  ];
+
+  const useGroups = isAuthenticated;
+  const navGroups = isAdmin() ? adminGroups : (isCoach() ? coachGroups : clientGroups);
+  const flatLinks = !isAuthenticated ? guestLinks : [];
+  const pathOf = (to) => to.split("?")[0];
+  // Active when the URL matches exactly (query-string tabs like /admin?tab=x) or,
+  // for a plain link, the path matches and no tab query is present.
+  const isActive = (to) =>
+    to === currentFull || (!to.includes("?") && location.pathname === pathOf(to) && !location.search);
 
   return (
     <>
@@ -100,9 +139,10 @@ const Navbar = () => {
         <div className="w-full px-6 sm:px-10 lg:px-20">
           <div className="flex items-center justify-between h-28">
 
-            {/* Logo */}
+            {/* Logo → the home page (signed-in users land on the marketing home
+                via /home instead of being bounced to their dashboard). */}
             <Link
-              to={isAuthenticated ? (isAdmin() ? "/admin" : isCoach() ? "/my-skills" : "/skills") : "/"}
+              to={isAuthenticated ? "/home" : "/"}
               className="flex items-center gap-3 group"
             >
               <img
@@ -126,57 +166,86 @@ const Navbar = () => {
 
             {/* Desktop Nav */}
             <div className="hidden md:flex items-center gap-1">
-              {desktopLinks.map(link => {
-                const badgeNum = link.badge || 0;
-                return (
-                  <Link
-                    key={link.to}
-                    to={link.to}
-                    className="relative px-3.5 py-2.5 rounded-lg text-[15px] transition-all duration-200 hover:text-[#7A5E22] hover:bg-[#1B2B4A]/[0.06]"
-                    style={{
-                      color: link.to === currentFull ? "#7A5E22" : "#1B2B4A",
-                      fontWeight: link.to === currentFull ? 700 : 500,
-                    }}
-                  >
-                    {link.label}
-                    {badgeNum > 0 && (
-                      <span
-                        className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] flex items-center justify-center rounded-full text-[10px] font-bold px-1"
-                        style={{ background: "#1B2B4A", color: "#E6D29C", lineHeight: 1 }}
-                      >
-                        {badgeNum > 99 ? "99+" : badgeNum}
-                      </span>
-                    )}
-                  </Link>
-                );
-              })}
+              {useGroups ? (
+                <>
+                  {navGroups.map(group => {
+                    const active = group.items.some(i => isActive(i.to));
+                    return (
+                      <div key={group.label} className="relative group">
+                        <button
+                          className="relative flex items-center gap-1 px-3.5 py-2.5 rounded-lg text-[15px] transition-all duration-200 hover:text-[#7A5E22] hover:bg-[#1B2B4A]/[0.06]"
+                          style={{ color: active ? "#7A5E22" : "#1B2B4A", fontWeight: active ? 700 : 500 }}
+                        >
+                          {group.label}
+                          <ChevronDownIcon className="w-3.5 h-3.5 transition-transform duration-200 group-hover:rotate-180" />
+                          {group.badge > 0 && (
+                            <span className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] flex items-center justify-center rounded-full text-[10px] font-bold px-1" style={{ background: "#1B2B4A", color: "#E6D29C", lineHeight: 1 }}>
+                              {group.badge > 99 ? "99+" : group.badge}
+                            </span>
+                          )}
+                        </button>
+                        <div className="absolute top-full left-0 pt-1.5 hidden group-hover:block min-w-[200px] z-50">
+                          <div className="rounded-xl py-1.5 shadow-xl" style={{ background: "#FAF6EC", border: "1px solid rgba(122,94,34,0.35)" }}>
+                            {group.items.map(item => (
+                              <Link key={item.to} to={item.to}
+                                className="flex items-center justify-between gap-3 px-4 py-2 text-[14px] transition-colors hover:bg-[#1B2B4A]/[0.06]"
+                                style={{ color: isActive(item.to) ? "#7A5E22" : "#1B2B4A", fontWeight: isActive(item.to) ? 700 : 500 }}>
+                                {item.label}
+                                {item.badge > 0 && (
+                                  <span className="min-w-[17px] h-[17px] flex items-center justify-center rounded-full text-[10px] font-bold px-1" style={{ background: "#1B2B4A", color: "#E6D29C" }}>
+                                    {item.badge > 99 ? "99+" : item.badge}
+                                  </span>
+                                )}
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
 
-              {isAuthenticated ? (
-                <button
-                  onClick={() => { setShowLogoutModal(true); setLogoutFromMobile(false); }}
-                  className="ml-2 px-4 py-2.5 rounded-lg text-[15px] font-semibold transition-all duration-200 border"
-                  style={{ borderColor: "rgba(27,43,74,0.45)", color: "#1B2B4A" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "rgba(27,43,74,0.08)"}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                >
-                  Logout →
-                </button>
+                  {/* Profile avatar menu */}
+                  <div className="relative group ml-2">
+                    <button className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold transition-transform hover:scale-105" style={{ background: "#1B2B4A", color: "#F3E9C9" }}>
+                      {(user?.first_name || user?.username || "U").charAt(0).toUpperCase()}
+                    </button>
+                    <div className="absolute top-full right-0 pt-1.5 hidden group-hover:block min-w-[170px] z-50">
+                      <div className="rounded-xl py-1.5 shadow-xl" style={{ background: "#FAF6EC", border: "1px solid rgba(122,94,34,0.35)" }}>
+                        <Link to="/profile" className="block px-4 py-2 text-[14px] hover:bg-[#1B2B4A]/[0.06]" style={{ color: "#1B2B4A" }}>My Profile</Link>
+                        <button onClick={() => { setShowLogoutModal(true); setLogoutFromMobile(false); }} className="w-full text-left px-4 py-2 text-[14px] font-semibold hover:bg-[#1B2B4A]/[0.06]" style={{ color: "#B91C1C" }}>
+                          Logout →
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </>
               ) : (
                 <>
-                  <Link
-                    to="/login"
-                    className="px-3.5 py-2.5 rounded-lg text-[15px] font-medium transition-all duration-200 hover:text-[#7A5E22] hover:bg-[#1B2B4A]/[0.06]"
-                    style={{ color: "#1B2B4A" }}
-                  >
-                    Login
-                  </Link>
-                  <Link
-                    to="/#newsletter"
-                    className="ml-2 px-6 py-2.5 rounded-full text-[15px] font-bold transition-all duration-200 hover:-translate-y-0.5"
-                    style={{ background: "#1B2B4A", color: "#F3E9C9" }}
-                  >
-                    Newsletter Sign Up
-                  </Link>
+                  {flatLinks.map(link => (
+                    <Link key={link.to} to={link.to}
+                      className="relative px-3.5 py-2.5 rounded-lg text-[15px] transition-all duration-200 hover:text-[#7A5E22] hover:bg-[#1B2B4A]/[0.06]"
+                      style={{ color: link.to === currentFull ? "#7A5E22" : "#1B2B4A", fontWeight: link.to === currentFull ? 700 : 500 }}>
+                      {link.label}
+                    </Link>
+                  ))}
+                  {isAuthenticated ? (
+                    <button
+                      onClick={() => { setShowLogoutModal(true); setLogoutFromMobile(false); }}
+                      className="ml-2 px-4 py-2.5 rounded-lg text-[15px] font-semibold transition-all duration-200 border"
+                      style={{ borderColor: "rgba(27,43,74,0.45)", color: "#1B2B4A" }}
+                    >
+                      Logout →
+                    </button>
+                  ) : (
+                    <>
+                      <Link to="/login" className="px-3.5 py-2.5 rounded-lg text-[15px] font-medium transition-all duration-200 hover:text-[#7A5E22] hover:bg-[#1B2B4A]/[0.06]" style={{ color: "#1B2B4A" }}>
+                        Login
+                      </Link>
+                      <Link to="/#newsletter" className="ml-2 px-6 py-2.5 rounded-full text-[15px] font-bold transition-all duration-200 hover:-translate-y-0.5" style={{ background: "#1B2B4A", color: "#F3E9C9" }}>
+                        Newsletter Sign Up
+                      </Link>
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -204,28 +273,38 @@ const Navbar = () => {
               style={{ background: "linear-gradient(180deg, rgba(243,233,205,0.98), rgba(230,210,156,0.98))", borderTop: "1px solid rgba(122,94,34,0.4)" }}
             >
               <div className="px-4 py-4 space-y-1">
-                {desktopLinks.map(link => {
-                  const badgeNum = link.badge || 0;
-                  return (
-                    <Link
-                      key={link.to}
-                      to={link.to}
-                      onClick={() => setIsOpen(false)}
+                {useGroups ? (
+                  <>
+                    {navGroups.map(group => (
+                      <div key={group.label} className="pb-1">
+                        <p className="px-3 pt-2 pb-1 text-[11px] font-bold uppercase tracking-wider" style={{ color: "#7A5E22" }}>{group.label}</p>
+                        {group.items.map(item => (
+                          <Link key={item.to} to={item.to} onClick={() => setIsOpen(false)}
+                            className="relative flex items-center gap-2 px-4 py-2.5 rounded-lg text-[15px] font-medium transition-all duration-200 hover:text-[#7A5E22] hover:bg-[#1B2B4A]/[0.06]"
+                            style={{ color: isActive(item.to) ? "#7A5E22" : "#1B2B4A" }}>
+                            {item.label}
+                            {item.badge > 0 && (
+                              <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-bold px-1" style={{ background: "#1B2B4A", color: "#E6D29C" }}>
+                                {item.badge > 99 ? "99+" : item.badge}
+                              </span>
+                            )}
+                          </Link>
+                        ))}
+                      </div>
+                    ))}
+                    <div className="pt-1">
+                      <Link to="/profile" onClick={() => setIsOpen(false)} className="block px-4 py-2.5 rounded-lg text-[15px] font-medium hover:bg-[#1B2B4A]/[0.06]" style={{ color: "#1B2B4A" }}>My Profile</Link>
+                    </div>
+                  </>
+                ) : (
+                  flatLinks.map(link => (
+                    <Link key={link.to} to={link.to} onClick={() => setIsOpen(false)}
                       className="relative flex items-center gap-2 px-3 py-3 rounded-lg text-[15px] font-medium transition-all duration-200 hover:text-[#7A5E22] hover:bg-[#1B2B4A]/[0.06]"
-                      style={{ color: "#1B2B4A" }}
-                    >
+                      style={{ color: "#1B2B4A" }}>
                       {link.label}
-                      {badgeNum > 0 && (
-                        <span
-                          className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-bold px-1"
-                          style={{ background: "#1B2B4A", color: "#E6D29C" }}
-                        >
-                          {badgeNum > 99 ? "99+" : badgeNum}
-                        </span>
-                      )}
                     </Link>
-                  );
-                })}
+                  ))
+                )}
 
                 <div className="pt-2">
                   {isAuthenticated ? (

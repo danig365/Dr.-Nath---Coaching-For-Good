@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css"; // Import the toast styles
@@ -7,6 +7,7 @@ import Login from "./pages/Login";
 // import Profile from "./pages/ProfilePage";
 import Navbar from "./components/Navbar";
 import AssistantWidget from "./components/AssistantWidget";
+import SessionStartBanner from "./components/SessionStartBanner";
 import SkillList from "./pages/SkillList";
 import AddSkill from "./pages/AddSkill";
 import Home from "./pages/Home";
@@ -27,6 +28,7 @@ import SessionCallLiveKit from "./pages/SessionCallLiveKit";
 import Milestones from "./pages/Milestones";
 import HabitTracker from "./pages/HabitTracker";
 import Agreements from "./pages/Agreements";
+import Forms from "./pages/Forms";
 import MyAvailability from "./pages/MyAvailability";
 import GroupSessions from "./pages/GroupSessions";
 import GroupCallPage from "./pages/GroupCallPage";
@@ -37,6 +39,9 @@ import MyResources from "./pages/MyResources";
 import CoachClients from "./pages/CoachClients";
 import Contact from "./pages/Contact";
 import CompleteProfilePage from "./pages/CompleteProfilePage";
+import MagicJoin from "./pages/MagicJoin";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import { GROUP_SESSIONS_ENABLED, VIDEO_PROVIDER } from "./config/features";
 
 // Pick the video call implementation from the single VIDEO_PROVIDER flag.
@@ -54,10 +59,14 @@ function HomeGate() {
 }
 
 // Guards all protected routes: must be logged in AND have a complete profile.
+// Preserves the intended destination via `?next=` so shareable deep-links
+// (e.g. a program booking link) survive the login / profile-completion detour.
 function RequireProfileComplete() {
   const { isAuthenticated, profileComplete } = useAuth();
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (!profileComplete) return <Navigate to="/complete-profile" replace />;
+  const location = useLocation();
+  const next = encodeURIComponent(location.pathname + location.search);
+  if (!isAuthenticated) return <Navigate to={`/login?next=${next}`} replace />;
+  if (!profileComplete) return <Navigate to={`/complete-profile?next=${next}`} replace />;
   return <Outlet />;
 }
 
@@ -66,13 +75,20 @@ export default function App() {
     <Router>
       <AuthProvider>
         <Navbar />
+        <SessionStartBanner />
         <Routes>
           {/* Public routes — no auth required */}
           <Route path="/" element={<HomeGate />} />
+          {/* Always shows the marketing home — lets signed-in users return to it
+              via the logo without being bounced to their dashboard. */}
+          <Route path="/home" element={<Home />} />
           <Route path="/register" element={<Register />} />
           <Route path="/login" element={<Login />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/complete-profile" element={<CompleteProfilePage />} />
+          <Route path="/join/:token" element={<MagicJoin />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password/:uid/:token" element={<ResetPassword />} />
 
           {/* Protected routes — must be logged in with a complete profile */}
           <Route element={<RequireProfileComplete />}>
@@ -93,6 +109,7 @@ export default function App() {
             <Route path="/milestones" element={<Milestones />} />
             <Route path="/habits" element={<HabitTracker />} />
             <Route path="/agreements" element={<Agreements />} />
+            <Route path="/forms" element={<Forms />} />
             <Route path="/my-availability" element={<MyAvailability />} />
             {GROUP_SESSIONS_ENABLED && (
               <>

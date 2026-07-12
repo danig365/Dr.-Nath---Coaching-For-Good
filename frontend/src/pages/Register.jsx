@@ -14,8 +14,6 @@ import {
   CheckCircleIcon,
   BriefcaseIcon,
 } from "@heroicons/react/24/outline";
-import { FcGoogle } from "react-icons/fc";
-import { FaFacebook } from "react-icons/fa";
 
 const steps = ["Account", "Profile", "Details"];
 
@@ -110,6 +108,13 @@ export default function Register() {
     organisation: "", job_title: "",
   }));
   const navigate = useNavigate();
+  // Shown inline right by the submit button so it's never missed — a top toast
+  // is easy to scroll past on mobile (a real client got stuck this way).
+  const [formError, setFormError] = useState("");
+  // Per-field errors (username/email/password/password2) shown under each input.
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [emailTaken, setEmailTaken] = useState(false); // → show "Sign in instead"
+  const [checking, setChecking] = useState(false);      // availability check in-flight
 
   useEffect(() => {
     const roleParam = searchParams.get("role");
@@ -118,34 +123,85 @@ export default function Register() {
     }
   }, [searchParams]);
 
-  const handleChange = e => setForm({ ...form, [e.target.name]: e.target.value });
+  const handleChange = e => {
+    setFormError("");
+    setFieldErrors(fe => ({ ...fe, [e.target.name]: undefined }));
+    if (e.target.name === "email") setEmailTaken(false);
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  // Validate the account step (0) with a specific message per field.
+  const validateStep0 = () => {
+    const errs = {};
+    const u = form.username.trim();
+    const em = form.email.trim();
+    if (u.length < 3) errs.username = "Username must be at least 3 characters.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) errs.email = "Please enter a valid email address.";
+    if (form.password.length < 8) errs.password = "Password must be at least 8 characters.";
+    else if (form.password !== form.password2) errs.password2 = "The two passwords don't match.";
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  // Advance from step 0 only after it validates AND the username/email are free —
+  // so a taken account is flagged here, not at the very end of the form.
+  const advanceFromStep0 = async () => {
+    setFormError("");
+    if (!validateStep0()) return;
+    setChecking(true);
+    try {
+      const res = await api.post("/register/check/", { username: form.username.trim(), email: form.email.trim() });
+      const errs = {};
+      if (res.data.username_taken) errs.username = "This username is already taken. Please choose another.";
+      if (res.data.email_taken) { errs.email = "An account with this email already exists."; setEmailTaken(true); }
+      if (Object.keys(errs).length) { setFieldErrors(errs); return; }
+      setStep(1);
+    } catch {
+      // If the availability check fails (e.g. network), let them continue — the
+      // final submit still validates everything server-side.
+      setStep(1);
+    } finally { setChecking(false); }
+  };
+
+  const handleFormSubmit = (e) => {
+    e.preventDefault();
+    if (step === 0) { advanceFromStep0(); return; }
+    if (step === 1) { setStep(2); return; }
+    handleSubmit(e);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (form.password !== form.password2) { toast.error("Passwords do not match."); return; }
+    setFormError("");
     setIsLoading(true);
     try {
-      await api.post("/register/", form);
+      await api.post("/register/", { ...form, username: form.username.trim(), email: form.email.trim() });
       if (form.role === "coach") {
         toast.info("Registration submitted. Your profile is under review.");
       } else {
         toast.success("Registered successfully! You can now log in.");
       }
-      // Carry any `next` destination through to login so a mid-task signup
-      // (e.g. a guest booking) resumes where it left off after signing in.
       const next = searchParams.get("next");
       navigate(next ? `/login?next=${encodeURIComponent(next)}` : "/login");
     } catch (err) {
       const d = err.response?.data;
       if (d && typeof d === "object") {
-        const labels = { non_field_errors: "", detail: "", username: "Username", email: "Email", password: "Password" };
-        const msgs = Object.entries(d).map(([key, val]) => {
-          const text = Array.isArray(val) ? val.join(" ") : String(val);
-          const label = labels[key] ?? key;
-          return label ? `${label}: ${text}` : text;
-        });
-        toast.error(msgs.length ? msgs.join("\n") : "Registration failed. Please check your input.");
+        const fe = {};
+        let general = "";
+        for (const [k, v] of Object.entries(d)) {
+          const text = Array.isArray(v) ? v.join(" ") : String(v);
+          if (["username", "email", "password", "password2"].includes(k)) fe[k] = text;
+          else general = general ? `${general} ${text}` : text;
+        }
+        setFieldErrors(fe);
+        if (fe.email && /exist/i.test(fe.email)) setEmailTaken(true);
+        // A step-0 field failed server-side (e.g. a weak/common password) — send
+        // the user back so the error is shown right under the offending field.
+        if (fe.username || fe.email || fe.password || fe.password2) setStep(0);
+        setFormError(general);
+        toast.error(general || "Please fix the highlighted fields.");
       } else {
+        setFormError("Couldn't create your account. Please check your connection and try again.");
         toast.error("An unexpected error occurred.");
       }
     } finally {
@@ -153,9 +209,6 @@ export default function Register() {
     }
   };
 
-  const handleSocialRegister = (provider) => {
-    toast.info(`Social login with ${provider} is not yet implemented.`);
-  };
 
   const isStep0Valid = form.username && form.email && form.password && form.password2 && form.password === form.password2;
   const isStep1Valid = form.role;
@@ -212,7 +265,7 @@ export default function Register() {
         <div className="w-full max-w-md">
 
           {/* Step indicator */}
-          <div className="flex items-center gap-2 mb-8">
+          <div className="flex items-center justify-center gap-2 mb-8">
             {steps.map((s, i) => (
               <div key={s} className="flex items-center gap-2">
                 <div
@@ -254,7 +307,7 @@ export default function Register() {
               </div>
             )}
 
-            <form onSubmit={step < 2 ? (e) => { e.preventDefault(); setStep(s => s + 1); } : handleSubmit} className="px-8 py-6 space-y-5">
+            <form onSubmit={handleFormSubmit} className="px-8 py-6 space-y-5">
 
               <AnimatePresence mode="wait">
 
@@ -262,46 +315,23 @@ export default function Register() {
                 {step === 0 && (
                   <motion.div key="step0" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={{ duration: 0.3 }} className="space-y-4">
 
-                    {/* Social buttons */}
-                    <div className="space-y-3">
-                      <motion.button
-                        type="button"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => handleSocialRegister("google")}
-                        className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-full text-sm font-medium transition-all duration-200"
-                        style={{ background: "#FAF6EC", color: "#1B2B4A", border: "1px solid rgba(200,169,81,0.2)" }}
-                      >
-                        <FcGoogle className="h-5 w-5" />
-                        Continue with Google
-                      </motion.button>
-                      <motion.button
-                        type="button"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => handleSocialRegister("facebook")}
-                        className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-full text-sm font-medium transition-all duration-200 text-white"
-                        style={{ background: "#1877F2" }}
-                      >
-                        <FaFacebook className="h-5 w-5" />
-                        Continue with Facebook
-                      </motion.button>
-                    </div>
-
-                    <div className="relative flex items-center">
-                      <div className="flex-1 h-px" style={{ background: "rgba(200,169,81,0.2)" }} />
-                      <span className="px-4 text-xs" style={{ color: "rgba(250,246,236,0.4)" }}>or register with email</span>
-                      <div className="flex-1 h-px" style={{ background: "rgba(200,169,81,0.2)" }} />
-                    </div>
-
                     <div>
                       <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "rgba(200,169,81,0.8)" }}>Username</label>
                       <FloatingInput id="username" name="username" placeholder="Choose a username" icon={UserIcon} value={form.username} onChange={handleChange} required />
+                      {fieldErrors.username && <p className="text-xs mt-1" style={{ color: "#FCA5A5" }}>{fieldErrors.username}</p>}
                     </div>
 
                     <div>
                       <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "rgba(200,169,81,0.8)" }}>Email</label>
                       <FloatingInput id="email" name="email" type="email" placeholder="your@email.com" icon={EnvelopeIcon} value={form.email} onChange={handleChange} required />
+                      {fieldErrors.email && (
+                        <p className="text-xs mt-1" style={{ color: "#FCA5A5" }}>
+                          {fieldErrors.email}
+                          {emailTaken && (
+                            <> <Link to="/login" className="font-semibold underline" style={{ color: "#C8A951" }}>Sign in instead</Link></>
+                          )}
+                        </p>
+                      )}
                     </div>
 
                     <div>
@@ -317,6 +347,7 @@ export default function Register() {
                         }
                       />
                       <PasswordStrength password={form.password} />
+                      {fieldErrors.password && <p className="text-xs mt-1" style={{ color: "#FCA5A5" }}>{fieldErrors.password}</p>}
                     </div>
 
                     <div>
@@ -331,8 +362,10 @@ export default function Register() {
                           </button>
                         }
                       />
-                      {form.password2 && form.password !== form.password2 && (
-                        <p className="text-xs mt-1" style={{ color: "#E57373" }}>Passwords do not match</p>
+                      {(fieldErrors.password2 || (form.password2 && form.password !== form.password2)) && (
+                        <p className="text-xs mt-1" style={{ color: "#FCA5A5" }}>
+                          {fieldErrors.password2 || "The two passwords don't match."}
+                        </p>
                       )}
                     </div>
                   </motion.div>
@@ -453,6 +486,13 @@ export default function Register() {
 
               </AnimatePresence>
 
+              {/* Inline error — always visible next to the button */}
+              {formError && step === 2 && (
+                <div className="rounded-xl px-4 py-3 text-sm" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.4)", color: "#FCA5A5" }}>
+                  {formError}
+                </div>
+              )}
+
               {/* Navigation buttons */}
               <div className="flex gap-3 pt-2">
                 {step > 0 && (
@@ -469,16 +509,16 @@ export default function Register() {
                   type="submit"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  disabled={isLoading || (step === 0 && !isStep0Valid)}
+                  disabled={isLoading || checking || (step === 0 && !isStep0Valid)}
                   className="flex-1 py-3 rounded-full text-sm font-bold transition-all duration-300 gold-btn disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                 >
-                  {isLoading ? (
+                  {(isLoading || checking) ? (
                     <span className="flex items-center justify-center gap-2">
                       <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                       </svg>
-                      Creating Account...
+                      {checking ? "Checking…" : "Creating Account..."}
                     </span>
                   ) : step < 2 ? "Continue →" : "Create Account →"}
                 </motion.button>

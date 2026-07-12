@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
 import { toast } from "react-toastify";
-import { FiMail, FiSend, FiRefreshCw, FiSearch } from "react-icons/fi";
+import { FiMail, FiSend, FiRefreshCw, FiSearch, FiPaperclip } from "react-icons/fi";
 import { api } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
 
@@ -173,6 +173,13 @@ export default function SentInvitesPanel({ tz }) {
               {inv.note && (
                 <p className="text-xs mt-1 truncate" style={{ color: "rgba(74,85,104,0.6)" }} title={inv.note}>
                   “{inv.note}”
+                </p>
+              )}
+              {inv.attached_documents?.length > 0 && (
+                <p className="flex items-center gap-1 text-xs mt-1 truncate" style={{ color: "#A9863A" }}
+                  title={inv.attached_documents.join(", ")}>
+                  <FiPaperclip size={11} className="shrink-0" />
+                  {inv.attached_documents.length} document{inv.attached_documents.length !== 1 ? "s" : ""}
                 </p>
               )}
             </div>

@@ -9,4 +9,7 @@ Hi {{ recipient_name }}, this is a reminder of your session with {{ other_name }
   Duration : {{ duration }} minutes
 
 Join the session: {{ join_link }}
-Or open it from your dashboard ({% if role == 'coach' %}My Sessions{% else %}My Learning{% endif %}): {{ manage_url }}{% endblock %}
+Or open it from your dashboard ({% if role == 'coach' %}My Sessions{% else %}My Learning{% endif %}): {{ manage_url }}
+{% if role != 'coach' %}
+This session takes place online, on the Dr. Nath platform. Log in at
+{{ login_url }} and click Join when it's time.{% endif %}{% endblock %}

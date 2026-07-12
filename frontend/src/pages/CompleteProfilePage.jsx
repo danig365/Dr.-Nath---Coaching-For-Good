@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "react-toastify";
 import { FiUser, FiX, FiPlus } from "react-icons/fi";
@@ -98,6 +98,8 @@ function TagInput({ tags, onChange, placeholder }) {
 export default function CompleteProfilePage() {
   const { role, isAuthenticated, profileComplete, markProfileComplete, logout } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const next = searchParams.get("next");
 
   const isCoach = role === "coach";
   const isClient = role === "client";
@@ -113,10 +115,12 @@ export default function CompleteProfilePage() {
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Inline error by the button — a top toast is easy to miss on mobile.
+  const [formError, setFormError] = useState("");
 
   useEffect(() => {
     if (!isAuthenticated) { navigate("/login", { replace: true }); return; }
-    if (profileComplete) { navigate("/", { replace: true }); return; }
+    if (profileComplete) { navigate(next || "/", { replace: true }); return; }
 
     api.get("/profile/").then(res => {
       const d = res.data;
@@ -138,24 +142,27 @@ export default function CompleteProfilePage() {
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
 
+  // Returns the first validation error, or "" if the form is valid.
   const validate = () => {
-    if (!form.first_name.trim()) { toast.error("First name is required."); return false; }
-    if (!form.last_name.trim()) { toast.error("Last name is required."); return false; }
+    if (!form.first_name.trim()) return "First name is required.";
+    if (!form.last_name.trim()) return "Last name is required.";
     if (isCoach) {
-      if (!form.bio.trim()) { toast.error("Please add a short bio."); return false; }
-      if (!form.specialties.length) { toast.error("Add at least one specialty."); return false; }
-      if (!form.hourly_rate) { toast.error("Hourly rate is required."); return false; }
+      if (!form.bio.trim()) return "Please add a short bio.";
+      if (!form.specialties.length) return "Add at least one specialty.";
+      if (!form.hourly_rate) return "Hourly rate is required.";
     }
     if (isClient) {
-      if (!form.job_title.trim()) { toast.error("Job title is required."); return false; }
-      if (!form.organisation.trim()) { toast.error("Organisation is required."); return false; }
+      if (!form.job_title.trim()) return "Job title is required.";
+      if (!form.organisation.trim()) return "Organisation is required.";
     }
-    return true;
+    return "";
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!validate()) return;
+    setFormError("");
+    const err = validate();
+    if (err) { setFormError(err); toast.error(err); return; }
     setSaving(true);
     try {
       const profilePatch = isCoach
@@ -170,9 +177,11 @@ export default function CompleteProfilePage() {
 
       await markProfileComplete();
       toast.success("Profile complete! Welcome aboard.");
-      // Route through "/" so HomeGate sends them to the correct role dashboard.
-      navigate("/", { replace: true });
+      // Honour a deep-link destination (e.g. a program booking link); else route
+      // through "/" so HomeGate sends them to the correct role dashboard.
+      navigate(next || "/", { replace: true });
     } catch {
+      setFormError("Couldn't save your profile — please check your connection and try again.");
       toast.error("Failed to save profile. Please try again.");
     } finally {
       setSaving(false);
@@ -345,6 +354,13 @@ export default function CompleteProfilePage() {
                     onBlur={onBlur}
                   />
                 </div>
+              </div>
+            )}
+
+            {/* Inline error — always visible right by the button */}
+            {formError && (
+              <div className="rounded-xl px-4 py-3 text-sm" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.35)", color: "#B91C1C" }}>
+                {formError}
               </div>
             )}
 

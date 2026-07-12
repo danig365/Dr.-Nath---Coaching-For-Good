@@ -1,0 +1,14 @@
+{% extends "emails/base.txt" %}
+{% block content %}WELCOME TO DR. NATH COACHING
+
+Hi {{ recipient_name }},
+
+Dr. Nathalie has enrolled you in the {{ program_name }}, and an account has been created for you on the Dr. Nath coaching platform.
+
+To get started, set your password using the link below. You'll then be able to sign in and book your sessions.
+
+{{ link }}
+
+Once your password is set, sign in with this email address: {{ email }}
+
+This link expires in a few days. If you weren't expecting this, you can safely ignore this email.{% endblock %}

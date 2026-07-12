@@ -14,5 +14,24 @@ When it's time, join the session here:
 {{ join_link }}
 
 ({% if role == 'coach' %}Or view in My Sessions{% else %}Or view in My Learning{% endif %}: {{ manage_url }})
+{% if add_to_google or add_to_outlook %}
+ADD THIS SESSION TO YOUR CALENDAR:{% if add_to_google %}
+  Google Calendar: {{ add_to_google }}{% endif %}{% if add_to_outlook %}
+  Outlook: {{ add_to_outlook }}{% endif %}
+  (Apple Calendar / other: open the session.ics file attached to this email.)
+{% endif %}
+{% if role != 'coach' %}
+--------------------------------------------------------------
+YOUR SESSION IS ONLINE, ON THE PLATFORM
 
+This is an online coaching session held right here on the Dr. Nath
+platform - there is nothing to install and no separate meeting app.
+
+How to join:
+  1. Log in at {{ login_url }} with the email and password you
+     registered with.
+  2. Go to My Learning and open this session.
+  3. At the session time, click "Join" to enter the video room.
+--------------------------------------------------------------
+{% endif %}
 We'll send you reminders before the session so it never sneaks up on you.{% endblock %}

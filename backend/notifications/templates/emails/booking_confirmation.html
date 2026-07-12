@@ -54,6 +54,36 @@
     <a href="{{ join_link }}" style="color:#A9863A; font-weight:bold;">{{ join_link }}</a>
   </p>
 
+  {% if add_to_google or add_to_outlook %}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:22px; background-color:#FAF6EC; border:1px solid rgba(200,169,81,0.3); border-radius:12px;">
+    <tr><td style="padding:16px 18px; font-family:Arial, sans-serif;">
+      <p style="margin:0 0 10px; font-size:14px; font-weight:bold; color:#1B2B4A;">📅 Add this session to your calendar</p>
+      <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+        {% if add_to_google %}<td style="padding-right:10px;"><a href="{{ add_to_google }}" style="display:inline-block; background:#FFFFFF; color:#1B2B4A; text-decoration:none; font-weight:bold; font-size:13px; padding:9px 18px; border-radius:999px; border:1px solid rgba(200,169,81,0.4);">Google Calendar</a></td>{% endif %}
+        {% if add_to_outlook %}<td><a href="{{ add_to_outlook }}" style="display:inline-block; background:#FFFFFF; color:#1B2B4A; text-decoration:none; font-weight:bold; font-size:13px; padding:9px 18px; border-radius:999px; border:1px solid rgba(200,169,81,0.4);">Outlook</a></td>{% endif %}
+      </tr></table>
+      <p style="margin:10px 0 0; font-size:12px; color:#9aa3b0;">Using Apple Calendar or another app? Just open the <strong>session.ics</strong> file attached to this email.</p>
+    </td></tr>
+  </table>
+  {% endif %}
+
+  {% if role != 'coach' %}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:22px; background-color:#F4F8F4; border:1px solid rgba(52,168,83,0.25); border-radius:12px;">
+    <tr><td style="padding:16px 18px; font-family:Arial, sans-serif;">
+      <p style="margin:0 0 8px; font-size:14px; font-weight:bold; color:#1B2B4A;">📍 Your session is online, on the platform</p>
+      <p style="margin:0 0 10px; font-size:13px; line-height:1.6; color:#4A5568;">
+        This is an <strong>online coaching session</strong> held right here on the Dr.&nbsp;Nath platform — there's nothing to install and no separate meeting app.
+      </p>
+      <p style="margin:0 0 4px; font-size:13px; font-weight:bold; color:#1B2B4A;">How to join:</p>
+      <ol style="margin:0; padding-left:18px; font-size:13px; line-height:1.7; color:#4A5568;">
+        <li>Log in at <a href="{{ login_url }}" style="color:#A9863A; font-weight:bold;">{{ login_url }}</a> with the email and password you registered with.</li>
+        <li>Go to <strong>My Learning</strong> and open this session.</li>
+        <li>At the session time, click <strong>Join</strong> to enter the video room.</li>
+      </ol>
+    </td></tr>
+  </table>
+  {% endif %}
+
   <p style="margin:18px 0 0; font-size:13px; line-height:1.6; color:#9aa3b0; font-family:Arial, sans-serif;">
     We'll send you reminders before the session so it never sneaks up on you.
   </p>

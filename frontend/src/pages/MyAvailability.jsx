@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { FiPlus, FiTrash2, FiClock, FiCalendar, FiZap, FiLock, FiUnlock, FiGlobe, FiSettings, FiChevronLeft, FiChevronRight, FiChevronDown, FiUsers, FiVideo, FiXCircle, FiMessageSquare, FiShare2, FiCopy, FiCheck, FiX, FiMail } from "react-icons/fi";
+import { FiPlus, FiTrash2, FiClock, FiCalendar, FiZap, FiLock, FiUnlock, FiGlobe, FiSettings, FiChevronLeft, FiChevronRight, FiChevronDown, FiUsers, FiVideo, FiXCircle, FiMessageSquare, FiShare2, FiCopy, FiCheck, FiX, FiMail, FiPaperclip } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 import { useNavigate } from "react-router-dom";
@@ -7,6 +7,7 @@ import { api } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
 import { GROUP_SESSIONS_ENABLED } from "../config/features";
 import { SESSION_GRACE_MS } from "../utils/sessionTiming";
+import GoogleCalendarCard from "../components/GoogleCalendarCard";
 import SentInvitesPanel from "./SentInvitesPanel";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -373,6 +374,30 @@ const ShareSlotModal = ({ slot, skills, tz, onClose, onSent }) => {
   const [email, setEmail] = useState("");
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
+  // Documents the coach can attach to the invite email (D3). Only library
+  // resources that have an actual file are attachable.
+  const [docs, setDocs] = useState([]);
+  const [selectedDocs, setSelectedDocs] = useState(() => new Set());
+
+  useEffect(() => {
+    let alive = true;
+    api.get("/resources/")
+      .then((res) => {
+        if (!alive) return;
+        const withFiles = (res.data || []).filter((r) => r.file);
+        setDocs(withFiles);
+      })
+      .catch(() => { /* attachments are optional — ignore load failures */ });
+    return () => { alive = false; };
+  }, []);
+
+  const toggleDoc = (id) => {
+    setSelectedDocs((prev) => {
+      const nextSet = new Set(prev);
+      if (nextSet.has(id)) nextSet.delete(id); else nextSet.add(id);
+      return nextSet;
+    });
+  };
 
   const sendInvite = async () => {
     const addrs = email.trim();
@@ -382,9 +407,10 @@ const ShareSlotModal = ({ slot, skills, tz, onClose, onSent }) => {
     try {
       const res = await api.post(`/bookings/slots/${slot.id}/invite/`, {
         emails: addrs, skill_id: skillId, message: note.trim(),
+        resource_ids: [...selectedDocs],
       });
       toast.success(res.data?.detail || "Invite sent.");
-      setEmail(""); setNote("");
+      setEmail(""); setNote(""); setSelectedDocs(new Set());
       onSent?.(); // refresh the calendar so the "Invited" badge appears
 
     } catch (err) {
@@ -483,6 +509,27 @@ const ShareSlotModal = ({ slot, skills, tz, onClose, onSent }) => {
           <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
             placeholder="Add a short personal note (optional)"
             className="w-full rounded-xl px-3 py-2 text-sm resize-none" style={inputStyle} />
+
+          {docs.length > 0 && (
+            <div className="mt-3">
+              <label className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#A9863A" }}>
+                <FiPaperclip size={12} /> Attach documents (optional)
+              </label>
+              <div className="rounded-xl max-h-36 overflow-y-auto" style={{ border: "1px solid rgba(200,169,81,0.3)", background: "white" }}>
+                {docs.map((d) => (
+                  <label key={d.id} className="flex items-center gap-2 px-3 py-2 cursor-pointer text-sm hover:bg-[rgba(200,169,81,0.06)]"
+                    style={{ color: "#1B2B4A", borderBottom: "1px solid rgba(200,169,81,0.12)" }}>
+                    <input type="checkbox" checked={selectedDocs.has(d.id)} onChange={() => toggleDoc(d.id)}
+                      style={{ accentColor: "#C8A951" }} />
+                    <span className="truncate">{d.title}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-[11px] mt-1.5" style={{ color: "rgba(74,85,104,0.7)" }}>
+                Selected files are attached to the invite email, so the recipient gets them even before signing in.
+              </p>
+            </div>
+          )}
         </div>
       </motion.div>
     </motion.div>
@@ -761,6 +808,9 @@ const MyAvailability = () => {
             </p>
           </div>
         </motion.div>
+
+        {/* Google Calendar connect (two-way sync) */}
+        <GoogleCalendarCard />
 
         {/* Tabs */}
         <div className="flex flex-wrap gap-2 mb-6">

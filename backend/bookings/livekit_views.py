@@ -78,6 +78,9 @@ class BookingCallTokenView(APIView):
         if not is_participant or booking.status != 'accepted':
             return Response({'detail': 'You cannot join this call.'}, status=status.HTTP_403_FORBIDDEN)
 
+        # Note: attendance is recorded only once the participant actually CONNECTS
+        # to the room (see SessionBookingViewSet.mark_joined), not here — merely
+        # requesting a token (or checking the lobby preview) must not count.
         return _token_response(user, f'booking-{booking.id}')
 
 

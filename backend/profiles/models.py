@@ -33,7 +33,7 @@ class UserProfile(models.Model):
         help_text="How many days into the future clients may book."
     )
     min_notice_hours = models.PositiveIntegerField(
-        default=12,
+        default=24,
         help_text="Minimum lead time, in hours, required before a session can start."
     )
 
@@ -55,6 +55,14 @@ class UserProfile(models.Model):
     organisation = models.CharField(max_length=255, blank=True, null=True)
     job_title = models.CharField(max_length=255, blank=True, null=True)
     coaching_goals = models.JSONField(default=list, blank=True)  # from quiz
+
+    # Program lock (E2): when set, this client may only see + book this one
+    # offering (e.g. the 6-month Health & Wellness Program). Null = unrestricted.
+    restricted_to_skill = models.ForeignKey(
+        'skills.Skill', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='restricted_clients',
+        help_text="If set, this client can only book this offering.",
+    )
 
     @property
     def is_profile_complete(self):

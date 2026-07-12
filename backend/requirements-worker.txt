@@ -1,0 +1,15 @@
+# Dependencies for the server-side transcription worker (E7 Phase 3) ONLY.
+# Install into a SEPARATE virtualenv (venv-worker) — NOT the API server's venv —
+# because livekit-agents pulls in the RTC SDK + media deps that can clash with
+# the API server's pinned livekit-api. See transcription_worker.README.md.
+#
+#   python -m venv venv-worker
+#   venv-worker/bin/pip install -r requirements-worker.txt
+#
+# It reuses the Django project (ORM + assistant.services), so it needs the base
+# app deps too.
+-r requirements.txt
+
+livekit-agents~=1.6
+livekit-plugins-deepgram~=1.6   # STT_PROVIDER=deepgram (recommended for streaming)
+livekit-plugins-openai~=1.6     # STT_PROVIDER=openai  (Whisper; reuses OPENAI_API_KEY)

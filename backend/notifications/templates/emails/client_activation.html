@@ -1,0 +1,27 @@
+{% extends "emails/base.html" %}
+{% block title %}Welcome to Dr. Nath Coaching{% endblock %}
+{% block content %}
+  <h1 style="margin:0 0 8px; font-size:22px; font-weight:normal; color:#1B2B4A;">Welcome, {{ recipient_name }}</h1>
+  <p style="margin:0 0 18px; font-size:15px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;">
+    Dr.&nbsp;Nathalie has enrolled you in the <strong>{{ program_name }}</strong>, and an account has been created for you on the Dr.&nbsp;Nath coaching platform.
+  </p>
+  <p style="margin:0 0 22px; font-size:15px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;">
+    To get started, set your password below. You'll then be able to sign in and book your sessions.
+  </p>
+
+  <a href="{{ link }}" style="display:inline-block; background:linear-gradient(135deg,#C8A951,#F0D98C); color:#14213D; text-decoration:none; font-weight:bold; font-size:14px; padding:12px 28px; border-radius:999px; font-family:Arial, sans-serif;">
+    Activate my account
+  </a>
+
+  <p style="margin:22px 0 0; font-size:13px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;">
+    Once your password is set, sign in with this email address: <strong>{{ email }}</strong>
+  </p>
+
+  <p style="margin:18px 0 0; font-size:12px; line-height:1.6; color:#9aa3b0; font-family:Arial, sans-serif;">
+    Or paste this link into your browser:<br>
+    <a href="{{ link }}" style="color:#A9863A; word-break:break-all;">{{ link }}</a>
+  </p>
+  <p style="margin:16px 0 0; font-size:12px; line-height:1.6; color:#9aa3b0; font-family:Arial, sans-serif;">
+    This link expires in a few days. If you weren't expecting this, you can safely ignore this email.
+  </p>
+{% endblock %}

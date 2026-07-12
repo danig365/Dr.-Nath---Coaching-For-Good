@@ -6,6 +6,7 @@ from .models import Skill, Availability
 from .serializers import SkillSerializer, AvailabilitySerializer, PublicSkillSerializer
 from profiles.models import UserProfile
 from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 
 # --- ViewSet for Mentor's Private Skill Management (/api/skills/) ---
@@ -106,8 +107,19 @@ class AvailabilityViewSet(viewsets.ModelViewSet):
 
 # --- View for Public Skill List (/api/skills/public/) ---
 class PublicSkillListView(generics.ListAPIView):
-    # This view is for learners and public users to browse skills
-    queryset = Skill.objects.filter(active=True).select_related('profile__user')
+    # This view is for learners and public users to browse skills.
     serializer_class = PublicSkillSerializer
     permission_classes = [AllowAny]
-    authentication_classes = []  # No authentication required for public endpoint
+    # Optional auth: guests browse everything; a signed-in client is recognised
+    # so a programme-locked one (E2) sees only their offering.
+    authentication_classes = [JWTAuthentication]
+
+    def get_queryset(self):
+        qs = Skill.objects.filter(active=True).select_related('profile__user')
+        user = self.request.user
+        if user.is_authenticated:
+            from bookings.services import locked_skill_id
+            locked = locked_skill_id(user)
+            if locked:
+                qs = qs.filter(id=locked)
+        return qs

@@ -1,0 +1,9 @@
+{% extends "emails/base.txt" %}
+{% block content %}{{ client_name|upper }} COMPLETED A FORM
+
+Hi {{ recipient_name }}, {{ client_name }} has submitted their responses to:
+
+  {{ title }}
+
+View responses (sign in required):
+{{ link }}{% endblock %}

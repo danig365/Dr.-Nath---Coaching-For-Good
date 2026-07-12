@@ -13,6 +13,7 @@ import {
   logoutUser as performLogout, // Renamed
   refreshAuthTokens,
   clearAuthTokens,
+  setAuthTokens,
 } from "../utils/auth"; // Import all necessary functions from your auth utility
 import { syncTimezone } from "../utils/syncTimezone";
 
@@ -94,12 +95,27 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  // Logout function for components to call
+  // Log in directly from a token pair (e.g. a one-click magic-join link), no
+  // password. Stores the tokens and refreshes context user/profile state.
+  const loginWithTokens = useCallback(({ access, refresh }) => {
+    setAuthTokens({ access, refresh });
+    const u = getAuthUser();
+    setUser(u);
+    setProfileComplete(u ? (u.is_profile_complete ?? false) : true);
+    return u;
+  }, []);
+
+  // Logout function for components to call.
+  // We do a FULL-PAGE navigation to /login (not client-side navigate) on purpose:
+  // it discards any in-flight requests and axios interceptor state from the old
+  // session. Otherwise a stale request could 401 after a new user logs in and the
+  // response interceptor would wipe the fresh tokens — which made an immediate
+  // same-tab re-login fail until the tab was closed.
   const logout = useCallback(() => {
-    performLogout(); // Call the logout utility function from auth.js
-    setUser(null); // Clear user state in context
-    navigate("/login"); // Redirect to login page after logout
-  }, [navigate]);
+    performLogout(); // clear tokens from localStorage
+    setUser(null);
+    window.location.assign("/login"); // hard reload → clean slate
+  }, []);
 
   // Call after a successful profile PATCH. Optimistically opens the gate, then
   // mints a fresh JWT from the backend so the new is_profile_complete=true value
@@ -117,6 +133,7 @@ export const AuthProvider = ({ children }) => {
     user, // The decoded JWT payload (or null)
     loading, // True during initial auth check
     login, // Function to log in
+    loginWithTokens, // Log in from a token pair (magic-join link)
     logout, // Function to log out
     timezone, // The viewer's display timezone (profile tz; browser fallback)
     role: user?.role || null,

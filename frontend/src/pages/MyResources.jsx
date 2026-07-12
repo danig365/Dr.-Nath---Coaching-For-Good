@@ -4,6 +4,7 @@ import { toast } from "react-toastify";
 import { FiFile, FiDownload, FiFolder, FiUploadCloud, FiTrash2, FiCheckCircle, FiClock, FiLink, FiExternalLink } from "react-icons/fi";
 import { api, downloadResource, downloadSubmission } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
+import WorkspaceTabs from "../components/WorkspaceTabs";
 
 const card = { background: "white", border: "1px solid rgba(200,169,81,0.15)", boxShadow: "0 2px 16px rgba(27,43,74,0.05)" };
 const inputStyle = { background: "#FAF6EC", border: "1px solid rgba(27,43,74,0.2)", color: "#1B2B4A" };
@@ -118,14 +119,20 @@ const MyResources = () => {
   };
 
   if (loading) return (
-    <div className="flex justify-center items-center min-h-screen" style={{ background: "#FAF6EC" }}>
-      <div className="w-10 h-10 rounded-full border-2 animate-spin" style={{ borderColor: "#C8A951", borderTopColor: "transparent" }} />
+    <div className="min-h-screen pt-36 pb-16 px-6" style={{ background: "#FAF6EC" }}>
+      <div className="max-w-4xl mx-auto">
+        <WorkspaceTabs />
+        <div className="flex justify-center py-24">
+          <div className="w-10 h-10 rounded-full border-2 animate-spin" style={{ borderColor: "#C8A951", borderTopColor: "transparent" }} />
+        </div>
+      </div>
     </div>
   );
 
   return (
     <div className="min-h-screen pt-36 pb-16 px-6" style={{ background: "#FAF6EC" }}>
       <div className="max-w-4xl mx-auto">
+        <WorkspaceTabs />
         <motion.div className="mb-8" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
           <p className="text-xs font-semibold uppercase tracking-[0.22em] mb-2" style={{ color: "#A9863A" }}>Your workspace</p>
           <h1 className="text-3xl md:text-4xl font-normal text-[#1B2B4A]" style={serif}>Resources</h1>

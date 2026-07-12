@@ -5,6 +5,7 @@ import { toast } from "react-toastify";
 import { motion, AnimatePresence } from "framer-motion";
 import { FiFileText, FiUploadCloud, FiDownload, FiEdit3, FiXCircle, FiCheckCircle, FiClock, FiX } from "react-icons/fi";
 import { downloadFile } from "../utils/downloadFile";
+import WorkspaceTabs from "../components/WorkspaceTabs";
 
 const GOLD = "#C8A951";
 const DARK = "#1B2B4A";
@@ -124,14 +125,20 @@ const Agreements = () => {
   };
 
   if (loading) return (
-    <div className="flex justify-center items-center min-h-screen" style={{ background: "#FAF6EC" }}>
-      <div className="w-10 h-10 rounded-full border-2 animate-spin" style={{ borderColor: GOLD, borderTopColor: "transparent" }} />
+    <div className="min-h-screen pt-36 pb-16 px-6" style={{ background: "#FAF6EC" }}>
+      <div className="max-w-4xl mx-auto">
+        <WorkspaceTabs />
+        <div className="flex justify-center py-24">
+          <div className="w-10 h-10 rounded-full border-2 animate-spin" style={{ borderColor: GOLD, borderTopColor: "transparent" }} />
+        </div>
+      </div>
     </div>
   );
 
   return (
     <div className="min-h-screen pt-36 pb-16 px-6" style={{ background: "#FAF6EC" }}>
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-4xl mx-auto">
+        <WorkspaceTabs />
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
           <p className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: GOLD }}>E-Signatures</p>
           <h1 className="text-3xl font-normal" style={{ color: DARK, fontFamily: "'Playfair Display', serif" }}>Agreements</h1>

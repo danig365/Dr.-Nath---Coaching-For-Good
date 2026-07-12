@@ -1,0 +1,11 @@
+{% extends "emails/base.txt" %}
+{% block content %}{{ coach_name|upper }} IS WAITING FOR YOU
+
+Hi {{ recipient_name }},
+
+{{ coach_name }} is in the room now for your {{ skill_name }} session and is waiting for you to join.
+
+Join now:
+{{ join_link }}
+
+If the link doesn't work, sign in at {{ login_url }} and open the session from My Learning.{% endblock %}

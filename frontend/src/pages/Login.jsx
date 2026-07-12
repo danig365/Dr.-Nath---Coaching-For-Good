@@ -8,8 +8,6 @@ import {
   EyeSlashIcon,
   CheckCircleIcon,
 } from "@heroicons/react/24/outline";
-import { FcGoogle } from "react-icons/fc";
-import { FaFacebook } from "react-icons/fa";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "react-toastify";
 
@@ -69,6 +67,7 @@ const Login = () => {
   const [form, setForm] = useState({ username: "", password: "" });
   const [showPass, setShowPass] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [formError, setFormError] = useState(""); // shown inline by the button
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   // Where to land after auth. Set by flows that send the user to log in mid-task
@@ -92,26 +91,42 @@ const Login = () => {
     }
   }, [authContextLoading, isAuthenticated, navigate]);
 
-  const handleChange = e => setForm({ ...form, [e.target.name]: e.target.value });
+  const handleChange = e => { setFormError(""); setForm({ ...form, [e.target.name]: e.target.value }); };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setFormError("");
+    // Read straight from the form fields, not just React state: browser autofill
+    // (common when arriving from an email link) can populate the inputs without
+    // firing onChange, leaving state empty — which used to fail the first submit.
+    const fd = new FormData(e.currentTarget);
+    const username = ((fd.get("username") ?? form.username) || "").toString().trim();
+    const password = ((fd.get("password") ?? form.password) || "").toString();
+    if (username && (username !== form.username || password !== form.password)) {
+      setForm({ username, password }); // keep state in sync with what we submit
+    }
+    if (!username || !password) {
+      setFormError("Please enter both your username and password.");
+      return;
+    }
     setIsLoading(true);
     try {
-      const loggedInUser = await login(form.username, form.password);
+      const loggedInUser = await login(username, password);
       if (loggedInUser) {
         redirectAfterAuth(loggedInUser.role);
       }
     } catch (err) {
-      console.error("Login error:", err);
+      const status = err.response?.status;
+      const msg = status === 429
+        ? "Too many attempts. Please wait a minute and try again."
+        : (err.response?.data?.detail || "Couldn't sign you in. Please check your connection and try again.");
+      setFormError(msg);
+      toast.error(msg);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSocialLogin = (provider) => {
-    toast.info(`Social login with ${provider} is not yet implemented.`);
-  };
 
   if (authContextLoading || isAuthenticated) {
     return (
@@ -190,45 +205,12 @@ const Login = () => {
 
             <div className="px-8 py-6 space-y-5">
 
-              {/* Social buttons */}
-              <div className="space-y-3">
-                <motion.button
-                  type="button"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => handleSocialLogin("google")}
-                  className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-full text-sm font-medium transition-all duration-200"
-                  style={{ background: "#FAF6EC", color: "#1B2B4A", border: "1px solid rgba(200,169,81,0.2)" }}
-                >
-                  <FcGoogle className="h-5 w-5" />
-                  Continue with Google
-                </motion.button>
-                <motion.button
-                  type="button"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => handleSocialLogin("facebook")}
-                  className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-full text-sm font-medium text-white transition-all duration-200"
-                  style={{ background: "#1877F2" }}
-                >
-                  <FaFacebook className="h-5 w-5" />
-                  Continue with Facebook
-                </motion.button>
-              </div>
-
-              {/* Divider */}
-              <div className="relative flex items-center">
-                <div className="flex-1 h-px" style={{ background: "rgba(200,169,81,0.2)" }} />
-                <span className="px-4 text-xs" style={{ color: "rgba(250,246,236,0.4)" }}>or sign in with email</span>
-                <div className="flex-1 h-px" style={{ background: "rgba(200,169,81,0.2)" }} />
-              </div>
-
               {/* Form */}
               <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Username */}
+                {/* Username or email */}
                 <div>
                   <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "rgba(200,169,81,0.8)" }}>
-                    Username
+                    Username or email
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
@@ -239,7 +221,7 @@ const Login = () => {
                       name="username"
                       value={form.username}
                       onChange={handleChange}
-                      placeholder="Enter your username"
+                      placeholder="Your username or email"
                       required
                       className="block w-full pl-10 pr-4 py-3 rounded-xl text-sm focus:outline-none transition-all duration-200"
                       style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }}
@@ -255,9 +237,9 @@ const Login = () => {
                     <label className="block text-xs font-semibold uppercase tracking-wider" style={{ color: "rgba(200,169,81,0.8)" }}>
                       Password
                     </label>
-                    <a href="#" className="text-xs transition-colors hover:text-[#C8A951]" style={{ color: "rgba(200,169,81,0.5)" }}>
+                    <Link to="/forgot-password" className="text-xs transition-colors hover:text-[#C8A951]" style={{ color: "rgba(200,169,81,0.5)" }}>
                       Forgot password?
-                    </a>
+                    </Link>
                   </div>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
@@ -295,6 +277,13 @@ const Login = () => {
                   />
                   <span className="text-xs" style={{ color: "rgba(250,246,236,0.5)" }}>Remember me</span>
                 </label>
+
+                {/* Inline error — always visible right by the button */}
+                {formError && (
+                  <div className="rounded-xl px-4 py-3 text-sm" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.4)", color: "#FCA5A5" }}>
+                    {formError}
+                  </div>
+                )}
 
                 {/* Submit */}
                 <motion.button

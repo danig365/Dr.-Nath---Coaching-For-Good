@@ -16,7 +16,7 @@ export default function BackgroundPicker({ selected, onSelect, busy }) {
   };
 
   return (
-    <div className="absolute right-20">
+    <div className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
         className="w-11 h-11 rounded-full flex items-center justify-center transition-all hover:scale-105"

@@ -61,14 +61,64 @@ def cancel_booking(booking, new_status='declined', refund=True):
         cancel_booking_notifications(booking)
     except Exception as notify_err:  # noqa: BLE001
         print(f"Failed to cancel notifications for booking {booking.id}: {notify_err}")
+    # Remove the event from any connected Google Calendars (best-effort).
+    try:
+        from integrations.sync import sync_booking_cancelled
+        sync_booking_cancelled(booking)
+    except Exception:  # noqa: BLE001
+        pass
     return booking
 
 
-def send_slot_invite_email(slot, skill, addr, note):
+# Cap the total size of documents attached to an invite email so it stays under
+# common provider limits (Office365 rejects messages over ~25 MB incl. encoding).
+MAX_INVITE_ATTACH_BYTES = 15 * 1024 * 1024
+
+
+def _build_invite_attachments(resources):
+    """Read attachable resource files into email attachments, capped in total
+    size. Returns (attachments, attached_names, skipped_names).
+
+    Resources without a stored file (link-only) or that push the total over the
+    cap are skipped and reported so the caller can tell the coach.
+    """
+    import mimetypes
+    attachments, attached_names, skipped = [], [], []
+    total = 0
+    for r in resources or []:
+        f = getattr(r, 'file', None)
+        if not f:
+            skipped.append(r.title)
+            continue
+        try:
+            f.open('rb')
+            data = f.read()
+        except Exception:  # noqa: BLE001 — a missing/unreadable file just skips
+            skipped.append(r.title)
+            continue
+        finally:
+            try:
+                f.close()
+            except Exception:  # noqa: BLE001
+                pass
+        if total + len(data) > MAX_INVITE_ATTACH_BYTES:
+            skipped.append(r.title)
+            continue
+        total += len(data)
+        fname = f.name.split('/')[-1] or r.title
+        mimetype = mimetypes.guess_type(fname)[0] or 'application/octet-stream'
+        attachments.append((fname, data, mimetype))
+        attached_names.append(r.title)
+    return attachments, attached_names, skipped
+
+
+def send_slot_invite_email(slot, skill, addr, note, resources=None):
     """Email one recipient an invite to book `slot` for `skill`.
 
     Shared by the initial invite send and the history "resend" action so both
-    produce an identical email. Returns True on success.
+    produce an identical email. Any `resources` (coach library documents) are
+    attached to the email so an unregistered invitee gets them directly.
+    Returns True on success.
     """
     from notifications.services import send_email
     from .notifications import _display_name, _fmt_when
@@ -77,6 +127,7 @@ def send_slot_invite_email(slot, skill, addr, note):
     link = f"{settings.SITE_URL}/book/{skill.id}?slot={slot.id}"
     coach_email = slot.coach.user.email
     reply_to = [coach_email] if coach_email else None
+    attachments, attached_names, _ = _build_invite_attachments(resources)
     return send_email(
         to=addr,
         subject=f"You're invited to a coaching session with {coach_name}",
@@ -87,8 +138,10 @@ def send_slot_invite_email(slot, skill, addr, note):
             'when': when,
             'link': link,
             'note': note,
+            'attachments': attached_names,
         },
         reply_to=reply_to,
+        attachments=attachments or None,
         # Blind-copy the coach so they get a record of every invite/resend in
         # their own inbox (the invitee doesn't see this).
         bcc=[coach_email] if coach_email else None,
@@ -176,9 +229,66 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Permission denied.'}, status=HTTP_403_FORBIDDEN)
         if booking.status != 'accepted':
             return Response({'detail': 'Only accepted bookings can be completed.'}, status=HTTP_400_BAD_REQUEST)
-        booking.status = 'completed'
+
+        # `force` = a participant deliberately ended the session (e.g. the coach
+        # chose "End & save summary"), as opposed to an automatic timeout / a
+        # momentary drop. A deliberate end may finish early — but only once the
+        # session has actually STARTED (so a not-yet-happened session can't be
+        # completed by accident during testing).
+        from datetime import datetime as _dt, timezone as _tz, timedelta
+        force = bool(request.data.get('force'))
+        start_dt = end_dt = None
+        if booking.slot and booking.slot.start_datetime:
+            start_dt = booking.slot.start_datetime
+            end_dt = booking.slot.end_datetime
+        elif booking.session_date and booking.session_time:
+            start_dt = _dt.combine(booking.session_date, booking.session_time).replace(tzinfo=_tz.utc)
+            end_dt = start_dt + timedelta(minutes=booking.duration or 60)
+
+        now = dj_tz.now()
+        if force:
+            if start_dt and now < start_dt:
+                return Response(
+                    {'detail': "This session hasn't started yet, so it can't be completed."},
+                    status=HTTP_400_BAD_REQUEST,
+                )
+        elif end_dt and now < end_dt - timedelta(minutes=2):
+            # Automatic / accidental: only after the booked end (rejoin-safe).
+            return Response(
+                {'detail': 'This session is still within its scheduled time and can be rejoined.'},
+                status=HTTP_400_BAD_REQUEST,
+            )
+
+        # Completed only if both parties actually joined; otherwise a no-show.
+        from .services import finalize_status
+        booking.status = finalize_status(booking)
         booking.save()
+        # Thank-you + rebook invite only for a genuine (completed) session.
+        if booking.status == 'completed':
+            try:
+                from .notifications import send_session_thankyou
+                send_session_thankyou(booking)
+            except Exception:  # noqa: BLE001
+                pass
         return Response(self.get_serializer(booking).data)
+
+    @action(detail=True, methods=['post'], url_path='mark-joined')
+    def mark_joined(self, request, pk=None):
+        """Record that the requesting participant actually connected to the call.
+        Called by the call page once the LiveKit room connects — this is the
+        signal that decides completed vs no-show. Merely opening the lobby to
+        check camera/mic (no connect) does NOT count."""
+        booking = self.get_object()
+        user = request.user
+        is_coach = booking.mentor.user_id == user.id
+        is_learner = booking.learner_id == user.id
+        if not (is_coach or is_learner):
+            return Response({'detail': 'Permission denied.'}, status=HTTP_403_FORBIDDEN)
+        field = 'coach_joined_at' if is_coach else 'client_joined_at'
+        if getattr(booking, field) is None:
+            setattr(booking, field, dj_tz.now())
+            booking.save(update_fields=[field])
+        return Response({'ok': True})
 
     # Custom action for clients to cancel a booking
     @action(detail=True, methods=['patch'])
@@ -221,6 +331,100 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(booking)
         return Response(serializer.data, status=HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='change-program')
+    def change_program(self, request, pk=None):
+        """Coach reassigns a booking to a different offering (program/service).
+
+        Keeps the same slot/time and updates any pending reminders to show the
+        new program name — without sending a new email. Self-service so the
+        coach can correct a mis-booked program herself.
+        """
+        from skills.models import Skill
+        booking = self.get_object()
+        user = request.user
+
+        if getattr(getattr(user, 'profile', None), 'role', None) != 'coach':
+            return Response({'detail': "Only a coach can change a booking's program."}, status=HTTP_403_FORBIDDEN)
+        if booking.mentor != user.profile:
+            return Response({'detail': 'You can only change your own sessions.'}, status=HTTP_403_FORBIDDEN)
+        if booking.status not in ['pending', 'accepted']:
+            return Response({'detail': 'Only pending or accepted bookings can be changed.'}, status=HTTP_400_BAD_REQUEST)
+
+        try:
+            new_skill = Skill.objects.get(id=request.data.get('skill_id'), profile=user.profile)
+        except Skill.DoesNotExist:
+            return Response({'detail': 'Pick a valid offering of yours.'}, status=HTTP_400_BAD_REQUEST)
+        if new_skill.id == booking.skill_id:
+            return Response({'detail': "That is already this booking's program."}, status=HTTP_400_BAD_REQUEST)
+
+        # Don't silently change the fee on a booking that was actually paid.
+        old_price = float(booking.skill.price) if booking.skill else 0
+        if float(new_skill.price) != old_price and float(booking.amount_paid or 0) > 0:
+            return Response(
+                {'detail': 'This booking was paid at a different price. Handle payment/refund before switching to a program with a different fee.'},
+                status=HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            booking.skill = new_skill
+            booking.save(update_fields=['skill'])
+            from .notifications import retarget_booking_reminders
+            retarget_booking_reminders(booking)
+
+        # Reflect the new programme on any connected Google Calendars.
+        try:
+            from integrations.sync import sync_booking_updated
+            sync_booking_updated(booking)
+        except Exception:  # noqa: BLE001
+            pass
+
+        return Response(self.get_serializer(booking).data, status=HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def nudge(self, request, pk=None):
+        """Coach pings the client 'I'm waiting — join now' with a one-click join
+        link. Allowed near/after the start time, rate-limited to avoid spam."""
+        from datetime import datetime as _dt, timezone as _tz, timedelta
+        booking = self.get_object()
+        user = request.user
+
+        if getattr(getattr(user, 'profile', None), 'role', None) != 'coach' or booking.mentor != user.profile:
+            return Response({'detail': 'Only the session coach can send this reminder.'}, status=HTTP_403_FORBIDDEN)
+        if booking.status != 'accepted':
+            return Response({'detail': 'You can only remind for a confirmed, active session.'}, status=HTTP_400_BAD_REQUEST)
+
+        # Resolve the scheduled start/end.
+        if booking.slot and booking.slot.start_datetime:
+            start_dt, end_dt = booking.slot.start_datetime, booking.slot.end_datetime
+        elif booking.session_date and booking.session_time:
+            start_dt = _dt.combine(booking.session_date, booking.session_time).replace(tzinfo=_tz.utc)
+            end_dt = start_dt + timedelta(minutes=booking.duration or 60)
+        else:
+            start_dt = end_dt = None
+
+        now = dj_tz.now()
+        if start_dt and now < start_dt - timedelta(minutes=30):
+            return Response({'detail': "You can remind the client once the session is close to starting."},
+                            status=HTTP_400_BAD_REQUEST)
+        if end_dt and now > end_dt + timedelta(minutes=10):
+            return Response({'detail': 'This session has already ended.'}, status=HTTP_400_BAD_REQUEST)
+
+        # Rate-limit: one nudge per booking per 2 minutes.
+        from django.core.cache import cache
+        key = f'nudge:{booking.id}'
+        if cache.get(key):
+            return Response({'detail': 'You just reminded them — please wait a moment before trying again.'},
+                            status=status.HTTP_429_TOO_MANY_REQUESTS)
+        cache.set(key, True, 120)
+
+        try:
+            from .notifications import send_join_nudge
+            send_join_nudge(booking)
+        except Exception:  # noqa: BLE001
+            return Response({'detail': 'Could not send the reminder. Please try again.'},
+                            status=status.HTTP_502_BAD_GATEWAY)
+        return Response({'detail': f'Reminder sent to {booking.learner.first_name or booking.learner.username}.'})
 
 
 class TimeSlotViewSet(viewsets.ModelViewSet):
@@ -347,22 +551,43 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
         coach_id = request.query_params.get('coach')
         skill_id = request.query_params.get('skill')
 
-        qs = TimeSlot.objects.filter(status='open', start_datetime__gt=dj_tz.now())
+        from .services import min_notice_cutoff, locked_skill_id
+        # E2: a programme-locked client only ever sees their own offering's slots.
+        if request.user.is_authenticated:
+            locked = locked_skill_id(request.user)
+            if locked:
+                if skill_id and int(skill_id) != int(locked):
+                    return Response([])
+                skill_id = skill_id or str(locked)
+                coach_id = None  # skill implies the coach
+        qs = TimeSlot.objects.filter(status='open')
         if skill_id:
             from skills.models import Skill
             try:
                 skill = Skill.objects.select_related('profile').get(id=skill_id)
             except Skill.DoesNotExist:
                 return Response({'detail': 'Skill not found.'}, status=status.HTTP_404_NOT_FOUND)
+            coach = skill.profile
             # Slots tied to this coach, restricted to this skill or skill-agnostic.
             from django.db.models import Q
-            qs = qs.filter(coach=skill.profile).filter(Q(skill=skill) | Q(skill__isnull=True))
+            qs = qs.filter(coach=coach).filter(Q(skill=skill) | Q(skill__isnull=True))
         elif coach_id:
-            qs = qs.filter(coach_id=coach_id)
+            from profiles.models import UserProfile
+            try:
+                coach = UserProfile.objects.get(id=coach_id)
+            except UserProfile.DoesNotExist:
+                return Response({'detail': 'Coach not found.'}, status=status.HTTP_404_NOT_FOUND)
+            qs = qs.filter(coach=coach)
         else:
             return Response({'detail': 'A coach or skill query param is required.'}, status=HTTP_400_BAD_REQUEST)
 
-        serializer = self.get_serializer(qs, many=True)
+        # Enforce the coach's minimum-notice rule (e.g. no booking within 24h).
+        qs = qs.filter(start_datetime__gt=min_notice_cutoff(coach))
+        # Hide slots that clash with the coach's external Google Calendar
+        # (best-effort — no-op if they haven't connected / disabled it).
+        from integrations.availability import filter_open_slots
+        slots = filter_open_slots(coach, qs)
+        serializer = self.get_serializer(slots, many=True)
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
@@ -376,6 +601,22 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
                 return Response({'detail': 'Slot not found.'}, status=status.HTTP_404_NOT_FOUND)
             if slot.status != 'open':
                 return Response({'detail': 'This slot is no longer available.'}, status=HTTP_400_BAD_REQUEST)
+            # E2: a programme-locked client can only hold their own coach's slots.
+            from .services import locked_skill_id
+            locked = locked_skill_id(request.user)
+            if locked:
+                from skills.models import Skill
+                locked_skill = Skill.objects.select_related('profile').filter(id=locked).first()
+                if locked_skill and slot.coach_id != locked_skill.profile_id:
+                    return Response(
+                        {'detail': "You're enrolled in a specific programme and can only book that one."},
+                        status=HTTP_403_FORBIDDEN,
+                    )
+            from .services import min_notice_cutoff
+            if slot.start_datetime < min_notice_cutoff(slot.coach):
+                hrs = slot.coach.min_notice_hours or 24
+                return Response({'detail': f'This time is too soon — sessions must be booked at least {hrs} hours in advance.'},
+                                status=HTTP_400_BAD_REQUEST)
             slot.status = 'held'
             slot.held_until = dj_tz.now() + timedelta(minutes=HOLD_MINUTES)
             slot.held_by = request.user
@@ -437,10 +678,21 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
         except Skill.DoesNotExist:
             return Response({'detail': 'Pick a valid offering for this invite.'}, status=HTTP_400_BAD_REQUEST)
 
+        # Optional documents to attach (D3). Only the coach's own library files
+        # are eligible; unknown/foreign ids are silently ignored.
+        from resources.models import Resource
+        raw_ids = request.data.get('resource_ids', [])
+        if not isinstance(raw_ids, list):
+            raw_ids = [raw_ids]
+        resource_ids = [i for i in raw_ids if i not in (None, '')]
+        resources = list(
+            Resource.objects.filter(id__in=resource_ids, coach=slot.coach)
+        ) if resource_ids else []
+
         # Send each recipient their own copy (so addresses aren't exposed to others).
         sent_addrs, failed = [], []
         for addr in valid:
-            if send_slot_invite_email(slot, skill, addr, note):
+            if send_slot_invite_email(slot, skill, addr, note, resources=resources):
                 sent_addrs.append(addr)
             else:
                 failed.append(addr)
@@ -463,6 +715,8 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
             )
             if not created:
                 SlotInvite.objects.filter(pk=invite.pk).update(sent_count=F('sent_count') + 1)
+            # Record which documents went out so a resend reproduces them.
+            invite.attached_resources.set(resources)
 
         # Confirmation summary to the coach: who they just invited (best-effort).
         if slot.coach.user.email:
@@ -512,6 +766,7 @@ class SlotInviteViewSet(viewsets.ReadOnlyModelViewSet):
                 SlotInvite.objects
                 .filter(slot__coach=user.profile)
                 .select_related('skill', 'slot', 'slot__skill', 'slot__booking', 'slot__booking__learner', 'slot__coach__user')
+                .prefetch_related('attached_resources')
             )
         return SlotInvite.objects.none()
 
@@ -550,7 +805,8 @@ class SlotInviteViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'detail': 'Add an offering first, then resend this invite.'},
                             status=HTTP_400_BAD_REQUEST)
 
-        if not send_slot_invite_email(slot, skill, invite.email, invite.note):
+        resources = list(invite.attached_resources.all())
+        if not send_slot_invite_email(slot, skill, invite.email, invite.note, resources=resources):
             return Response({'detail': 'Could not resend the invite. Please try again.'},
                             status=status.HTTP_502_BAD_GATEWAY)
 
@@ -871,6 +1127,12 @@ class ConfirmBookingPaymentView(APIView):
                 skill = Skill.objects.get(id=booking_data['skill'])
                 mentor_profile = skill.profile
 
+                # E2: a programme-locked client may only book their offering.
+                from .services import program_lock_error
+                lock_err = program_lock_error(request.user, skill)
+                if lock_err:
+                    return Response({'error': lock_err}, status=status.HTTP_403_FORBIDDEN)
+
                 # Lock the slot and verify it is still ours to book.
                 slot = TimeSlot.objects.select_for_update().get(id=slot_id)
                 if slot.status == 'booked':
@@ -886,6 +1148,11 @@ class ConfirmBookingPaymentView(APIView):
                     )
                 if slot.coach_id != mentor_profile.id:
                     return Response({'error': 'Slot does not belong to this coach.'},
+                                    status=status.HTTP_400_BAD_REQUEST)
+                from .services import min_notice_cutoff
+                if slot.start_datetime < min_notice_cutoff(mentor_profile):
+                    hrs = mentor_profile.min_notice_hours or 24
+                    return Response({'error': f'This time is too soon — sessions must be booked at least {hrs} hours in advance.'},
                                     status=status.HTTP_400_BAD_REQUEST)
                 session_date = slot.start_datetime.date()
                 session_time = slot.start_datetime.time()
@@ -921,6 +1188,13 @@ class ConfirmBookingPaymentView(APIView):
             except Exception as notify_err:  # noqa: BLE001
                 print(f"Booking {booking.id} created but notification scheduling failed: {notify_err}")
 
+            # Mirror onto any connected Google Calendars (best-effort).
+            try:
+                from integrations.sync import sync_booking_created
+                sync_booking_created(booking)
+            except Exception:  # noqa: BLE001
+                pass
+
             return Response({'booking_id': booking.id, 'status': 'paid'})
         except TimeSlot.DoesNotExist:
             return Response({'error': 'Selected slot no longer exists.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -955,6 +1229,12 @@ class ConfirmFreeBookingView(APIView):
                                     status=status.HTTP_400_BAD_REQUEST)
                 mentor_profile = skill.profile
 
+                # E2: a programme-locked client may only book their offering.
+                from .services import program_lock_error
+                lock_err = program_lock_error(request.user, skill)
+                if lock_err:
+                    return Response({'error': lock_err}, status=status.HTTP_403_FORBIDDEN)
+
                 slot = TimeSlot.objects.select_for_update().get(id=slot_id)
                 if slot.status == 'booked':
                     return Response(
@@ -968,6 +1248,11 @@ class ConfirmFreeBookingView(APIView):
                     )
                 if slot.coach_id != mentor_profile.id:
                     return Response({'error': 'Slot does not belong to this coach.'},
+                                    status=status.HTTP_400_BAD_REQUEST)
+                from .services import min_notice_cutoff
+                if slot.start_datetime < min_notice_cutoff(mentor_profile):
+                    hrs = mentor_profile.min_notice_hours or 24
+                    return Response({'error': f'This time is too soon — sessions must be booked at least {hrs} hours in advance.'},
                                     status=status.HTTP_400_BAD_REQUEST)
 
                 booking = SessionBooking.objects.create(
@@ -994,6 +1279,13 @@ class ConfirmFreeBookingView(APIView):
                 schedule_booking_notifications(booking)
             except Exception as notify_err:  # noqa: BLE001
                 print(f"Free booking {booking.id} created but notification scheduling failed: {notify_err}")
+
+            # Mirror onto any connected Google Calendars (best-effort).
+            try:
+                from integrations.sync import sync_booking_created
+                sync_booking_created(booking)
+            except Exception:  # noqa: BLE001
+                pass
 
             return Response({'booking_id': booking.id, 'status': 'free'})
         except TimeSlot.DoesNotExist:
@@ -1409,3 +1701,138 @@ class GroupEnrollmentInvoiceView(APIView):
         resp = HttpResponse(pdf, content_type='application/pdf')
         resp['Content-Disposition'] = f'attachment; filename="{filename}"'
         return resp
+
+
+class MagicJoinView(APIView):
+    """Resolve an old email join link to its session, then require the client to
+    sign in (passwordless auto-login has been retired so every client logs in
+    with their own credentials). Returns the booking id so the frontend can send
+    them to /login?next=/session/<id> — no tokens are ever issued here."""
+    permission_classes = [AllowAny]
+
+    def get(self, request, token):
+        from django.core.signing import BadSignature, SignatureExpired
+        from .magic import read_join_token
+
+        try:
+            booking_id, _user_id = read_join_token(token)
+        except (SignatureExpired, BadSignature):
+            return Response({'detail': 'This link is no longer valid. Please sign in to join your session.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        if not SessionBooking.objects.filter(id=booking_id).exists():
+            return Response({'detail': 'This session could not be found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Route the user through the normal login → session flow.
+        return Response({'login_required': True, 'booking_id': booking_id})
+
+
+class SessionReflectionView(APIView):
+    """A client's post-session reflection (takeaways + action items). The client
+    reads/writes their own; the coach may read it (to follow up)."""
+    permission_classes = [IsAuthenticated]
+
+    def _booking(self, booking_id):
+        return get_object_or_404(
+            SessionBooking.objects.select_related('mentor__user', 'learner', 'reflection'),
+            id=booking_id,
+        )
+
+    def get(self, request, booking_id):
+        from .serializers import SessionReflectionSerializer
+        booking = self._booking(booking_id)
+        if request.user != booking.learner and booking.mentor.user_id != request.user.id:
+            return Response({'detail': 'Permission denied.'}, status=HTTP_403_FORBIDDEN)
+        refl = getattr(booking, 'reflection', None)
+        if not refl:
+            return Response({'exists': False, 'takeaways': '', 'action_items': []})
+        data = SessionReflectionSerializer(refl).data
+        data['exists'] = True
+        return Response(data)
+
+    def put(self, request, booking_id):
+        from .serializers import SessionReflectionSerializer
+        from .models import SessionReflection
+        booking = self._booking(booking_id)
+        if request.user != booking.learner:
+            return Response({'detail': 'Only the client can add their session notes.'},
+                            status=HTTP_403_FORBIDDEN)
+
+        takeaways = (request.data.get('takeaways') or '').strip()[:5000]
+        raw = request.data.get('action_items') or []
+        items = []
+        for it in (raw if isinstance(raw, list) else []):
+            text = (it.get('text') if isinstance(it, dict) else str(it)) or ''
+            text = text.strip()
+            if text:
+                items.append({'text': text[:500], 'done': bool(it.get('done')) if isinstance(it, dict) else False})
+
+        refl, _ = SessionReflection.objects.update_or_create(
+            booking=booking,
+            defaults={'client': booking.learner, 'takeaways': takeaways, 'action_items': items},
+        )
+        data = SessionReflectionSerializer(refl).data
+        data['exists'] = True
+        return Response(data)
+
+
+class SessionAISummaryView(APIView):
+    """AI-generated summary of a session (E7). Either participant (client or
+    coach) can read it, or generate it from an in-call transcript.
+
+    GET  → the stored summary (or {exists: False}).
+    POST → {transcript} → generate + store + return the summary.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_throttles(self):
+        # Bound the cost of AI generation; reuse the assistant scope.
+        from rest_framework.throttling import ScopedRateThrottle
+        if self.request.method == 'POST':
+            self.throttle_scope = 'assistant'
+            return [ScopedRateThrottle()]
+        return []
+
+    def _booking(self, booking_id):
+        return get_object_or_404(
+            SessionBooking.objects.select_related('mentor__user', 'learner', 'ai_summary'),
+            id=booking_id,
+        )
+
+    def _is_participant(self, request, booking):
+        return request.user == booking.learner or booking.mentor.user_id == request.user.id
+
+    def get(self, request, booking_id):
+        from .serializers import SessionSummarySerializer
+        booking = self._booking(booking_id)
+        if not self._is_participant(request, booking):
+            return Response({'detail': 'Permission denied.'}, status=HTTP_403_FORBIDDEN)
+        summ = getattr(booking, 'ai_summary', None)
+        if not summ:
+            return Response({'exists': False, 'summary': '', 'key_points': [], 'action_items': []})
+        data = SessionSummarySerializer(summ).data
+        data['exists'] = True
+        return Response(data)
+
+    def post(self, request, booking_id):
+        from .serializers import SessionSummarySerializer
+        from .ai_summary import generate_and_store_summary
+
+        booking = self._booking(booking_id)
+        if not self._is_participant(request, booking):
+            return Response({'detail': 'Permission denied.'}, status=HTTP_403_FORBIDDEN)
+
+        # Both participants may POST at session end; generate_and_store_summary
+        # is idempotent + cost-safe (skips the AI if an equal/longer transcript
+        # was already summarised — e.g. by the server-side worker).
+        transcript = (request.data.get('transcript') or '').strip()
+        summ = generate_and_store_summary(booking, transcript)
+        if not summ:
+            return Response(
+                {'detail': "There wasn't enough of the conversation to summarise."},
+                status=HTTP_400_BAD_REQUEST,
+            )
+
+        data = SessionSummarySerializer(summ).data
+        data['exists'] = True
+        return Response(data)

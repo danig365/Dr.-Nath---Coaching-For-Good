@@ -9,6 +9,9 @@ Note from {{ coach_name }}: "{{ note }}"
   Session : {{ skill_name }}
   When    : {{ when }}
   Coach   : {{ coach_name }}
-
+{% if attachments %}
+Attached document{{ attachments|length|pluralize }}:{% for name in attachments %}
+  - {{ name }}{% endfor %}
+{% endif %}
 Book this session:
 {{ link }}{% endblock %}

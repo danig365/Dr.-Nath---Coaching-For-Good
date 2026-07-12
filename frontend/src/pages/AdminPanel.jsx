@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "react-toastify";
+import AdminUserActions from "../components/AdminUserActions";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FiCheckCircle, FiXCircle, FiUsers, FiClock,
@@ -159,6 +160,7 @@ export default function AdminPanel() {
   const [rejectModal, setRejectModal] = useState({ open: false, userId: null });
   const [rejectReason, setRejectReason] = useState("");
   const [analyticsData, setAnalyticsData] = useState(null);
+  const [analyticsExtra, setAnalyticsExtra] = useState(null); // retention, by_company, top_coaches, habit_consistency
   const [coachStats, setCoachStats] = useState([]);
   const [coachSearch, setCoachSearch] = useState("");
   const [coachStatusFilter, setCoachStatusFilter] = useState("all");
@@ -178,6 +180,12 @@ export default function AdminPanel() {
   const [composeSaving, setComposeSaving] = useState(false);
   const [sendModal, setSendModal] = useState({ open: false, newsletter: null });
   const [sending, setSending] = useState(false);
+  // Onboard clients (E2 pre-register)
+  const [programs, setPrograms] = useState([]);
+  const [onboardSkillId, setOnboardSkillId] = useState("");
+  const [onboardText, setOnboardText] = useState("");
+  const [onboardSubmitting, setOnboardSubmitting] = useState(false);
+  const [onboardResults, setOnboardResults] = useState(null);
 
   useEffect(() => {
     if (!isAuthenticated || !isAdmin()) { navigate("/"); return; }
@@ -305,6 +313,12 @@ export default function AdminPanel() {
     try {
       const res = await api.get("/admin/analytics/");
       setAnalyticsData(res.data.monthly);
+      setAnalyticsExtra({
+        retention: res.data.retention,
+        by_company: res.data.by_company,
+        top_coaches: res.data.top_coaches,
+        habit_consistency: res.data.habit_consistency,
+      });
     } catch { /* non-critical */ }
   }, []);
 
@@ -338,6 +352,8 @@ export default function AdminPanel() {
           await Promise.all([fetchNewsletters(), fetchSubscribers()]);
         } else if (tab === "pending") {
           await fetchCoaches("pending");
+        } else if (tab === "onboard") {
+          await fetchPrograms();
         } else {
           await fetchCoaches("all");
         }
@@ -346,6 +362,46 @@ export default function AdminPanel() {
     };
     load();
   }, [tab]);
+
+  const fetchPrograms = useCallback(async () => {
+    try {
+      const res = await api.get("/skills/public/");
+      setPrograms(Array.isArray(res.data) ? res.data : (res.data.results ?? []));
+    } catch { setPrograms([]); }
+  }, []);
+
+  // Parse the pasted list: one client per line, "email, First, Last"
+  // (first/last optional). Returns [{email, first_name, last_name}].
+  const parseOnboardRows = (text) =>
+    (text || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const parts = line.split(/[,\t]/).map((p) => p.trim());
+        return { email: parts[0] || "", first_name: parts[1] || "", last_name: parts[2] || "" };
+      })
+      .filter((r) => r.email);
+
+  const onboardRows = parseOnboardRows(onboardText);
+
+  const submitOnboard = async () => {
+    if (!onboardSkillId) { toast.error("Please choose a programme first."); return; }
+    if (onboardRows.length === 0) { toast.error("Add at least one client (one email per line)."); return; }
+    setOnboardSubmitting(true);
+    setOnboardResults(null);
+    try {
+      const res = await api.post("/admin/pre-register-clients/", {
+        skill_id: Number(onboardSkillId),
+        clients: onboardRows,
+      });
+      setOnboardResults(res.data);
+      const s = res.data.summary || {};
+      toast.success(`${s.created || 0} created · ${s.exists || 0} existing · ${(s.invalid || 0) + (s.error || 0)} skipped`);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Could not pre-register clients.");
+    } finally { setOnboardSubmitting(false); }
+  };
 
   const handleApprove = async (userId) => {
     try {
@@ -377,6 +433,7 @@ export default function AdminPanel() {
     { key: "analytics", label: "Analytics",            icon: FiTrendingUp },
     { key: "coaches",   label: "Coach Management",    icon: FiUserCheck },
     { key: "clients",   label: "Client Management",   icon: FiUsers },
+    { key: "onboard",   label: "Onboard Clients",     icon: FiUserPlus },
     { key: "sessions",  label: "All Sessions",         icon: FiCalendar },
     { key: "messages",  label: "Messages",             icon: FiMail,
       badge: messages.filter((m) => !m.is_read).length },
@@ -388,6 +445,7 @@ export default function AdminPanel() {
     pending:   "#F59E0B",
     accepted:  "#34A853",
     completed: "#C8A951",
+    no_show:   "#B91C1C",
     declined:  "#EF4444",
   };
 
@@ -634,6 +692,135 @@ export default function AdminPanel() {
                 </div>
               )}
             </div>
+
+            {/* ── Retention ─────────────────────────────────────────── */}
+            {analyticsExtra?.retention && (
+              <div className="rounded-2xl p-6" style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)" }}>
+                <p className="text-sm font-bold text-[#1B2B4A] mb-0.5" style={{ fontFamily: "'Playfair Display', serif" }}>
+                  Client Retention
+                </p>
+                <p className="text-xs mb-6" style={{ color: "rgba(74,85,104,0.6)" }}>
+                  Share of coached clients who came back for more than one session
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="rounded-xl p-4 text-center" style={{ background: "linear-gradient(135deg,rgba(200,169,81,0.12),rgba(200,169,81,0.03))", border: "1px solid rgba(200,169,81,0.2)" }}>
+                    <p className="text-3xl font-bold" style={{ color: "#A9863A" }}>{analyticsExtra.retention.retention_rate}%</p>
+                    <p className="text-xs mt-1" style={{ color: "rgba(74,85,104,0.7)" }}>Retention rate</p>
+                  </div>
+                  <div className="rounded-xl p-4 text-center" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.12)" }}>
+                    <p className="text-3xl font-bold text-[#1B2B4A]">{analyticsExtra.retention.active_clients}</p>
+                    <p className="text-xs mt-1" style={{ color: "rgba(74,85,104,0.7)" }}>Active clients</p>
+                  </div>
+                  <div className="rounded-xl p-4 text-center" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.12)" }}>
+                    <p className="text-3xl font-bold" style={{ color: "#2E7D32" }}>{analyticsExtra.retention.returning_clients}</p>
+                    <p className="text-xs mt-1" style={{ color: "rgba(74,85,104,0.7)" }}>Returning</p>
+                  </div>
+                  <div className="rounded-xl p-4 text-center" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.12)" }}>
+                    <p className="text-3xl font-bold" style={{ color: "#4A5568" }}>{analyticsExtra.retention.one_time_clients}</p>
+                    <p className="text-xs mt-1" style={{ color: "rgba(74,85,104,0.7)" }}>One-time</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Coachees by Company ───────────────────────────────── */}
+            <div className="rounded-2xl p-6" style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)" }}>
+              <p className="text-sm font-bold text-[#1B2B4A] mb-0.5" style={{ fontFamily: "'Playfair Display', serif" }}>
+                Coachees by Company
+              </p>
+              <p className="text-xs mb-6" style={{ color: "rgba(74,85,104,0.6)" }}>How many clients come from each organisation</p>
+              {analyticsExtra?.by_company?.length ? (
+                <ResponsiveContainer width="100%" height={Math.max(160, analyticsExtra.by_company.length * 42)}>
+                  <BarChart data={analyticsExtra.by_company} layout="vertical" margin={{ top: 0, right: 24, left: 8, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(200,169,81,0.1)" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 10, fill: "rgba(74,85,104,0.6)" }} tickLine={false} axisLine={false} allowDecimals={false} />
+                    <YAxis type="category" dataKey="company" width={130} tick={{ fontSize: 11, fill: "#1B2B4A" }} tickLine={false} axisLine={false} />
+                    <Tooltip
+                      contentStyle={{ background: "#1B2B4A", border: "none", borderRadius: 10, fontSize: 12, color: "#fff" }}
+                      labelStyle={{ color: "#C8A951", fontWeight: 600, marginBottom: 4 }}
+                      itemStyle={{ color: "#fff" }}
+                      formatter={v => [v, "Clients"]}
+                    />
+                    <Bar dataKey="clients" name="Clients" fill="#C8A951" radius={[0, 6, 6, 0]} maxBarSize={26} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-40 flex items-center justify-center">
+                  <p className="text-sm" style={{ color: "rgba(74,85,104,0.5)" }}>No company data yet.</p>
+                </div>
+              )}
+            </div>
+
+            {/* ── Best-performing Coaches ───────────────────────────── */}
+            <div className="rounded-2xl p-6" style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)" }}>
+              <p className="text-sm font-bold text-[#1B2B4A] mb-0.5" style={{ fontFamily: "'Playfair Display', serif" }}>
+                Best-performing Coaches
+              </p>
+              <p className="text-xs mb-5" style={{ color: "rgba(74,85,104,0.6)" }}>Ranked by client engagement, then rating</p>
+              {analyticsExtra?.top_coaches?.length ? (
+                <div className="space-y-2">
+                  {analyticsExtra.top_coaches.map((co, i) => (
+                    <div key={co.username} className="flex items-center gap-3 rounded-xl px-4 py-3"
+                      style={{ background: i === 0 ? "linear-gradient(135deg,rgba(200,169,81,0.14),rgba(200,169,81,0.03))" : "#FAF6EC", border: "1px solid rgba(200,169,81,0.15)" }}>
+                      <div className="flex items-center justify-center w-7 h-7 rounded-full shrink-0 text-sm font-bold"
+                        style={{ background: i === 0 ? "#C8A951" : "rgba(27,43,74,0.08)", color: i === 0 ? "#14213D" : "#4A5568" }}>
+                        {i + 1}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-[#1B2B4A] truncate">{co.name}</p>
+                        <p className="text-xs" style={{ color: "rgba(74,85,104,0.6)" }}>@{co.username}</p>
+                      </div>
+                      <div className="flex items-center gap-4 text-xs shrink-0" style={{ color: "#4A5568" }}>
+                        <span className="text-center"><span className="block font-bold text-sm text-[#1B2B4A]">{co.engaged_sessions}</span>sessions</span>
+                        <span className="text-center"><span className="block font-bold text-sm" style={{ color: "#2E7D32" }}>${co.revenue.toFixed(0)}</span>revenue</span>
+                        <span className="text-center"><span className="block font-bold text-sm" style={{ color: "#A9863A" }}>{co.avg_rating ?? "—"}</span>rating</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="h-24 flex items-center justify-center">
+                  <p className="text-sm" style={{ color: "rgba(74,85,104,0.5)" }}>No coach data yet.</p>
+                </div>
+              )}
+            </div>
+
+            {/* ── Habit Consistency ─────────────────────────────────── */}
+            {analyticsExtra?.habit_consistency && (
+              <div className="rounded-2xl p-6" style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)" }}>
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-0.5">
+                  <p className="text-sm font-bold text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>
+                    Habit Consistency
+                  </p>
+                  <div className="flex items-center gap-4 text-xs" style={{ color: "#4A5568" }}>
+                    <span><span className="font-bold text-sm" style={{ color: "#A9863A" }}>{analyticsExtra.habit_consistency.avg_consistency}%</span> avg (30d)</span>
+                    <span><span className="font-bold text-sm text-[#1B2B4A]">{analyticsExtra.habit_consistency.active_habits}</span> active habits</span>
+                  </div>
+                </div>
+                <p className="text-xs mb-6" style={{ color: "rgba(74,85,104,0.6)" }}>Daily habit check-ins across all clients — last 14 days</p>
+                {analyticsExtra.habit_consistency.active_habits > 0 && analyticsExtra.habit_consistency.checkins_30d > 0 ? (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={analyticsExtra.habit_consistency.daily} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(200,169,81,0.1)" vertical={false} />
+                      <XAxis dataKey="date" tick={{ fontSize: 9, fill: "rgba(74,85,104,0.6)" }} tickLine={false} axisLine={false} interval={1} />
+                      <YAxis tick={{ fontSize: 10, fill: "rgba(74,85,104,0.6)" }} tickLine={false} axisLine={false} allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{ background: "#1B2B4A", border: "none", borderRadius: 10, fontSize: 12, color: "#fff" }}
+                        labelStyle={{ color: "#C8A951", fontWeight: 600, marginBottom: 4 }}
+                        itemStyle={{ color: "#fff" }}
+                        formatter={v => [v, "Check-ins"]}
+                      />
+                      <Bar dataKey="checkins" name="Check-ins" fill="#34A853" radius={[6, 6, 0, 0]} maxBarSize={28} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-40 flex flex-col items-center justify-center gap-1">
+                    <FiActivity size={22} style={{ color: "rgba(200,169,81,0.5)" }} />
+                    <p className="text-sm" style={{ color: "rgba(74,85,104,0.5)" }}>No habit check-ins logged yet.</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -716,7 +903,7 @@ export default function AdminPanel() {
               <div className="rounded-2xl overflow-hidden" style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)" }}>
                 {/* Header */}
                 <div className="grid text-xs font-semibold uppercase tracking-wider px-5 py-3"
-                  style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 1fr", color: "rgba(74,85,104,0.6)", borderBottom: "1px solid rgba(200,169,81,0.12)", background: "#FAF6EC" }}>
+                  style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 1fr 0.6fr", color: "rgba(74,85,104,0.6)", borderBottom: "1px solid rgba(200,169,81,0.12)", background: "#FAF6EC" }}>
                   <span>Coach</span>
                   <span className="text-center">Status</span>
                   <span className="text-center">Sessions</span>
@@ -724,6 +911,7 @@ export default function AdminPanel() {
                   <span className="text-center">Revenue</span>
                   <span className="text-center">Hours</span>
                   <span className="text-center">Rating</span>
+                  <span className="text-center">Actions</span>
                 </div>
 
                 {filtered.length === 0 ? (
@@ -739,7 +927,7 @@ export default function AdminPanel() {
                       transition={{ delay: i * 0.03 }}
                       className="grid items-center px-5 py-4"
                       style={{
-                        gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 1fr",
+                        gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 1fr 0.6fr",
                         borderBottom: i < filtered.length - 1 ? "1px solid rgba(200,169,81,0.08)" : "none",
                       }}
                     >
@@ -792,6 +980,9 @@ export default function AdminPanel() {
                           <p className="text-xs" style={{ color: "rgba(74,85,104,0.5)" }}>({coach.stats.review_count})</p>
                         )}
                       </div>
+
+                      <AdminUserActions userId={coach.user_id} isActive={coach.is_active !== false}
+                        kind="coach" onDone={fetchCoachStats} />
                     </motion.div>
                   ))
                 )}
@@ -876,7 +1067,7 @@ export default function AdminPanel() {
               {/* Table */}
               <div className="rounded-2xl overflow-hidden" style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)" }}>
                 <div className="grid text-xs font-semibold uppercase tracking-wider px-5 py-3"
-                  style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 1fr", color: "rgba(74,85,104,0.6)", borderBottom: "1px solid rgba(200,169,81,0.12)", background: "#FAF6EC" }}>
+                  style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 1fr 0.6fr", color: "rgba(74,85,104,0.6)", borderBottom: "1px solid rgba(200,169,81,0.12)", background: "#FAF6EC" }}>
                   <span>Client</span>
                   <span className="text-center">Bookings</span>
                   <span className="text-center">Completed</span>
@@ -884,6 +1075,7 @@ export default function AdminPanel() {
                   <span className="text-center">Declined</span>
                   <span className="text-center">Spent</span>
                   <span className="text-center">Coaches</span>
+                  <span className="text-center">Actions</span>
                 </div>
 
                 {filtered.length === 0 ? (
@@ -899,7 +1091,7 @@ export default function AdminPanel() {
                       transition={{ delay: i * 0.03 }}
                       className="grid items-center px-5 py-4"
                       style={{
-                        gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 1fr",
+                        gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 1fr 0.6fr",
                         borderBottom: i < filtered.length - 1 ? "1px solid rgba(200,169,81,0.08)" : "none",
                       }}
                     >
@@ -958,6 +1150,9 @@ export default function AdminPanel() {
                           <p className="text-xs" style={{ color: "rgba(74,85,104,0.5)" }}>{client.stats.reviews_given} review{client.stats.reviews_given !== 1 ? "s" : ""}</p>
                         )}
                       </div>
+
+                      <AdminUserActions userId={client.user_id} isActive={client.is_active !== false}
+                        kind="client" onDone={fetchClientStats} />
                     </motion.div>
                   ))
                 )}
@@ -993,6 +1188,7 @@ export default function AdminPanel() {
             accepted:  { bg: "rgba(52,168,83,0.1)",   color: "#2E7D32",  border: "rgba(52,168,83,0.25)" },
             completed: { bg: "rgba(200,169,81,0.12)", color: "#A9863A",  border: "rgba(200,169,81,0.3)" },
             declined:  { bg: "rgba(239,68,68,0.08)",  color: "#B91C1C",  border: "rgba(239,68,68,0.2)" },
+            no_show:   { bg: "rgba(239,68,68,0.08)",  color: "#B91C1C",  border: "rgba(239,68,68,0.2)" },
           };
 
           let filtered = sessions.filter(s => {
@@ -1055,7 +1251,7 @@ export default function AdminPanel() {
 
               {/* Status pills */}
               <div className="flex flex-wrap gap-2">
-                {["all","pending","accepted","completed","declined"].map(s => {
+                {["all","pending","accepted","completed","no_show","declined"].map(s => {
                   const count = s === "all" ? sessions.length : sessions.filter(x => x.status === s).length;
                   const active = sessionStatusFilter === s;
                   const sc = statusColors[s] || {};
@@ -1067,7 +1263,7 @@ export default function AdminPanel() {
                         color: active ? (sc.color || "#14213D") : "#4A5568",
                         border: `1px solid ${active ? (sc.border || "#C8A951") : "rgba(200,169,81,0.2)"}`,
                       }}>
-                      {s === "all" ? "All" : s} ({count})
+                      {s === "all" ? "All" : s === "no_show" ? "No Show" : s} ({count})
                     </button>
                   );
                 })}
@@ -1146,6 +1342,7 @@ export default function AdminPanel() {
                           <option value="pending">Pending</option>
                           <option value="accepted">Accepted</option>
                           <option value="completed">Completed</option>
+                          <option value="no_show">No Show</option>
                           <option value="declined">Declined</option>
                         </select>
                       </div>
@@ -1338,7 +1535,7 @@ export default function AdminPanel() {
           </motion.div>
         )}
 
-        {!loading && tab !== "overview" && tab !== "analytics" && tab !== "coaches" && tab !== "clients" && tab !== "sessions" && tab !== "messages" && tab !== "newsletter" && (() => {
+        {!loading && (tab === "pending" || tab === "all") && (() => {
           const list = tab === "pending" ? pendingCoaches : allCoaches;
           return (
             <>
@@ -1372,6 +1569,88 @@ export default function AdminPanel() {
             </>
           );
         })()}
+
+        {/* ────────────────────────────────────────────────────────────
+            ONBOARD CLIENTS TAB (E2 pre-register + activation)
+        ──────────────────────────────────────────────────────────── */}
+        {!loading && tab === "onboard" && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-normal" style={{ color: "#1B2B4A", fontFamily: "'Playfair Display', serif" }}>Onboard clients to a programme</h2>
+              <p className="text-sm mt-1" style={{ color: "#4A5568" }}>
+                Pre-register clients and email each a welcome + set-password link. They'll be locked to the programme you choose and can only book that.
+              </p>
+            </div>
+
+            <div className="rounded-2xl p-5 md:p-6 bg-white" style={{ border: "1px solid rgba(200,169,81,0.25)" }}>
+              {/* Programme picker */}
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#A9863A" }}>Programme</label>
+              <select value={onboardSkillId} onChange={(e) => setOnboardSkillId(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl text-sm mb-5 focus:outline-none"
+                style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }}>
+                <option value="">Choose a programme…</option>
+                {programs.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title}{Number(s.price) > 0 ? ` ($${s.price})` : " (Free)"}
+                  </option>
+                ))}
+              </select>
+
+              {/* Client list */}
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#A9863A" }}>Clients</label>
+              <p className="text-xs mb-2" style={{ color: "#4A5568" }}>One client per line: <code style={{ color: "#A9863A" }}>email, First name, Last name</code> — name is optional.</p>
+              <textarea value={onboardText} onChange={(e) => setOnboardText(e.target.value)} rows={7}
+                placeholder={"jane@example.com, Jane, Doe\nmark@example.com, Mark, Smith\nolivia@example.com"}
+                className="w-full px-4 py-3 rounded-xl text-sm font-mono resize-y focus:outline-none"
+                style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }} />
+
+              <div className="flex items-center justify-between mt-3 flex-wrap gap-3">
+                <span className="text-xs font-semibold" style={{ color: onboardRows.length ? "#2E7D32" : "#9aa3b0" }}>
+                  {onboardRows.length} client{onboardRows.length !== 1 ? "s" : ""} ready
+                </span>
+                <button onClick={submitOnboard} disabled={onboardSubmitting || !onboardRows.length || !onboardSkillId}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold disabled:opacity-50"
+                  style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
+                  <FiUserPlus size={15} /> {onboardSubmitting ? "Sending…" : "Pre-register & send activation"}
+                </button>
+              </div>
+            </div>
+
+            {/* Results */}
+            {onboardResults && (
+              <div className="rounded-2xl p-5 bg-white" style={{ border: "1px solid rgba(200,169,81,0.25)" }}>
+                <div className="flex items-center gap-3 flex-wrap mb-4 text-xs font-semibold">
+                  {[
+                    ["Created", onboardResults.summary?.created, "#2E7D32", "rgba(52,168,83,0.1)"],
+                    ["Already existed", onboardResults.summary?.exists, "#B45309", "rgba(245,158,11,0.12)"],
+                    ["Invalid", onboardResults.summary?.invalid, "#B91C1C", "rgba(239,68,68,0.1)"],
+                    ["Errors", onboardResults.summary?.error, "#B91C1C", "rgba(239,68,68,0.1)"],
+                  ].map(([label, n, color, bg]) => (
+                    <span key={label} className="px-3 py-1 rounded-full" style={{ background: bg, color }}>{label}: {n || 0}</span>
+                  ))}
+                </div>
+                <div className="space-y-1.5">
+                  {(onboardResults.results || []).map((r, i) => {
+                    const map = {
+                      created: ["#2E7D32", "✓ Created & emailed"],
+                      created_no_email: ["#B45309", "⚠ Created, email failed"],
+                      exists: ["#B45309", "• Already existed — skipped"],
+                      invalid: ["#B91C1C", "✕ Invalid"],
+                      error: ["#B91C1C", "✕ Error"],
+                    };
+                    const [color, label] = map[r.status] || ["#4A5568", r.status];
+                    return (
+                      <div key={i} className="flex items-center justify-between gap-3 text-sm py-1.5 px-1 border-b" style={{ borderColor: "rgba(200,169,81,0.12)" }}>
+                        <span className="truncate" style={{ color: "#1B2B4A" }}>{r.email || "—"}</span>
+                        <span className="shrink-0 text-xs font-semibold" style={{ color }} title={r.detail}>{label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Reject Modal ──────────────────────────────────────────── */}

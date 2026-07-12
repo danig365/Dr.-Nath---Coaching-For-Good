@@ -5,11 +5,16 @@ from .views import (
     SmartMatchView, PendingCoachesView, CoachApprovalView,
     AdminStatsView, AdminAnalyticsView, AdminCoachStatsView, AdminClientStatsView,
     AdminSessionsView, CoachDetailView, CoachClientsView,
+    PasswordResetRequestView, PasswordResetConfirmView, RegisterCheckView,
+    PreRegisterClientsView, AdminUserManageView,
 )
 urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
+    path('register/check/', RegisterCheckView.as_view(), name='register-check'),
     path('login/', CustomTokenObtainPairView.as_view(), name='login'),
     path('token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('password-reset/', PasswordResetRequestView.as_view(), name='password-reset'),
+    path('password-reset/confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     path('profile/', CurrentUserProfileView.as_view(), name='profile'),
     path('clients/', CoachClientsView.as_view(), name='coach-clients'),
     path('coaches/', CoachDirectoryView.as_view(), name='coach-directory'),
@@ -22,5 +27,7 @@ urlpatterns = [
     path('admin/client-stats/', AdminClientStatsView.as_view(), name='admin-client-stats'),
     path('admin/sessions/', AdminSessionsView.as_view(), name='admin-sessions'),
     path('admin/sessions/<int:pk>/', AdminSessionsView.as_view(), name='admin-session-detail'),
+    path('admin/pre-register-clients/', PreRegisterClientsView.as_view(), name='pre-register-clients'),
+    path('admin/users/<int:user_id>/', AdminUserManageView.as_view(), name='admin-user-manage'),
     path('coaches/<int:user_id>/', CoachDetailView.as_view(), name='coach-detail'),
 ]

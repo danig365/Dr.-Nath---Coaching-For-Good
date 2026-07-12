@@ -5,6 +5,7 @@ import { toast } from "react-toastify";
 import {
   FiMic, FiMicOff, FiVideo, FiVideoOff,
   FiPhoneOff, FiMessageSquare, FiClock, FiSend, FiX, FiUsers, FiPaperclip, FiDownload, FiFile,
+  FiAlertTriangle, FiRefreshCw,
 } from "react-icons/fi";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { api } from "../utils/auth";
@@ -19,6 +20,21 @@ const fmt = (s) => {
   const x = Math.max(0, Math.round(s));
   return `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
 };
+
+// Turn a getUserMedia / device error into plain, actionable guidance. Mirrors
+// the 1:1 call page so both flows behave identically.
+function describeMediaError(err) {
+  const name = err?.name || "";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError" || name === "SecurityError")
+    return "Your camera & microphone are blocked. Click the camera icon in your browser's address bar, choose “Allow”, then tap Retry.";
+  if (name === "NotFoundError" || name === "DevicesNotFoundError")
+    return "No camera or microphone was found on this device. You can still see and hear others — plug one in and tap Retry to turn yours on.";
+  if (name === "NotReadableError" || name === "TrackStartError")
+    return "Your camera or microphone is being used by another app (Zoom, Teams, FaceTime…). Close it, then tap Retry.";
+  if (name === "NotSupportedError" || (typeof window !== "undefined" && !window.isSecureContext))
+    return "This browser is blocking camera access. Please open the session in Chrome or Edge, then tap Retry.";
+  return "We couldn't turn on your camera/microphone. You're still connected — check your browser's camera permission and tap Retry.";
+}
 
 // One remote participant's tile — attaches their LiveKit video + audio tracks.
 function RemoteTile({ data }) {
@@ -60,6 +76,12 @@ export default function GroupCallLiveKit() {
   const [callState, setCallState] = useState("idle"); // idle | connecting | connected | ended
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
+  const [mediaError, setMediaError] = useState("");   // camera/mic couldn't start in-call
+  const [previewError, setPreviewError] = useState(""); // lobby camera/mic issue
+  const previewRef = useRef(null);       // lobby preview <video>
+  const previewStreamRef = useRef(null); // lobby MediaStream
+  const camWantRef = useRef(true);       // desired camera state on join
+  const micWantRef = useRef(true);       // desired mic state on join
   const [remotes, setRemotes] = useState({}); // sid -> { name, videoTrack, audioTrack }
   const [timeLeft, setTimeLeft] = useState(null);
   const [bgOption, setBgOption] = useState("none");
@@ -177,13 +199,63 @@ export default function GroupCallLiveKit() {
     };
   }, [id, user]);
 
-  // ── Join: connect to the LiveKit room and publish media ─────────────────────
+  // Turn on the local camera + mic honouring the lobby choices. Failure must NOT
+  // drop the call — you stay in the room and get a banner with a Retry.
+  const enableMedia = useCallback(async () => {
+    const room = roomRef.current;
+    if (!room) return;
+    try {
+      await room.localParticipant.setCameraEnabled(camWantRef.current);
+      await room.localParticipant.setMicrophoneEnabled(micWantRef.current);
+      const camPub = room.localParticipant.getTrackPublication(Track.Source.Camera);
+      camPub?.track?.attach(localVideoRef.current);
+      if (camWantRef.current && bgOption !== "none") await applyBackground(getLocalVideoTrack(room), bgOption);
+      setCamOn(camWantRef.current);
+      setMicOn(micWantRef.current);
+      setMediaError("");
+    } catch (err) {
+      setCamOn(false);
+      setMicOn(false);
+      setMediaError(describeMediaError(err));
+    }
+  }, [bgOption]);
+
+  // ── Pre-join lobby: live camera/mic preview + device check ──────────────────
+  const stopPreview = useCallback(() => {
+    if (previewStreamRef.current) {
+      previewStreamRef.current.getTracks().forEach((t) => t.stop());
+      previewStreamRef.current = null;
+    }
+    if (previewRef.current) previewRef.current.srcObject = null;
+  }, []);
+
+  const startPreview = useCallback(async () => {
+    setPreviewError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      previewStreamRef.current = stream;
+      if (previewRef.current) previewRef.current.srcObject = stream;
+      stream.getVideoTracks().forEach((t) => { t.enabled = camWantRef.current; });
+      stream.getAudioTracks().forEach((t) => { t.enabled = micWantRef.current; });
+    } catch (err) {
+      setPreviewError(describeMediaError(err));
+    }
+  }, []);
+
+  // ── Join: connect to the LiveKit room, then publish media (fail-soft) ────────
   const handleJoin = useCallback(async () => {
+    let room;
     try {
       setCallState("connecting");
       const { url, token } = await getGroupCallToken(id);
 
-      const room = new Room({ adaptiveStream: true, dynacast: true });
+      room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+        // Keep the call alive when the user switches tabs/apps or browses elsewhere.
+        disconnectOnPageLeave: false,
+        audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
       roomRef.current = room;
 
       room
@@ -194,26 +266,37 @@ export default function GroupCallLiveKit() {
         .on(RoomEvent.Disconnected, () => { /* handled via finishSession */ });
 
       await room.connect(url, token);
-      await room.localParticipant.setCameraEnabled(true);
-      await room.localParticipant.setMicrophoneEnabled(true);
-
-      // Local preview.
-      const camPub = room.localParticipant.getTrackPublication(Track.Source.Camera);
-      camPub?.track?.attach(localVideoRef.current);
-
-      // Anyone already in the room when we joined.
-      room.remoteParticipants.forEach((p) => upsertParticipant(p));
-
-      setCallState("connected");
-      connectChat();
-      startTimer();
     } catch (err) {
+      // Only a genuine connection/token/network failure lands here.
       const detail = err?.response?.data?.detail;
-      toast.error(detail || "Could not join the call. Check camera/microphone access.");
+      toast.error(detail || "Could not connect to the session. Please check your internet and try again.");
       cleanup();
       setCallState("idle");
+      return;
     }
-  }, [id, upsertParticipant, dropParticipant, setTrack, connectChat, startTimer, cleanup]);
+
+    // We're in the room — the call is joined even if the camera/mic won't start.
+    room.remoteParticipants.forEach((p) => upsertParticipant(p));
+    setCallState("connected");
+    connectChat();
+    startTimer();
+    await enableMedia();
+  }, [id, upsertParticipant, dropParticipant, setTrack, connectChat, startTimer, cleanup, enableMedia]);
+
+  // ── Lobby device toggles + join ─────────────────────────────────────────────
+  const toggleLobbyCam = () => {
+    const next = !camOn; setCamOn(next); camWantRef.current = next;
+    previewStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = next; });
+  };
+  const toggleLobbyMic = () => {
+    const next = !micOn; setMicOn(next); micWantRef.current = next;
+    previewStreamRef.current?.getAudioTracks().forEach((t) => { t.enabled = next; });
+  };
+  const joinFromLobby = async () => {
+    stopPreview(); // free the devices so LiveKit can acquire them cleanly
+    await new Promise((r) => setTimeout(r, 200));
+    handleJoin();
+  };
 
   const handleChatFile = useCallback((e) => {
     const file = e.target.files?.[0];
@@ -257,6 +340,13 @@ export default function GroupCallLiveKit() {
   useEffect(() => { chatOpenRef.current = chatOpen; if (chatOpen) setUnread(0); }, [chatOpen]);
   useEffect(() => { if (chatOpen) chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chat, chatOpen]);
   useEffect(() => () => cleanup(), [cleanup]);
+
+  // Run the lobby preview whenever we're sitting in the lobby with a loaded session.
+  useEffect(() => {
+    if (loading || callState !== "idle" || !session) return undefined;
+    startPreview();
+    return () => stopPreview();
+  }, [loading, callState, session, startPreview, stopPreview]);
 
   const toggleMic = async () => {
     const next = !micOn;
@@ -322,19 +412,61 @@ export default function GroupCallLiveKit() {
       {/* Stage */}
       <div className="flex-1 relative overflow-hidden z-10 p-4">
         {callState === "idle" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
-            <motion.div className="w-28 h-28 rounded-full flex items-center justify-center mb-6 shadow-2xl"
-              style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}
-              initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 200 }}>
-              <FiUsers size={42} />
+          <div className="absolute inset-0 flex flex-col items-center justify-center px-6 py-8 overflow-y-auto">
+            <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-md text-center">
+              <h1 className="text-2xl md:text-3xl font-normal text-white mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>{session?.title}</h1>
+              <p className="text-xs mb-5" style={{ color: "rgba(255,255,255,0.4)" }}>Group session · check your camera &amp; mic below</p>
+
+              {/* Camera preview */}
+              <div className="relative rounded-2xl overflow-hidden mb-4 mx-auto" style={{ background: "#0b1220", aspectRatio: "4 / 3", border: "1px solid rgba(255,255,255,0.1)", maxWidth: 420 }}>
+                <video ref={previewRef} autoPlay playsInline muted
+                  className="w-full h-full object-cover" style={{ transform: "scaleX(-1)", display: camOn && !previewError ? "block" : "none" }} />
+                {(!camOn || previewError) && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: "rgba(200,169,81,0.18)" }}>
+                      <FiUsers size={26} style={{ color: "#C8A951" }} />
+                    </div>
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>{previewError ? "Camera unavailable" : "Camera off"}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Permission guidance */}
+              {previewError && (
+                <div className="rounded-xl p-3 mb-4 text-left flex items-start gap-2" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(239,68,68,0.3)" }}>
+                  <FiAlertTriangle size={15} style={{ color: "#F87171" }} className="shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.8)" }}>{previewError}</p>
+                    <button onClick={startPreview} className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold" style={{ background: "rgba(255,255,255,0.12)", color: "white" }}>
+                      <FiRefreshCw size={11} /> Retry
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Device toggles */}
+              <div className="flex items-center justify-center gap-3 mb-6">
+                <button onClick={toggleLobbyMic} disabled={!!previewError} title={micOn ? "Mic on" : "Mic off"}
+                  className="w-12 h-12 rounded-full flex items-center justify-center disabled:opacity-40" style={{ background: micOn ? "rgba(255,255,255,0.1)" : "#EF4444" }}>
+                  {micOn ? <FiMic size={18} className="text-white" /> : <FiMicOff size={18} className="text-white" />}
+                </button>
+                <button onClick={toggleLobbyCam} disabled={!!previewError} title={camOn ? "Camera on" : "Camera off"}
+                  className="w-12 h-12 rounded-full flex items-center justify-center disabled:opacity-40" style={{ background: camOn ? "rgba(255,255,255,0.1)" : "#EF4444" }}>
+                  {camOn ? <FiVideo size={18} className="text-white" /> : <FiVideoOff size={18} className="text-white" />}
+                </button>
+              </div>
+
+              <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }} onClick={joinFromLobby}
+                className="flex items-center justify-center gap-3 w-full px-10 py-4 rounded-full text-base font-bold shadow-lg"
+                style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
+                <FiVideo size={20} /> Join Call
+              </motion.button>
+              <p className="text-xs mt-4" style={{ color: "rgba(255,255,255,0.4)" }}>
+                {previewError
+                  ? "You can still join — you'll be able to turn your camera on once you're in."
+                  : "You'll join the group session with the others."}
+              </p>
             </motion.div>
-            <h1 className="text-4xl font-normal text-white mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>{session?.title}</h1>
-            <p className="text-xs mb-10" style={{ color: "rgba(255,255,255,0.3)" }}>Camera and mic required</p>
-            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }} onClick={handleJoin}
-              className="flex items-center gap-3 px-10 py-4 rounded-full text-base font-bold shadow-lg"
-              style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
-              <FiVideo size={20} /> Join Call
-            </motion.button>
           </div>
         )}
 
@@ -379,6 +511,41 @@ export default function GroupCallLiveKit() {
             )}
           </div>
         )}
+
+        {/* Camera/mic problem — clear, actionable, never blocks the session */}
+        <AnimatePresence>
+          {inCall && mediaError && (
+            <motion.div
+              initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+              className="absolute top-4 left-1/2 -translate-x-1/2 z-30 w-[92%] max-w-md rounded-2xl p-4 shadow-2xl"
+              style={{ background: "rgba(255,255,255,0.98)", border: "1px solid rgba(239,68,68,0.3)" }}
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(239,68,68,0.12)" }}>
+                  <FiAlertTriangle size={16} style={{ color: "#DC2626" }} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold" style={{ color: "#1B2B4A" }}>Camera / microphone need permission</p>
+                  <p className="text-xs mt-1 leading-relaxed" style={{ color: "#4A5568" }}>{mediaError}</p>
+                  <p className="text-xs mt-2 leading-relaxed" style={{ color: "#2E7D32" }}>
+                    You're already in the session — you can still see and hear others and use chat.
+                  </p>
+                  <div className="flex items-center gap-2 mt-3">
+                    <button onClick={enableMedia}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
+                      style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
+                      <FiRefreshCw size={12} /> Retry camera &amp; mic
+                    </button>
+                    <button onClick={() => setMediaError("")}
+                      className="px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(27,43,74,0.06)", color: "#4A5568" }}>
+                      Continue without
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Controls */}

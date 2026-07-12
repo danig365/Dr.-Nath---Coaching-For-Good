@@ -72,6 +72,8 @@ INSTALLED_APPS = [
     'newsletters',
     'assistant',
     'signatures',
+    'formbuilder',
+    'integrations',
 ]
 
 MIDDLEWARE = [
@@ -177,6 +179,8 @@ REST_FRAMEWORK = {
   'DEFAULT_THROTTLE_RATES': {
       # Per-IP cap for the public AI assistant endpoint (paid API behind it).
       'assistant': '20/min',
+      # Per-IP cap on login attempts — slows brute-force / username enumeration.
+      'login': '10/min',
   },
 }
 
@@ -223,6 +227,32 @@ LIVEKIT_API_KEY = os.environ.get('LIVEKIT_API_KEY', '')
 LIVEKIT_API_SECRET = os.environ.get('LIVEKIT_API_SECRET', '')
 # How long an issued room token stays valid (seconds).
 LIVEKIT_TOKEN_TTL = int(os.environ.get('LIVEKIT_TOKEN_TTL', '21600'))  # 6 hours
+
+# ─── Server-side transcription (E7 Phase 3) ───────────────────────────────────
+# The optional transcription worker (backend/transcription_worker.py) joins each
+# session room, transcribes all participants server-side (covers every browser),
+# and stores the AI summary. It runs as a SEPARATE process/venv — these settings
+# just tell it which STT provider + key to use. Leave TRANSCRIPTION_ENABLED off
+# until a key is set; the browser MVP (Phase 2) keeps working regardless.
+TRANSCRIPTION_ENABLED = os.environ.get('TRANSCRIPTION_ENABLED', 'false').lower() == 'true'
+STT_PROVIDER = os.environ.get('STT_PROVIDER', 'deepgram').lower()  # 'deepgram' | 'openai'
+STT_LANGUAGE = os.environ.get('STT_LANGUAGE', 'en')                # e.g. 'en', 'fr'
+DEEPGRAM_API_KEY = os.environ.get('DEEPGRAM_API_KEY', '')
+DEEPGRAM_MODEL = os.environ.get('DEEPGRAM_MODEL', 'nova-2')
+# OpenAI Whisper STT reuses OPENAI_API_KEY (already read for the assistant).
+
+# ─── Google Calendar integration (OAuth 2.0) ──────────────────────────────────
+# Per-coach two-way sync. Credentials come from Google Cloud Console (git-ignored
+# .env). Redirect URI must match exactly what's registered on the OAuth client.
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
+GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
+GOOGLE_OAUTH_REDIRECT_URI = os.environ.get(
+    'GOOGLE_OAUTH_REDIRECT_URI', 'https://dr-nath.com/api/integrations/google/callback/'
+)
+GOOGLE_CALENDAR_SCOPES = [
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/calendar.readonly',
+]
 
 # Grace window (minutes) a call stays joinable past its scheduled end. Mirrors
 # SESSION_GRACE_MS on the frontend — keep the two in sync.

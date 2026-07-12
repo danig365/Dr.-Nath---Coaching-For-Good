@@ -8,9 +8,10 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'role', 'bio', 'photo', 'specialties', 'certifications',
             'hourly_rate', 'years_experience', 'languages', 'industries', 'linkedin_url',
             'approval_status', 'is_verified', 'organisation', 'job_title',
-            'coaching_goals', 'timezone', 'booking_horizon_days', 'min_notice_hours'
+            'coaching_goals', 'timezone', 'booking_horizon_days', 'min_notice_hours',
+            'restricted_to_skill',
         ]
-        read_only_fields = ['approval_status', 'is_verified']
+        read_only_fields = ['approval_status', 'is_verified', 'restricted_to_skill']
 
 class CurrentUserAndProfileSerializer(serializers.ModelSerializer):
     profile = UserProfileSerializer()
@@ -38,6 +39,10 @@ class CurrentUserAndProfileSerializer(serializers.ModelSerializer):
         return instance
 
 class RegisterSerializer(serializers.ModelSerializer):
+    # Declared explicitly so we own the (case-insensitive) uniqueness checks and
+    # their messages, instead of the generic ModelSerializer defaults.
+    username = serializers.CharField(max_length=150)
+    email = serializers.EmailField(required=True)
     password = serializers.CharField(write_only=True, required=True)
     password2 = serializers.CharField(write_only=True, required=True)
     role = serializers.ChoiceField(choices=[('coach', 'Coach'), ('client', 'Client')], default='client')
@@ -65,9 +70,34 @@ class RegisterSerializer(serializers.ModelSerializer):
             'organisation', 'job_title'
         )
 
+    def validate_username(self, value):
+        value = (value or '').strip()
+        if len(value) < 3:
+            raise serializers.ValidationError("Username must be at least 3 characters.")
+        if CustomUser.objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError("This username is already taken. Please choose another.")
+        return value
+
+    def validate_email(self, value):
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError("An email address is required.")
+        if CustomUser.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("An account with this email already exists — try signing in instead.")
+        return value
+
+    def validate_password(self, value):
+        from django.contrib.auth.password_validation import validate_password as dj_validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        try:
+            dj_validate_password(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages))
+        return value
+
     def validate(self, attrs):
         if attrs['password'] != attrs['password2']:
-            raise serializers.ValidationError({"password": "Passwords didn't match."})
+            raise serializers.ValidationError({"password2": "The two passwords don't match."})
         return attrs
 
     def create(self, validated_data):

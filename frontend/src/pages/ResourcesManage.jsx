@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
-import { FiFolder, FiPlus, FiTrash2, FiUploadCloud, FiFile, FiUsers, FiUser, FiEdit2, FiX, FiDownload, FiInbox, FiCheckCircle, FiClock, FiLink, FiExternalLink, FiLock } from "react-icons/fi";
+import { FiFolder, FiPlus, FiTrash2, FiUploadCloud, FiFile, FiUsers, FiUser, FiEdit2, FiX, FiDownload, FiCheckCircle, FiClock, FiLink, FiExternalLink, FiLock } from "react-icons/fi";
 import { api, downloadResource, downloadSubmission } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
+import WorkspaceTabs from "../components/WorkspaceTabs";
 
 const card = { background: "white", border: "1px solid rgba(200,169,81,0.15)", boxShadow: "0 2px 16px rgba(27,43,74,0.05)" };
 const inputStyle = { background: "#FAF6EC", border: "1px solid rgba(27,43,74,0.2)", color: "#1B2B4A" };
@@ -71,7 +73,10 @@ const ResourcesManage = () => {
   const [form, setForm] = useState(emptyForm);
   const [uploading, setUploading] = useState(false);
   const [edit, setEdit] = useState(null); // resource being edited
-  const [tab, setTab] = useState("manage"); // 'manage' | 'inbox'
+  // Active sub-section is driven by the WorkspaceTabs row (?tab=inbox), so the
+  // Library / Client Submissions tabs live in one place with Agreements & Forms.
+  const [searchParams] = useSearchParams();
+  const tab = searchParams.get("tab") === "inbox" ? "inbox" : "manage";
   const [submissions, setSubmissions] = useState([]);
 
   const fetchAll = useCallback(async () => {
@@ -188,7 +193,6 @@ const ResourcesManage = () => {
     submissions.forEach((s) => { (m[s.client_username || "Client"] ||= []).push(s); });
     return m;
   }, [submissions]);
-  const pendingCount = useMemo(() => submissions.filter((s) => s.status === "submitted").length, [submissions]);
 
   const downloadSub = async (s) => {
     try { await downloadSubmission(s.id, s.title); }
@@ -207,41 +211,28 @@ const ResourcesManage = () => {
     catch (err) { toast.error(err.response?.data?.detail || "Failed to remove."); }
   };
 
-  if (loading) return (
-    <div className="flex justify-center items-center min-h-screen" style={{ background: "#FAF6EC" }}>
-      <div className="w-10 h-10 rounded-full border-2 animate-spin" style={{ borderColor: "#C8A951", borderTopColor: "transparent" }} />
-    </div>
-  );
-
   const selectedFolder = folders.find((f) => String(f.id) === String(form.folder));
   const privateFolder = selectedFolder?.is_private ? selectedFolder : null;
 
+  if (loading) return (
+    <div className="min-h-screen pt-36 pb-16 px-6" style={{ background: "#FAF6EC" }}>
+      <div className="max-w-4xl mx-auto">
+        <WorkspaceTabs />
+        <div className="flex justify-center py-24">
+          <div className="w-10 h-10 rounded-full border-2 animate-spin" style={{ borderColor: "#C8A951", borderTopColor: "transparent" }} />
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen pt-36 pb-16 px-6" style={{ background: "#FAF6EC" }}>
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-4xl mx-auto">
+        <WorkspaceTabs />
         <motion.div className="mb-8" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
           <p className="text-xs font-semibold uppercase tracking-[0.22em] mb-2" style={{ color: "#A9863A" }}>Coach workspace</p>
           <h1 className="text-3xl md:text-4xl font-normal text-[#1B2B4A]" style={serif}>Resources</h1>
         </motion.div>
-
-        {/* Tabs */}
-        <div className="flex gap-2 mb-6">
-          {[["manage", "Library", FiFolder], ["inbox", "Client Submissions", FiInbox]].map(([key, label, Icon]) => (
-            <button key={key} onClick={() => setTab(key)}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all"
-              style={tab === key
-                ? { background: "#1B2B4A", color: "#FAF6EC" }
-                : { background: "white", color: "#4A5568", border: "1px solid rgba(27,43,74,0.12)" }}>
-              <Icon size={14} /> {label}
-              {key === "inbox" && pendingCount > 0 && (
-                <span className="ml-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold"
-                  style={tab === key ? { background: "#C8A951", color: "#14213D" } : { background: "rgba(200,169,81,0.18)", color: "#A9863A" }}>
-                  {pendingCount}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
 
         {tab === "manage" && (<>
         {/* Folders */}

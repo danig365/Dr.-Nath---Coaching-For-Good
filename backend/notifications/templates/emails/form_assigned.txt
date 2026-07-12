@@ -1,0 +1,11 @@
+{% extends "emails/base.txt" %}
+{% block content %}{{ coach_name }} SENT YOU A FORM TO COMPLETE
+
+Hi {{ recipient_name }}, please fill in the following on the platform{% if question_count %} ({{ question_count }} question{{ question_count|pluralize }}){% endif %}:
+
+  {{ title }}
+{% if description %}
+  {{ description }}
+{% endif %}
+Open the form (sign in required):
+{{ link }}{% endblock %}

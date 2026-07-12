@@ -43,4 +43,10 @@
   <p style="margin:16px 0 0; font-size:12px; color:#9aa3b0; font-family:Arial, sans-serif;">
     Or open it from your dashboard: <a href="{{ manage_url }}" style="color:#A9863A;">{% if role == 'coach' %}My Sessions{% else %}My Learning{% endif %}</a>
   </p>
+  {% if role != 'coach' %}
+  <p style="margin:14px 0 0; font-size:12px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;">
+    This session takes place <strong>online, on the Dr.&nbsp;Nath platform</strong>. Log in at
+    <a href="{{ login_url }}" style="color:#A9863A;">{{ login_url }}</a> and click Join when it's time.
+  </p>
+  {% endif %}
 {% endblock %}

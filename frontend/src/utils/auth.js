@@ -142,7 +142,6 @@ export const getUser = () => {
   }
   try {
     const decoded = jwtDecode(tokens.access); // Decode the access token
-    console.log("decoded token payload:", decoded);
     const currentTime = Date.now() / 1000; // Current time in seconds
 
     // Check if the token has expired
@@ -174,32 +173,15 @@ export const getRole = () => {
  * @returns {Promise<Object|null>} A promise that resolves to the decoded user payload on success, or null on failure.
  */
 export const loginUser = async (username, password) => {
-  try {
-    // Use plain axios for the initial login request, as no token is attached yet
-    const response = await axios.post(`${API_BASE_URL}/login/`, {
-      username,
-      password,
-    });
-
-    // Backend should return { access: "...", refresh: "..." }
-    if (response.data.access && response.data.refresh) {
-      setAuthTokens(response.data); // Store both access and refresh tokens
-      const user = getUser(); // Decode the new access token to get user info
-      return user; // Return the decoded user object
-    } else {
-      toast.error("Invalid token response from server during login.");
-      return null; // Response didn't contain expected tokens
-    }
-  } catch (error) {
-    console.error("Login error:", error.response?.data || error.message);
-    // Extract and display specific error message from backend if available
-    const errorMessage =
-      error.response?.data?.detail ||
-      error.message ||
-      "An unexpected error occurred during login.";
-    toast.error(errorMessage);
-    return null; // Login failed
+  // Use plain axios for the initial login request, as no token is attached yet.
+  // Errors are thrown (not swallowed) so the Login page can show the exact reason
+  // — e.g. "No account found" vs "Incorrect password" — inline next to the form.
+  const response = await axios.post(`${API_BASE_URL}/login/`, { username, password });
+  if (response.data.access && response.data.refresh) {
+    setAuthTokens(response.data);
+    return getUser();
   }
+  throw new Error("Invalid response from the server. Please try again.");
 };
 
 /**

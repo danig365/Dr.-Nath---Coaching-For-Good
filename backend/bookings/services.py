@@ -23,6 +23,43 @@ PROTECTED_STATUSES = ('booked', 'held', 'blocked')
 HOLD_MINUTES = 10
 
 
+def min_notice_cutoff(coach):
+    """Earliest start time a client is allowed to book for this coach — i.e.
+    `now + coach.min_notice_hours`. Used to hide and to reject slots that are
+    too close (e.g. a 24-hour advance-booking rule)."""
+    hours = getattr(coach, 'min_notice_hours', 0) or 0
+    return dj_timezone.now() + timedelta(hours=hours)
+
+
+def finalize_status(booking):
+    """Terminal status for a session whose booked time has passed: 'completed'
+    only if BOTH parties actually opened the call, otherwise 'no_show'."""
+    both_joined = booking.coach_joined_at is not None and booking.client_joined_at is not None
+    return 'completed' if both_joined else 'no_show'
+
+
+def locked_skill_id(user):
+    """The single offering this client is restricted to (E2), or None if the
+    user is unrestricted / not a client. Used to gate booking to one programme."""
+    profile = getattr(user, 'profile', None)
+    if not profile:
+        return None
+    return getattr(profile, 'restricted_to_skill_id', None)
+
+
+def program_lock_error(user, skill):
+    """Return a user-facing error if `user` is locked to a different offering
+    than `skill`, else None. `skill` may be a Skill instance or an id."""
+    locked = locked_skill_id(user)
+    if not locked:
+        return None
+    skill_id = getattr(skill, 'id', skill)
+    if skill_id and int(skill_id) != int(locked):
+        return ("You're enrolled in a specific programme and can only book that "
+                "one. Please contact Dr. Nathalie if you need another offering.")
+    return None
+
+
 class SeatUnavailable(Exception):
     """Raised when a client cannot take a seat in a group session."""
     pass

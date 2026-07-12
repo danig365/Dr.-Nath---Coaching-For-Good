@@ -15,6 +15,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone as dj_tz
 
 from notifications.models import ScheduledNotification
+from .calendar import build_ics, google_calendar_link, outlook_calendar_link
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +104,114 @@ def _context(booking, recipient, start_utc, *, reminder_label=None):
         # in-app call page (same room for both parties).
         'join_link': booking.meeting_link or f"{settings.SITE_URL}/session/{booking.id}",
         'manage_url': recipient['manage_url'],
+        'login_url': f"{settings.SITE_URL}/login",
+        # "Add to calendar" links (only meaningful on the confirmation email).
+        'add_to_google': google_calendar_link(booking, start_utc),
+        'add_to_outlook': outlook_calendar_link(booking, start_utc),
         'reminder_label': reminder_label or '',
     }
+
+
+def retarget_booking_reminders(booking):
+    """Refresh pending reminder notifications for a booking so their stored
+    context shows the booking's current program name — used after a coach
+    changes a booking's program. Already-sent notifications are left untouched
+    and nothing new is sent. Returns the number of reminders updated.
+    """
+    from django.contrib.contenttypes.models import ContentType
+    from notifications.models import ScheduledNotification
+
+    ct = ContentType.objects.get_for_model(booking.__class__)
+    name = booking.skill.name if booking.skill else 'your session'
+    pending = ScheduledNotification.objects.filter(
+        content_type=ct, object_id=booking.id, status='pending'
+    )
+    updated = 0
+    for n in pending:
+        if isinstance(n.context, dict) and n.context.get('skill_name') != name:
+            n.context['skill_name'] = name
+            n.save(update_fields=['context'])
+            updated += 1
+    return updated
+
+
+def send_join_nudge(booking):
+    """Coach → client: 'I'm waiting, join now' with a one-click join link."""
+    client = booking.learner
+    if not client.email:
+        return
+    coach_user = booking.mentor.user
+    from notifications.services import send_email
+    send_email(
+        to=client.email,
+        subject=f"{_display_name(coach_user)} is waiting — join your session now",
+        template='session_nudge',
+        context={
+            'recipient_name': _display_name(client),
+            'coach_name': _display_name(coach_user),
+            'skill_name': booking.skill.name if booking.skill else 'your session',
+            'join_link': f"{settings.SITE_URL}/session/{booking.id}",
+            'login_url': f"{settings.SITE_URL}/login",
+        },
+        reply_to=[coach_user.email] if coach_user.email else None,
+    )
+
+
+def send_session_thankyou(booking):
+    """After a session completes, thank the client and show the coach's next open
+    slots so they can rebook in one click. Sent once per booking (idempotent via
+    booking.thankyou_sent). Best-effort — never raises into the caller.
+    """
+    if getattr(booking, 'thankyou_sent', False):
+        return
+    try:
+        from notifications.services import send_email
+        from .models import TimeSlot
+
+        client = booking.learner
+        coach_user = booking.mentor.user
+        skill = booking.skill
+        skill_name = skill.name if skill else 'your session'
+        tz = getattr(booking.mentor, 'timezone', 'UTC') or 'UTC'
+
+        slots = []
+        if skill:
+            open_slots = (
+                TimeSlot.objects
+                .filter(coach=booking.mentor, status='open', start_datetime__gt=dj_tz.now())
+                .order_by('start_datetime')[:5]
+            )
+            for s in open_slots:
+                slots.append({
+                    'when': _fmt_when(s.start_datetime, tz),
+                    'link': f"{settings.SITE_URL}/book/{skill.id}?slot={s.id}",
+                })
+        browse_link = (
+            f"{settings.SITE_URL}/book/{skill.id}" if skill else f"{settings.SITE_URL}/coaches"
+        )
+
+        if client.email:
+            send_email(
+                to=client.email,
+                subject=f"Thank you — your {skill_name} session with {_display_name(coach_user)}",
+                template='session_thankyou',
+                context={
+                    'recipient_name': _display_name(client),
+                    'coach_name': _display_name(coach_user),
+                    'skill_name': skill_name,
+                    'slots': slots,
+                    'browse_link': browse_link,
+                    'reflect_link': f"{settings.SITE_URL}/my-learning",
+                },
+                reply_to=[coach_user.email] if coach_user.email else None,
+            )
+    except Exception as exc:  # noqa: BLE001 — best-effort courtesy email
+        logger.error("Thank-you email for booking %s failed: %s", booking.id, exc)
+    finally:
+        # Mark sent regardless, so the completion flow + the 15-min sweep never
+        # re-send it. (A one-off courtesy email isn't worth retry loops.)
+        booking.thankyou_sent = True
+        booking.save(update_fields=['thankyou_sent'])
 
 
 def schedule_booking_notifications(booking):
@@ -132,6 +239,16 @@ def schedule_booking_notifications(booking):
         except Exception as inv_err:  # noqa: BLE001 — never block emails on a receipt
             logger.warning("Booking %s: receipt generation failed: %s", booking.id, inv_err)
 
+    # Attach a calendar (.ics) file so both parties can add the session to their
+    # own calendar (Apple / Outlook / import). Best-effort.
+    ics_attachment = None
+    try:
+        ics = build_ics(booking, start_utc)
+        if ics:
+            ics_attachment = [ics]
+    except Exception as cal_err:  # noqa: BLE001
+        logger.warning("Booking %s: .ics generation failed: %s", booking.id, cal_err)
+
     # 1) Confirmation — due now, sent immediately for instant feedback.
     for r in recipients:
         if not r['email']:
@@ -148,8 +265,11 @@ def schedule_booking_notifications(booking):
             dedupe_key=f"booking:{booking.id}:confirmation:{r['role']}",
         )
         if note and note.status == ScheduledNotification.STATUS_PENDING:
-            # Only the buyer (client) receives the receipt PDF.
-            note.send(attachments=invoice_attachment if r['role'] == 'client' else None)
+            # Everyone gets the .ics; only the buyer (client) gets the receipt PDF.
+            atts = list(ics_attachment or [])
+            if r['role'] == 'client' and invoice_attachment:
+                atts += invoice_attachment
+            note.send(attachments=atts or None)
 
     # 2) Reminders — queued for the dispatcher to send when due.
     for kind, delta, label in REMINDER_LADDER:
@@ -233,6 +353,7 @@ def _group_context(session, recipient, *, reminder_label=None):
         'meeting_link': session.meeting_link or '',
         'join_link': session.meeting_link or f"{settings.SITE_URL}/group-session/{session.id}/call",
         'manage_url': recipient['manage_url'],
+        'login_url': f"{settings.SITE_URL}/login",
         'reminder_label': reminder_label or '',
     }
 

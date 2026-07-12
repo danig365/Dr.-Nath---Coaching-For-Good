@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 
 from rest_framework import serializers
 from django.utils import timezone as dj_timezone
-from .models import SessionBooking, Review, TimeSlot, GroupSession, GroupEnrollment, SlotInvite
+from .models import SessionBooking, Review, TimeSlot, GroupSession, GroupEnrollment, SlotInvite, SessionReflection, SessionSummary
 from profiles.models import CustomUser, UserProfile
 from skills.models import Skill
 
@@ -51,6 +51,7 @@ class SlotInviteSerializer(serializers.ModelSerializer):
     duration_minutes = serializers.IntegerField(source='slot.duration_minutes', read_only=True)
     status = serializers.SerializerMethodField()
     can_resend = serializers.SerializerMethodField()
+    attached_documents = serializers.SerializerMethodField()
 
     class Meta:
         model = SlotInvite
@@ -58,8 +59,12 @@ class SlotInviteSerializer(serializers.ModelSerializer):
             'id', 'email', 'skill', 'skill_title', 'note',
             'slot', 'slot_start', 'slot_end', 'duration_minutes',
             'invited_at', 'last_sent_at', 'sent_count',
-            'status', 'can_resend',
+            'status', 'can_resend', 'attached_documents',
         ]
+
+    def get_attached_documents(self, obj):
+        """Titles of the documents that were attached to the invite email."""
+        return [r.title for r in obj.attached_resources.all()]
 
     def get_status(self, obj):
         """Pending (open, future) · Booked (this invitee took it) ·
@@ -86,6 +91,21 @@ class SlotInviteSerializer(serializers.ModelSerializer):
         return bool(self.context.get('coach_has_skills'))
 
 
+class SessionReflectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SessionReflection
+        fields = ['id', 'booking', 'takeaways', 'action_items', 'created_at', 'updated_at']
+        read_only_fields = fields
+
+
+class SessionSummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SessionSummary
+        fields = ['id', 'booking', 'summary', 'key_points', 'action_items',
+                  'transcript_chars', 'created_at', 'updated_at']
+        read_only_fields = fields
+
+
 class SessionBookingSerializer(serializers.ModelSerializer):
     learner_username = serializers.CharField(source='learner.username', read_only=True)
     mentor_username = serializers.CharField(source='mentor.user.username', read_only=True)
@@ -96,6 +116,9 @@ class SessionBookingSerializer(serializers.ModelSerializer):
     price = serializers.DecimalField(source='skill.price', max_digits=10, decimal_places=2, read_only=True)
     feedback = serializers.SerializerMethodField()
     unread_messages = serializers.SerializerMethodField()
+    has_reflection = serializers.SerializerMethodField()
+    has_summary = serializers.SerializerMethodField()
+    no_show_by = serializers.SerializerMethodField()  # 'coach' | 'client' | 'both' | None
     # Absolute UTC start/end (ISO) — the source of truth for the frontend to
     # convert to each viewer's local timezone. session_date/session_time are kept
     # for backward compatibility but must NOT be parsed as local on the client.
@@ -109,8 +132,9 @@ class SessionBookingSerializer(serializers.ModelSerializer):
         'session_time', 'slot_start', 'slot_end', 'created_at', 'status',
         'duration', 'skill_level', 'message', 'notes_file', 'meeting_link',
         'learner_username', 'mentor_username', 'learner_name', 'mentor_name',
-        'skill_title', 'price', 'feedback', 'unread_messages',
+        'skill_title', 'price', 'feedback', 'unread_messages', 'has_reflection', 'has_summary',
         'payment_status', 'amount_paid',
+        'coach_joined_at', 'client_joined_at', 'no_show_by',
         ]
         # ⭐ Corrected read_only_fields list for the new create logic ⭐
         # 'learner' is not sent by frontend. 'mentor' is inferred from 'skill'.
@@ -119,6 +143,7 @@ class SessionBookingSerializer(serializers.ModelSerializer):
         'id', 'created_at',
         'learner_username', 'mentor_username', 'skill_title', 'learner', 'mentor', 'price', 'feedback',
         'payment_status', 'amount_paid',
+        'coach_joined_at', 'client_joined_at', 'no_show_by',
        ]
 
     @staticmethod
@@ -163,6 +188,28 @@ class SessionBookingSerializer(serializers.ModelSerializer):
         if not review:
             return None
         return SessionReviewSerializer(review).data
+
+    def get_has_reflection(self, obj):
+        refl = getattr(obj, 'reflection', None)
+        return bool(refl and (refl.takeaways or refl.action_items))
+
+    def get_has_summary(self, obj):
+        summ = getattr(obj, 'ai_summary', None)
+        return bool(summ and (summ.summary or summ.key_points))
+
+    def get_no_show_by(self, obj):
+        # Who failed to attend — only meaningful for a no-show booking.
+        if obj.status != 'no_show':
+            return None
+        coach = obj.coach_joined_at is not None
+        client = obj.client_joined_at is not None
+        if not coach and not client:
+            return 'both'
+        if not client:
+            return 'client'
+        if not coach:
+            return 'coach'
+        return None
 
     def get_unread_messages(self, obj):
         request = self.context.get('request')

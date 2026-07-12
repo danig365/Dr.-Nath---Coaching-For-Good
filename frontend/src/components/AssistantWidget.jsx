@@ -10,6 +10,18 @@ const NAVY = "#1B2B4A";
 const NAVY_DEEP = "#14213D";
 const CREAM = "#FAF6EC";
 
+// Render a reply as plain text, but turn any stray **bold** the model emits into
+// real bold instead of showing the literal asterisks. Also strips leftover
+// Markdown heading hashes. Newlines are preserved by the whitespace-pre-wrap box.
+function renderRich(text) {
+  const cleaned = String(text || "").replace(/^#{1,6}\s+/gm, "");
+  return cleaned.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    /^\*\*[^*]+\*\*$/.test(part)
+      ? <strong key={i}>{part.slice(2, -2)}</strong>
+      : <span key={i}>{part}</span>
+  );
+}
+
 const GREETING = {
   role: "assistant",
   content:
@@ -121,7 +133,7 @@ export default function AssistantWidget() {
                       style={mine
                         ? { background: `linear-gradient(135deg,${GOLD},#F0D98C)`, color: NAVY_DEEP, borderBottomRightRadius: 4 }
                         : { background: "white", color: NAVY, border: "1px solid rgba(200,169,81,0.2)", borderBottomLeftRadius: 4 }}>
-                      {m.content}
+                      {mine ? m.content : renderRich(m.content)}
                     </div>
                   </div>
                 );

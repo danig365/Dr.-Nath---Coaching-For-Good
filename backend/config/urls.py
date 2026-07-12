@@ -36,6 +36,8 @@ urlpatterns = [
     path('api/newsletter/', include('newsletters.urls')),
     path('api/assistant/', include('assistant.urls')),
     path('api/signatures/', include('signatures.urls')),
+    path('api/forms/', include('formbuilder.urls')),
+    path('api/integrations/', include('integrations.urls')),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     # path('api/notifications/', include('notifications.urls')),

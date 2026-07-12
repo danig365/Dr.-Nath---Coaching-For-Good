@@ -12,6 +12,7 @@ class SessionBooking(models.Model):
         ('declined', 'Declined'),
         ('rescheduled', 'Rescheduled'),
         ('completed', 'Completed'),
+        ('no_show', 'No Show'),  # scheduled time passed but not both parties joined
     )
 
     mentor = models.ForeignKey(
@@ -40,6 +41,10 @@ class SessionBooking(models.Model):
     )
     
     duration = models.PositiveIntegerField(default=60) # In minutes
+    # Attendance — set the first time each party opens the call. Used to decide
+    # completed vs no-show once the session's time has passed.
+    coach_joined_at = models.DateTimeField(null=True, blank=True)
+    client_joined_at = models.DateTimeField(null=True, blank=True)
     skill_level = models.CharField(max_length=50, blank=True, null=True)
     message = models.TextField(blank=True, null=True)
     notes_available = models.BooleanField(default=False) # This field was added previously
@@ -51,6 +56,9 @@ class SessionBooking(models.Model):
         ('refunded', 'Refunded'),
     ])
     amount_paid = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    # Set once the post-session thank-you + rebook email has gone out, so the
+    # completion flow and the sweep don't send it twice.
+    thankyou_sent = models.BooleanField(default=False)
     notes_file = models.FileField(upload_to='session_notes/', blank=True, null=True)
     slot = models.OneToOneField(
         'TimeSlot',
@@ -212,6 +220,12 @@ class SlotInvite(models.Model):
         null=True, blank=True,
     )
     note = models.TextField(blank=True, default='')
+    # Documents the coach chose to attach to the invite email (D3). Kept so a
+    # one-click resend reproduces the same attachments. A resource removed from
+    # the library simply drops out of the invite (M2M, no cascade delete).
+    attached_resources = models.ManyToManyField(
+        'resources.Resource', blank=True, related_name='slot_invites',
+    )
     invited_at = models.DateTimeField(auto_now_add=True)        # first time sent
     last_sent_at = models.DateTimeField(default=timezone.now)   # most recent (re)send
     sent_count = models.PositiveIntegerField(default=1)         # total times emailed
@@ -452,3 +466,40 @@ class GroupEnrollment(models.Model):
     def __str__(self):
         learner_username = self.learner.username if self.learner else 'N/A'
         return f"{learner_username} → {self.group_session.title} ({self.status})"
+
+
+class SessionReflection(models.Model):
+    """A client's own post-session reflection: key takeaways + action items they
+    captured after a coaching session. One per booking. Written by the client and
+    readable by their coach (helps the coach follow up)."""
+    booking = models.OneToOneField(
+        SessionBooking, on_delete=models.CASCADE, related_name='reflection'
+    )
+    client = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name='session_reflections'
+    )
+    takeaways = models.TextField(blank=True, default='')
+    # List of {"text": str, "done": bool} — the next steps that came out of the session.
+    action_items = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Reflection for booking {self.booking_id}"
+
+
+class SessionSummary(models.Model):
+    """An AI-generated summary of the session, produced from an in-call transcript.
+    One per booking; visible to both the client and the coach."""
+    booking = models.OneToOneField(
+        SessionBooking, on_delete=models.CASCADE, related_name='ai_summary'
+    )
+    summary = models.TextField(blank=True, default='')
+    key_points = models.JSONField(default=list, blank=True)   # list of short strings
+    action_items = models.JSONField(default=list, blank=True)  # list of short strings
+    transcript_chars = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"AI summary for booking {self.booking_id}"
