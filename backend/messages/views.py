@@ -2,6 +2,7 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from rest_framework import viewsets, permissions
 from rest_framework.exceptions import ValidationError
+from ops.media_views import sign_attachment
 from .models import Message
 from .serializers import MessageSerializer
 
@@ -21,7 +22,11 @@ def broadcast_message(message):
             'sender': message.sender_id,
             'sender_username': message.sender.username,
             'timestamp': message.timestamp.isoformat(),
-            'attachment_url': message.attachment.url if message.attachment else None,
+            # Signed link, not the raw /media/ path — that directory is private now.
+            'attachment_url': (
+                f"/api/ops/media/chat-attachment/{message.id}/?t={sign_attachment(message.id, 'direct')}"
+                if message.attachment else None
+            ),
             'attachment_name': message.attachment_name or None,
             'attachment_size': message.attachment_size,
             'content_type': message.content_type or None,
@@ -44,7 +49,11 @@ def broadcast_group_message(message):
             'sender': message.sender_id,
             'sender_username': message.sender.username,
             'timestamp': message.timestamp.isoformat(),
-            'attachment_url': message.attachment.url if message.attachment else None,
+            # Signed link, not the raw /media/ path — that directory is private now.
+            'attachment_url': (
+                f"/api/ops/media/group-chat-attachment/{message.id}/?t={sign_attachment(message.id, 'group')}"
+                if message.attachment else None
+            ),
             'attachment_name': message.attachment_name or None,
             'attachment_size': message.attachment_size,
             'content_type': message.content_type or None,

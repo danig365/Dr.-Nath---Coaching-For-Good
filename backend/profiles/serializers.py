@@ -11,7 +11,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'coaching_goals', 'timezone', 'booking_horizon_days', 'min_notice_hours',
             'restricted_to_skill',
         ]
-        read_only_fields = ['approval_status', 'is_verified', 'restricted_to_skill']
+        # `role` MUST stay read-only here: this serializer backs "update my own
+        # profile", so a writable role let any client PATCH themselves to
+        # role='admin' (or to an already-approved 'coach', skipping approval).
+        # Roles are set at registration (RegisterSerializer, coach/client only)
+        # and changed afterwards only by an admin.
+        read_only_fields = ['role', 'approval_status', 'is_verified', 'restricted_to_skill']
 
 class CurrentUserAndProfileSerializer(serializers.ModelSerializer):
     profile = UserProfileSerializer()
@@ -33,9 +38,20 @@ class CurrentUserAndProfileSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         profile = instance.profile
+        old_tz = profile.timezone
         for attr, value in profile_data.items():
             setattr(profile, attr, value)
         profile.save()
+
+        # A client's timezone is auto-detected from the browser and saved here,
+        # which can happen after reminders were already queued (in UTC). Re-render
+        # any pending reminders so the emailed time matches what they now see.
+        if 'timezone' in profile_data and profile.timezone != old_tz:
+            try:
+                from bookings.notifications import refresh_user_reminder_timezone
+                refresh_user_reminder_timezone(instance)
+            except Exception:  # noqa: BLE001 — never block a profile save on this
+                pass
         return instance
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -45,7 +61,18 @@ class RegisterSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=True)
     password = serializers.CharField(write_only=True, required=True)
     password2 = serializers.CharField(write_only=True, required=True)
-    role = serializers.ChoiceField(choices=[('coach', 'Coach'), ('client', 'Client')], default='client')
+    # Required, with no default: registration must state a role explicitly.
+    # A silent default ('client') meant a request that omitted the field still
+    # created an account — the choice should always be deliberate, on the API too.
+    role = serializers.ChoiceField(
+        choices=[('coach', 'Coach'), ('client', 'Client')],
+        required=True, allow_blank=False,
+        error_messages={
+            'required': 'Please choose whether you are registering as a client or a coach.',
+            'invalid_choice': 'Please choose either client or coach.',
+            'blank': 'Please choose whether you are registering as a client or a coach.',
+        },
+    )
     first_name = serializers.CharField(required=False, allow_blank=True, default='')
     last_name = serializers.CharField(required=False, allow_blank=True, default='')
     # Coach fields
@@ -132,8 +159,18 @@ class RegisterSerializer(serializers.ModelSerializer):
 class CoachDirectorySerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username')
     display_name = serializers.SerializerMethodField()
-    email = serializers.CharField(source='user.email')
+    # Admins only. This serializer also backs the PUBLIC coach directory, so a
+    # plain `source='user.email'` published every coach's address to anonymous
+    # visitors — free scraping for spam/phishing. Admin screens still need it.
+    email = serializers.SerializerMethodField()
     user_id = serializers.IntegerField(source='user.id')
+
+    def get_email(self, obj):
+        request = self.context.get('request')
+        viewer = getattr(request, 'user', None)
+        if viewer and viewer.is_authenticated and viewer.is_staff:
+            return obj.user.email
+        return None
 
     class Meta:
         model = UserProfile

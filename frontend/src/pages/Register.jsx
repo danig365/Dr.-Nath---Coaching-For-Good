@@ -101,7 +101,10 @@ export default function Register() {
   const [isLoading, setIsLoading] = useState(false);
   const [form, setForm] = useState(() => ({
     username: "", email: "", password: "", password2: "",
-    role: searchParams.get("role") || "client",
+    // No default — the user must consciously pick a role. A pre-selected role let
+    // people register as the wrong type without noticing (a client landed on a
+    // coach account this way).
+    role: "",
     bio: "",
     specialties: [], certifications: [], hourly_rate: null,
     years_experience: null, languages: [], industries: [],
@@ -116,12 +119,9 @@ export default function Register() {
   const [emailTaken, setEmailTaken] = useState(false); // → show "Sign in instead"
   const [checking, setChecking] = useState(false);      // availability check in-flight
 
-  useEffect(() => {
-    const roleParam = searchParams.get("role");
-    if (roleParam === "coach" || roleParam === "client") {
-      setForm(p => ({ ...p, role: roleParam }));
-    }
-  }, [searchParams]);
+  // Intentionally NOT pre-selecting a role from a ?role= link either — the role
+  // step always requires an explicit choice, so nobody registers as the wrong
+  // type by following a link without noticing.
 
   const handleChange = e => {
     setFormError("");
@@ -166,7 +166,11 @@ export default function Register() {
   const handleFormSubmit = (e) => {
     e.preventDefault();
     if (step === 0) { advanceFromStep0(); return; }
-    if (step === 1) { setStep(2); return; }
+    if (step === 1) {
+      if (!form.role) { setFormError("Please choose whether you're a client or a coach."); return; }
+      setStep(2);
+      return;
+    }
     handleSubmit(e);
   };
 
@@ -487,7 +491,7 @@ export default function Register() {
               </AnimatePresence>
 
               {/* Inline error — always visible next to the button */}
-              {formError && step === 2 && (
+              {formError && (step === 1 || step === 2) && (
                 <div className="rounded-xl px-4 py-3 text-sm" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.4)", color: "#FCA5A5" }}>
                   {formError}
                 </div>
@@ -509,7 +513,7 @@ export default function Register() {
                   type="submit"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  disabled={isLoading || checking || (step === 0 && !isStep0Valid)}
+                  disabled={isLoading || checking || (step === 0 && !isStep0Valid) || (step === 1 && !isStep1Valid)}
                   className="flex-1 py-3 rounded-full text-sm font-bold transition-all duration-300 gold-btn disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                 >
                   {(isLoading || checking) ? (

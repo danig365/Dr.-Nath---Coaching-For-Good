@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone as dt_timezone
 
 from rest_framework import serializers
+from django.db.models import Q
 from django.utils import timezone as dj_timezone
 from .models import SessionBooking, Review, TimeSlot, GroupSession, GroupEnrollment, SlotInvite, SessionReflection, SessionSummary
 from profiles.models import CustomUser, UserProfile
@@ -124,6 +125,10 @@ class SessionBookingSerializer(serializers.ModelSerializer):
     # for backward compatibility but must NOT be parsed as local on the client.
     slot_start = serializers.SerializerMethodField()
     slot_end = serializers.SerializerMethodField()
+    # Which session this is for that client on that programme (1, 2, 3 …) — shown
+    # on the session cards instead of the skill level, so a coach can see at a
+    # glance how far along a client is.
+    session_number = serializers.SerializerMethodField()
 
     class Meta:
         model = SessionBooking
@@ -134,7 +139,7 @@ class SessionBookingSerializer(serializers.ModelSerializer):
         'learner_username', 'mentor_username', 'learner_name', 'mentor_name',
         'skill_title', 'price', 'feedback', 'unread_messages', 'has_reflection', 'has_summary',
         'payment_status', 'amount_paid',
-        'coach_joined_at', 'client_joined_at', 'no_show_by',
+        'coach_joined_at', 'client_joined_at', 'no_show_by', 'session_number',
         ]
         # ⭐ Corrected read_only_fields list for the new create logic ⭐
         # 'learner' is not sent by frontend. 'mentor' is inferred from 'skill'.
@@ -143,8 +148,54 @@ class SessionBookingSerializer(serializers.ModelSerializer):
         'id', 'created_at',
         'learner_username', 'mentor_username', 'skill_title', 'learner', 'mentor', 'price', 'feedback',
         'payment_status', 'amount_paid',
-        'coach_joined_at', 'client_joined_at', 'no_show_by',
+        'coach_joined_at', 'client_joined_at', 'no_show_by', 'session_number',
        ]
+
+    def get_session_number(self, obj):
+        """1-based position of this session among that client's sessions on the
+        same programme, in chronological order. Cancelled/declined ones don't
+        take a number — otherwise the count would jump for no visible reason.
+
+        Numbered for the whole payload in a single query (see the cache below);
+        counting per row cost one query per booking.
+        """
+        if obj.status in ('declined', 'cancelled') or not obj.session_date:
+            return None
+        cache = self.context.get('_session_number_cache')
+        if cache is None:
+            cache = self._build_session_number_cache()
+            self.context['_session_number_cache'] = cache
+        return cache.get(obj.id)
+
+    def _build_session_number_cache(self):
+        from collections import defaultdict
+        from datetime import time as _time
+
+        bookings = self._payload_bookings()
+        pairs = {(b.learner_id, b.skill_id) for b in bookings if b.learner_id and b.skill_id}
+        if not pairs:
+            return {}
+        rows = (
+            SessionBooking.objects
+            .filter(
+                learner_id__in={l for l, _ in pairs},
+                skill_id__in={s for _, s in pairs},
+            )
+            .exclude(status__in=('declined', 'cancelled'))
+            .values_list('id', 'learner_id', 'skill_id', 'session_date', 'session_time')
+        )
+        groups = defaultdict(list)
+        for bid, learner_id, skill_id, s_date, s_time in rows:
+            if s_date is None:
+                continue
+            groups[(learner_id, skill_id)].append((s_date, s_time or _time.min, bid))
+
+        numbers = {}
+        for items in groups.values():
+            items.sort()
+            for position, (_, _, bid) in enumerate(items, start=1):
+                numbers[bid] = position
+        return numbers
 
     @staticmethod
     def _display_name(user):
@@ -180,14 +231,39 @@ class SessionBookingSerializer(serializers.ModelSerializer):
             return None
         return (start + timedelta(minutes=obj.duration or 60)).isoformat()
 
+    def _payload_bookings(self):
+        """Every booking being serialized in this response (list or single).
+
+        Used to answer per-row questions with ONE query for the whole payload
+        instead of one query per row.
+        """
+        inst = getattr(self.root, 'instance', None)
+        if inst is None:
+            return []
+        if isinstance(inst, SessionBooking):
+            return [inst]
+        try:
+            return list(inst)
+        except TypeError:
+            return []
+
     def get_feedback(self, obj):
-        review = Review.objects.filter(
-            mentor_profile=obj.mentor,
-            student=obj.learner,
-        ).first()
-        if not review:
-            return None
-        return SessionReviewSerializer(review).data
+        cache = self.context.get('_review_cache')
+        if cache is None:
+            # A Review is unique per (coach, client) — not per booking — so a list
+            # of N bookings needs one query, not N.
+            bookings = self._payload_bookings()
+            pairs = {(b.mentor_id, b.learner_id) for b in bookings if b.mentor_id and b.learner_id}
+            cache = {}
+            if pairs:
+                reviews = Review.objects.filter(
+                    mentor_profile_id__in={m for m, _ in pairs},
+                    student_id__in={s for _, s in pairs},
+                )
+                cache = {(r.mentor_profile_id, r.student_id): r for r in reviews}
+            self.context['_review_cache'] = cache
+        review = cache.get((obj.mentor_id, obj.learner_id))
+        return SessionReviewSerializer(review).data if review else None
 
     def get_has_reflection(self, obj):
         refl = getattr(obj, 'reflection', None)
@@ -215,6 +291,13 @@ class SessionBookingSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         if not request or not request.user.is_authenticated:
             return 0
+
+        # The list view annotates this (see SessionBookingViewSet._base_queryset)
+        # so we don't run a COUNT per booking. Fall back to a direct query for
+        # callers that serialize a plain instance.
+        annotated = getattr(obj, '_unread_count', None)
+        if annotated is not None:
+            return annotated
 
         from messages.models import Message
 

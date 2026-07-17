@@ -4,13 +4,14 @@ import { api } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "react-toastify";
 import AdminUserActions from "../components/AdminUserActions";
+import BackupsPanel from "../components/BackupsPanel";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FiCheckCircle, FiXCircle, FiUsers, FiClock,
   FiDollarSign, FiBriefcase, FiAward, FiShield,
   FiActivity, FiCalendar, FiTrendingUp, FiBarChart2,
   FiUserCheck, FiUserPlus, FiAlertCircle, FiTarget,
-  FiMail, FiTrash2, FiCornerUpLeft, FiSend, FiEdit2, FiPlus,
+  FiMail, FiTrash2, FiCornerUpLeft, FiSend, FiEdit2, FiPlus, FiDatabase,
 } from "react-icons/fi";
 import {
   ResponsiveContainer,
@@ -439,6 +440,7 @@ export default function AdminPanel() {
       badge: messages.filter((m) => !m.is_read).length },
     { key: "newsletter", label: "Newsletter",          icon: FiSend },
     { key: "all",       label: "All Coaches",          icon: FiUsers },
+    { key: "backups",   label: "Backups",              icon: FiDatabase },
   ];
 
   const statusColors = {
@@ -1573,6 +1575,8 @@ export default function AdminPanel() {
         {/* ────────────────────────────────────────────────────────────
             ONBOARD CLIENTS TAB (E2 pre-register + activation)
         ──────────────────────────────────────────────────────────── */}
+        {tab === "backups" && <BackupsPanel />}
+
         {!loading && tab === "onboard" && (
           <div className="space-y-6">
             <div>

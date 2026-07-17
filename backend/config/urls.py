@@ -19,10 +19,6 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
 
 
 urlpatterns = [
@@ -38,8 +34,11 @@ urlpatterns = [
     path('api/signatures/', include('signatures.urls')),
     path('api/forms/', include('formbuilder.urls')),
     path('api/integrations/', include('integrations.urls')),
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/ops/', include('ops.urls')),
+    # NOTE: login/refresh live in profiles.urls (CustomTokenObtainPairView /
+    # CustomTokenRefreshView), which are rate-limited. The stock SimpleJWT views
+    # used to be mounted here too — /api/token/ was an unthrottled second door to
+    # login that bypassed that rate limit entirely. Don't re-add them.
     # path('api/notifications/', include('notifications.urls')),
 ]
 

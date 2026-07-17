@@ -45,8 +45,13 @@ class MessageSerializer(serializers.ModelSerializer):
     def get_attachment_url(self, obj):
         if not obj.attachment:
             return None
+        # Not obj.attachment.url: /media/chat_attachments/ is no longer public
+        # (a guessable filename exposed a private chat). Short-lived signed link
+        # instead — the chat renders images inline, so the browser fetches this
+        # itself and cannot send an auth header.
+        from ops.media_views import sign_attachment
+        url = f"/api/ops/media/chat-attachment/{obj.id}/?t={sign_attachment(obj.id, 'direct')}"
         request = self.context.get('request')
-        url = obj.attachment.url
         return request.build_absolute_uri(url) if request else url
 
     def validate_attachment(self, f):
@@ -82,8 +87,13 @@ class GroupMessageSerializer(serializers.ModelSerializer):
     def get_attachment_url(self, obj):
         if not obj.attachment:
             return None
+        # Not obj.attachment.url: /media/chat_attachments/ is no longer public
+        # (a guessable filename exposed a private chat). Short-lived signed link
+        # instead — the chat renders images inline, so the browser fetches this
+        # itself and cannot send an auth header.
+        from ops.media_views import sign_attachment
+        url = f"/api/ops/media/group-chat-attachment/{obj.id}/?t={sign_attachment(obj.id, 'group')}"
         request = self.context.get('request')
-        url = obj.attachment.url
         return request.build_absolute_uri(url) if request else url
 
     def validate_attachment(self, f):

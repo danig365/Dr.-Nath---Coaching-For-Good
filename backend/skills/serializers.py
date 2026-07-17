@@ -60,6 +60,16 @@ class AvailabilitySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Slot duration must be between 1 and 60 minutes.")
         return value
 
+    def validate(self, attrs):
+        # An availability window must end after it starts — otherwise it silently
+        # generates no slots (and the coach thinks they're available when they're
+        # not). Fall back to the existing values on a partial update.
+        start = attrs.get('start_time', getattr(self.instance, 'start_time', None))
+        end = attrs.get('end_time', getattr(self.instance, 'end_time', None))
+        if start and end and end <= start:
+            raise serializers.ValidationError({'end_time': 'End time must be after the start time.'})
+        return attrs
+
     def create(self, validated_data):
         request = self.context.get('request', None)
         if request and hasattr(request, 'user') and hasattr(request.user, 'profile'):

@@ -9,7 +9,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 import { api } from "../utils/auth";
-import { SESSION_GRACE_MS } from "../utils/sessionTiming";
+import { SESSION_REJOIN_MS, isSessionLive, isUpcomingSession, ordinal } from "../utils/sessionTiming";
 import { useAuth } from "../context/AuthContext";
 import SessionFeedbackCard from "../components/SessionFeedbackCard";
 import AddToCalendar from "../components/AddToCalendar";
@@ -72,7 +72,7 @@ const ActionBtn = ({ onClick, icon: Icon, label, badge, variant = "default", dis
       whileHover={!disabled ? { scale: 1.02 } : {}}
       whileTap={!disabled ? { scale: 0.97 } : {}}
       onClick={!disabled ? onClick : undefined}
-      className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold transition-all duration-200"
+      className="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap shrink-0 transition-all duration-200"
       style={styles}
     >
       <Icon size={13} />
@@ -104,8 +104,8 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, onR
   const sessionEndMs = session.slot_end
     ? new Date(session.slot_end).getTime()
     : startDt.getTime() + session.duration * 60 * 1000;
-  // Joinable until a grace window after the scheduled end (matches the call timer).
-  const expired = sessionEndMs + SESSION_GRACE_MS < Date.now();
+  // Joinable through the whole rejoin window so it can be reconnected / continued (N3).
+  const expired = sessionEndMs + SESSION_REJOIN_MS < Date.now();
 
   return (
     <motion.div
@@ -143,9 +143,10 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, onR
                 ${session.price}
               </span>
             )}
-            {session.skill_level && (
+            {/* Which session this is on this programme (replaces the skill level). */}
+            {session.session_number && (
               <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "#F3ECD9", color: "#4A5568", border: "1px solid rgba(200,169,81,0.15)" }}>
-                {session.skill_level}
+                {ordinal(session.session_number)} session
               </span>
             )}
           </div>
@@ -243,7 +244,7 @@ const GroupCard = ({ e, index, onCancel, onJoin, onChat }) => {
   const date = new Date(e.start_datetime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: timezone || undefined });
   const time = new Date(e.start_datetime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: timezone || undefined });
   const cancelled = e.session_status === "cancelled";
-  const upcoming = new Date(e.end_datetime).getTime() + SESSION_GRACE_MS > Date.now();
+  const upcoming = new Date(e.end_datetime).getTime() + SESSION_REJOIN_MS > Date.now();
   // Joinable from 15 min before start until the scheduled end.
   const canJoin = !cancelled && upcoming && Date.now() >= new Date(e.start_datetime).getTime() - 15 * 60 * 1000;
   const badge = cancelled ? "cancelled" : upcoming ? "upcoming" : "completed";
@@ -399,17 +400,12 @@ const MyLearning = () => {
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
-  // Keep a session in "Upcoming" (with a working Join button) until its scheduled
-  // end + grace — so a session that has already started, or that you join a few
+  // Keep a session in "Upcoming" (with a working Join button) until its rejoin
+  // window closes — so a session that has already started, or that you join a few
   // minutes late, stays joinable instead of dropping into Past at its start time.
-  const sessionEndMs = (s) => {
-    const start = new Date(s.slot_start || `${s.session_date}T${s.session_time}Z`).getTime();
-    return s.slot_end ? new Date(s.slot_end).getTime() : start + (s.duration || 60) * 60 * 1000;
-  };
-  const isLive = (s) => Date.now() < sessionEndMs(s) + SESSION_GRACE_MS;
-  const upcomingSessions = sessions.filter(s =>
-    (s.status === "pending" || s.status === "accepted") && isLive(s)
-  );
+  // Shared with the navbar badge so the nav count always matches this tab.
+  const isLive = (s) => isSessionLive(s);
+  const upcomingSessions = sessions.filter(isUpcomingSession);
   const pastSessions = sessions.filter(s =>
     s.status === "completed" ||
     ((s.status === "pending" || s.status === "accepted") && !isLive(s))
@@ -462,7 +458,9 @@ const MyLearning = () => {
   };
 
   const handleDownload = (session) => {
-    if (session?.notes_file) window.open(session.notes_file, "_blank");
+    // Goes through the authenticated endpoint: /media/session_notes/ is no longer
+    // public, since notes are confidential and their filenames were guessable.
+    if (session?.notes_file) downloadFile(`/ops/media/session-notes/${session.id}/`, "session-notes.pdf");
     else toast.info("No notes uploaded yet.");
   };
 
@@ -507,8 +505,8 @@ const MyLearning = () => {
   );
 
   return (
-    <div className="min-h-screen pt-36 pb-16 px-4 sm:px-6" style={{ background: "#FAF6EC" }}>
-      <div className="max-w-5xl mx-auto">
+    <div className="min-h-screen pt-36 pb-16 px-4 sm:px-6 overflow-x-hidden" style={{ background: "#FAF6EC" }}>
+      <div className="max-w-5xl mx-auto w-full min-w-0">
 
         {/* ── Header ──────────────────────────────────────── */}
         <motion.div className="mb-6" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>

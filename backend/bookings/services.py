@@ -38,6 +38,30 @@ def finalize_status(booking):
     return 'completed' if both_joined else 'no_show'
 
 
+def booking_end_dt(booking):
+    """The session's scheduled end as an aware datetime, or None if unknown."""
+    from datetime import timezone as dt_timezone
+    slot = booking.slot
+    if slot and slot.end_datetime:
+        return slot.end_datetime
+    if booking.session_date and booking.session_time:
+        naive = datetime.combine(booking.session_date, booking.session_time)
+        return naive.replace(tzinfo=dt_timezone.utc) + timedelta(minutes=booking.duration or 60)
+    return None
+
+
+def booking_is_joinable(booking):
+    """Is this 1:1 session's call open right now — accepted and still within its
+    rejoin window (N3)? Used to gate both participants and guest invites (N4)."""
+    from django.conf import settings
+    if booking.status != 'accepted':
+        return False
+    end = booking_end_dt(booking)
+    if end is None:
+        return True
+    return dj_timezone.now() <= end + timedelta(minutes=settings.SESSION_REJOIN_MINUTES)
+
+
 def locked_skill_id(user):
     """The single offering this client is restricted to (E2), or None if the
     user is unrestricted / not a client. Used to gate booking to one programme."""

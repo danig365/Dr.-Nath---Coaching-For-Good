@@ -135,6 +135,42 @@ def retarget_booking_reminders(booking):
     return updated
 
 
+def refresh_user_reminder_timezone(user):
+    """Re-render the time in a user's still-pending reminders after their
+    timezone changes.
+
+    Clients have no timezone picker — the browser timezone is auto-detected and
+    saved to their profile, which can happen AFTER reminders were queued (e.g. a
+    booking made before the profile's timezone was ever set showed the time in
+    UTC). Only `session_when` depends on the timezone; everything else in the
+    stored context is timezone-independent. Already-sent reminders are left as-is.
+    Returns the number updated.
+    """
+    from notifications.models import ScheduledNotification
+
+    tzname = getattr(getattr(user, 'profile', None), 'timezone', 'UTC') or 'UTC'
+    pending = ScheduledNotification.objects.filter(
+        recipient_user=user, status='pending',
+    ).select_related('content_type')
+
+    updated = 0
+    for n in pending:
+        ctx = n.context
+        if not isinstance(ctx, dict) or 'session_when' not in ctx:
+            continue
+        booking = n.related_object
+        start_utc = session_start_utc(booking) if booking is not None else None
+        if not start_utc:
+            continue
+        new_when = _fmt_when(start_utc, tzname)
+        if ctx.get('session_when') != new_when:
+            ctx['session_when'] = new_when
+            n.context = ctx
+            n.save(update_fields=['context'])
+            updated += 1
+    return updated
+
+
 def send_join_nudge(booking):
     """Coach → client: 'I'm waiting, join now' with a one-click join link."""
     client = booking.learner
@@ -295,6 +331,53 @@ def schedule_booking_notifications(booking):
                 related=booking,
                 dedupe_key=f"booking:{booking.id}:{kind}:{r['role']}",
             )
+
+
+def send_booking_cancelled(booking, start_utc=None, cancelled_by=None):
+    """
+    Tell BOTH parties a session was cancelled. Sent immediately (a cancellation
+    is useless if it arrives later), and best-effort — a failed email must never
+    block the cancellation itself.
+
+    `start_utc` should be captured BEFORE the slot is released, since cancelling
+    unlinks booking.slot. `cancelled_by` is the User who cancelled, so each side
+    can be told who did it.
+    """
+    start_utc = start_utc or session_start_utc(booking)
+    if not start_utc:
+        logger.warning("Booking %s has no resolvable start time; skipping cancellation emails.", booking.id)
+        return
+
+    skill_name = booking.skill.name if booking.skill else 'your session'
+    canceller_name = _display_name(cancelled_by) if cancelled_by else ''
+    refunded = booking.payment_status == 'refunded'
+
+    for r in _recipients(booking):
+        if not r['email']:
+            continue
+        ctx = _context(booking, r, start_utc)
+        ctx.update({
+            'canceller_name': canceller_name,
+            'cancelled_by_you': bool(cancelled_by and r['user'] and cancelled_by.id == r['user'].id),
+            'refunded': refunded,
+            'browse_link': f"{settings.SITE_URL}/skills",
+        })
+        try:
+            note = ScheduledNotification.queue(
+                kind='booking_cancelled',
+                recipient_email=r['email'],
+                recipient_user=r['user'],
+                subject=f"Session cancelled — {skill_name}",
+                template='booking_cancelled',
+                context=ctx,
+                scheduled_for=dj_tz.now(),
+                related=booking,
+                dedupe_key=f"booking:{booking.id}:cancelled:{r['role']}",
+            )
+            if note and note.status == ScheduledNotification.STATUS_PENDING:
+                note.send()
+        except Exception as err:  # noqa: BLE001 — never block a cancellation
+            logger.warning("Booking %s: cancellation email to %s failed: %s", booking.id, r['email'], err)
 
 
 def cancel_booking_notifications(booking):

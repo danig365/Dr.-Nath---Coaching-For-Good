@@ -25,6 +25,7 @@ import CoachProfile from "./pages/CoachProfile";
 import EditSkill from "./pages/EditSkill";
 import SessionCallPage from "./pages/SessionCallPage";
 import SessionCallLiveKit from "./pages/SessionCallLiveKit";
+import GuestCall from "./pages/GuestCall";
 import Milestones from "./pages/Milestones";
 import HabitTracker from "./pages/HabitTracker";
 import Agreements from "./pages/Agreements";
@@ -87,6 +88,12 @@ export default function App() {
           <Route path="/contact" element={<Contact />} />
           <Route path="/complete-profile" element={<CompleteProfilePage />} />
           <Route path="/join/:token" element={<MagicJoin />} />
+          {/* Guest join for a 1:1 call (N4) — no account required */}
+          <Route path="/session/:bookingId/guest" element={<GuestCall />} />
+          {/* Booking page — a visitor can browse the offering, see slots and pick
+              a time without an account; BookSessionPage defers login to Confirm
+              (it stashes the selection and auto-resumes after sign-in). */}
+          <Route path="/book/:id" element={<BookSessionPage />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password/:uid/:token" element={<ResetPassword />} />
 
@@ -99,7 +106,6 @@ export default function App() {
             <Route path="/my-learning" element={<MyLearning />} />
             <Route path="/my-sessions" element={<MySessions />} />
             <Route path="/my-skills" element={<MySkills />} />
-            <Route path="/book/:id" element={<BookSessionPage />} />
             <Route path="/chat/:bookingId" element={<SessionChatPage />} />
             <Route path="/coaches" element={<CoachDirectory />} />
             <Route path="/match" element={<SmartMatch />} />

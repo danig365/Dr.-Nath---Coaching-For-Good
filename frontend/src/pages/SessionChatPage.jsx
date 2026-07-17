@@ -7,7 +7,7 @@ import {
 import { motion } from "framer-motion";
 import { toast } from "react-toastify";
 import { api } from "../utils/auth";
-import { SESSION_GRACE_MS } from "../utils/sessionTiming";
+import { SESSION_REJOIN_MS } from "../utils/sessionTiming";
 import { useAuth } from "../context/AuthContext";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // keep in sync with backend guard
@@ -412,12 +412,17 @@ const SessionChatPage = () => {
                   </span>
                 </div>
 
-                {booking.status === "accepted" && (() => {
+                {["accepted", "completed", "no_show"].includes(booking.status) && (() => {
                   const sessionEndMs = booking.slot_end
                     ? new Date(booking.slot_end).getTime()
                     : new Date(`${booking.session_date}T${booking.session_time}Z`).getTime() +
                       booking.duration * 60 * 1000;
-                  const expired = sessionEndMs + SESSION_GRACE_MS < Date.now();
+                  const withinWindow = sessionEndMs + SESSION_REJOIN_MS >= Date.now();
+                  // A finalised session can be reconnected + continued on the same
+                  // link while its rejoin window is open (N3); past that, no button.
+                  const resumable = booking.status !== "accepted" && withinWindow;
+                  if (booking.status !== "accepted" && !withinWindow) return null;
+                  const expired = booking.status === "accepted" && !withinWindow;
                   return (
                     <motion.button
                       whileHover={!expired ? { scale: 1.02 } : {}}
@@ -433,7 +438,7 @@ const SessionChatPage = () => {
                       }}
                     >
                       <FiVideo size={13} />
-                      {expired ? "Session Expired" : "Join Session"}
+                      {expired ? "Session Expired" : resumable ? "Resume Session" : "Join Session"}
                     </motion.button>
                   );
                 })()}

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bars3Icon, XMarkIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
 import { api } from "../utils/auth";
+import { isUpcomingSession } from "../utils/sessionTiming";
 import { GROUP_SESSIONS_ENABLED } from "../config/features";
 
 const Navbar = () => {
@@ -36,9 +37,11 @@ const Navbar = () => {
       api.get("/bookings/")
         .then(res => {
           const all = Array.isArray(res.data) ? res.data : (res.data.results ?? []);
-          const now = new Date();
           setPendingCount(all.filter(b => b.status === "pending").length);
-          setUpcomingCount(all.filter(b => b.status === "accepted" && new Date(b.session_date) >= now).length);
+          // Same rule as the Upcoming tab in My Sessions / My Learning — see
+          // isUpcomingSession. Never re-implement it here: the badge and the list
+          // must always show the same number.
+          setUpcomingCount(all.filter(isUpcomingSession).length);
         })
         .catch(() => {});
     fetchCounts();
@@ -77,6 +80,7 @@ const Navbar = () => {
       { to: "/admin?tab=sessions", label: "Sessions" },
       { to: "/admin?tab=messages", label: "Messages" },
       { to: "/admin?tab=newsletter", label: "Newsletter" },
+      { to: "/admin?tab=backups", label: "Backups" },
     ]},
   ];
 

@@ -1,6 +1,6 @@
-# 🌟 Coaching for Impact (C4G)
+# 🌟 dr-nath.com
 
-Coaching for Impact (C4G) is a full-stack skill-sharing and booking platform where **mentors** and **learners** connect for personalized sessions. It's designed to make 1-on-1 skill development easy, flexible, and scalable.
+dr-nath.com is a full-stack skill-sharing and booking platform where **mentors** and **learners** connect for personalized sessions. It's designed to make 1-on-1 skill development easy, flexible, and scalable.
 
 ---
 

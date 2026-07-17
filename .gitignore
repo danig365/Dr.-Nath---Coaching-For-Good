@@ -19,6 +19,10 @@ build/
 .env
 .env.local
 .env.*.local
+# Local backups may contain secrets — never commit them.
+.env.bak*
+*.bak
+*.bak.*
 
 # DB
 *.sqlite3

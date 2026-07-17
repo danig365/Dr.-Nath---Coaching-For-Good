@@ -1,24 +1,27 @@
 """
 Mark accepted 1:1 bookings as completed once their scheduled time (plus the
-join grace) has fully passed.
+rejoin window) has fully passed.
 
 Sessions are normally completed by the call page when the booked time runs out,
 but if neither party is on the page at that moment the booking stays 'accepted'.
 This safety-net sweep finalises those so records/analytics stay accurate. It
-mirrors the frontend grace (10 min) so a session that could still be rejoined is
-never completed early.
+mirrors the rejoin window (N3) so a session that could still be reconnected and
+continued on the same link is never finalised early.
 
     python manage.py complete_past_sessions [--quiet]
 """
 from datetime import datetime, timezone as dt_timezone, timedelta
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db.models import Q
 from django.utils import timezone
 
 from bookings.models import SessionBooking
 
-GRACE = timedelta(minutes=10)  # matches SESSION_GRACE_MS on the frontend
+# Only finalise once the whole rejoin window has closed — mirrors
+# SESSION_REJOIN_MINUTES / SESSION_REJOIN_MS on the frontend.
+GRACE = timedelta(minutes=settings.SESSION_REJOIN_MINUTES)
 
 
 class Command(BaseCommand):

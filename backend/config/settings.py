@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -34,12 +35,14 @@ def env_bool(key, default=False):
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-# Falls back to the previous hardcoded key so existing deploys keep working
-# until a SECRET_KEY is supplied via .env.
-SECRET_KEY = os.environ.get(
-    'SECRET_KEY',
-    'django-insecure-faqs37dl@2c#d8(ufxdpqjk_-9pf_xge6)npig%5&48qy_b1ii',
-)
+# No fallback on purpose. This key signs JWTs, password-reset links and every
+# signed token — a hard-coded default here would land in git and let anyone forge
+# a login for any account. Fail loudly instead of quietly running insecure.
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    raise ImproperlyConfigured(
+        "SECRET_KEY is not set. Add it to backend/.env — see .env.example."
+    )
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
@@ -61,6 +64,9 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt',
+    # Without this, ROTATE_REFRESH_TOKENS still leaves every old refresh token
+    # valid until it expires — so a stolen token keeps working for 30 days.
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'profiles',
     'skills',
@@ -74,6 +80,7 @@ INSTALLED_APPS = [
     'signatures',
     'formbuilder',
     'integrations',
+    'ops',
 ]
 
 MIDDLEWARE = [
@@ -115,11 +122,17 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'skillforge',
-        'USER': 'skilluser',
-        'PASSWORD': 'banned1234',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        # Credentials come from .env (git-ignored) — never hard-code them here:
+        # settings.py is tracked, so anything written here lands in git history.
+        'NAME': os.environ.get('DB_NAME', 'skillforge'),
+        'USER': os.environ.get('DB_USER', 'skilluser'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DB_PORT', '5432'),
+        # Reuse connections for 10 minutes instead of opening a new one per
+        # request — cheap win under load, and this is a long-lived ASGI process.
+        'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '600')),
+        'CONN_HEALTH_CHECKS': True,
     }
 }
 
@@ -192,20 +205,43 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=12),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
     'ROTATE_REFRESH_TOKENS': True,
+    # Retire the old refresh token as soon as it's rotated, so a leaked one can't
+    # be replayed for the rest of its 30-day life.
+    'BLACKLIST_AFTER_ROTATION': True,
 }
 
-CORS_ALLOW_ALL_ORIGINS = True
+# Only our own front-end may call the API from a browser. This was previously
+# CORS_ALLOW_ALL_ORIGINS = True, which let any site on the internet script
+# requests against it using a signed-in visitor's browser.
+CORS_ALLOWED_ORIGINS = [
+    'https://dr-nath.com',
+    'https://www.dr-nath.com',
+]
+if DEBUG:
+    CORS_ALLOWED_ORIGINS += ['http://localhost:5173', 'http://127.0.0.1:5173']
+
+# ─── Transport security ───────────────────────────────────────────────────────
+# nginx terminates TLS and forwards over http, so Django only knows the original
+# request was HTTPS from this header — without it secure-redirect/cookie logic
+# misfires (and SECURE_SSL_REDIRECT would loop forever).
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = True          # nginx already 301s; this is defence in depth
+SESSION_COOKIE_SECURE = True        # never send the session cookie over plain http
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_HTTPONLY = True      # JS can't read the session cookie (XSS)
+SECURE_HSTS_SECONDS = 31536000      # 1 year — tells browsers "HTTPS only"
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+SECURE_CONTENT_TYPE_NOSNIFF = True  # don't let browsers guess content types
+SECURE_REFERRER_POLICY = 'same-origin'
+X_FRAME_OPTIONS = 'DENY'            # no framing → clickjacking
 
 AUTH_USER_MODEL = 'profiles.CustomUser'
 
-STRIPE_SECRET_KEY = os.environ.get(
-    'STRIPE_SECRET_KEY',
-    'sk_test_51RCasKQOwqqD0Bo5Wo1iYXwWjvY5rXuJwMOPgExENTNgCU9obOs4olQSQFcwbNHZr5cracOEFs4AYBTEIPE884JR003i1o5WXv',
-)
-STRIPE_PUBLISHABLE_KEY = os.environ.get(
-    'STRIPE_PUBLISHABLE_KEY',
-    'pk_test_51RCasKQOwqqD0Bo5Lzoz0xt4hMfh2bmrua5Vo3TchUsnI5ZpgDV1Pg7pZUlmBd0soZSOrkJLSTAWkMisLNxH1Pru00v8URzIRH',
-)
+# Supplied via .env — no hard-coded fallback: settings.py is tracked, so a key
+# written here is a key published to anyone who can read the repo.
+STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
+STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
 
 # ─── AI Virtual Assistant ─────────────────────────────────────────────────────
 # Provider-agnostic website chatbot. AI_PROVIDER selects the backend:
@@ -257,6 +293,17 @@ GOOGLE_CALENDAR_SCOPES = [
 # Grace window (minutes) a call stays joinable past its scheduled end. Mirrors
 # SESSION_GRACE_MS on the frontend — keep the two in sync.
 SESSION_GRACE_MINUTES = int(os.environ.get('SESSION_GRACE_MINUTES', '10'))
+
+# Rejoin window (minutes) after a 1:1 session's scheduled end during which the
+# SAME link stays live so participants can run over or reconnect and continue
+# (N3). The scheduled end is a soft boundary — the call is not force-ended and
+# the booking is not finalised until this window fully closes. Mirrors
+# SESSION_REJOIN_MS on the frontend — keep the two in sync.
+SESSION_REJOIN_MINUTES = int(os.environ.get('SESSION_REJOIN_MINUTES', '120'))
+
+# Hard cap on how many people can be in a 1:1 session call at once — the two
+# participants plus invited guests (N4: add a 3rd/4th person mid-call).
+SESSION_CALL_MAX_PARTICIPANTS = int(os.environ.get('SESSION_CALL_MAX_PARTICIPANTS', '4'))
 
 # ─── Email configuration ──────────────────────────────────────────────────────
 # All values come from backend/.env. EMAIL_BACKEND defaults to console (prints

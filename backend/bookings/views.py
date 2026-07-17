@@ -2,7 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.decorators import action # Required for @action decorator
-from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST # Explicitly import status codes
+from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND # Explicitly import status codes
 from rest_framework.exceptions import ValidationError as DRFValidationError # Use DRF's ValidationError for API responses
 
 # Import all models used in this file
@@ -18,6 +18,7 @@ from .serializers import (
 from .services import generate_slots_for_coach, release_expired_holds, HOLD_MINUTES, reserve_seat, SeatUnavailable
 from django.shortcuts import get_object_or_404
 from django.db import transaction
+from django.db.models import Count, Q
 from django.utils import timezone as dj_tz
 from datetime import timedelta, date as date_cls
 from django.utils.dateparse import parse_date
@@ -25,11 +26,18 @@ from django.utils.dateparse import parse_date
 # from django.core.exceptions import ValidationError as DjangoValidationError
 
 
-def cancel_booking(booking, new_status='declined', refund=True):
+def cancel_booking(booking, new_status='declined', refund=True, cancelled_by=None):
     """
-    Cancel a booking: free its slot back to 'open' and refund payment if any.
-    Shared by client and coach cancellation paths. Returns the booking.
+    Cancel a booking: free its slot back to 'open' and refund payment if any,
+    and tell BOTH parties. Shared by client and coach cancellation paths.
+    `cancelled_by` is the User who cancelled (so each side is told who did it).
+    Returns the booking.
     """
+    # Capture the start BEFORE the slot is released below — cancelling unlinks
+    # booking.slot, and the cancellation email needs the time that was booked.
+    from .notifications import session_start_utc
+    start_utc = session_start_utc(booking)
+
     with transaction.atomic():
         # Release the linked slot so it becomes bookable again.
         slot = booking.slot
@@ -61,6 +69,13 @@ def cancel_booking(booking, new_status='declined', refund=True):
         cancel_booking_notifications(booking)
     except Exception as notify_err:  # noqa: BLE001
         print(f"Failed to cancel notifications for booking {booking.id}: {notify_err}")
+    # Tell BOTH parties the session is off — whoever cancelled, the other side
+    # must never be left waiting for a session that isn't happening.
+    try:
+        from .notifications import send_booking_cancelled
+        send_booking_cancelled(booking, start_utc=start_utc, cancelled_by=cancelled_by)
+    except Exception as notify_err:  # noqa: BLE001
+        print(f"Failed to send cancellation emails for booking {booking.id}: {notify_err}")
     # Remove the event from any connected Google Calendars (best-effort).
     try:
         from integrations.sync import sync_booking_cancelled
@@ -152,20 +167,47 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
     serializer_class = SessionBookingSerializer
     permission_classes = [IsAuthenticated]
 
+    def _base_queryset(self):
+        """Everything the serializer touches, pulled in up front.
+
+        Without this the list is a textbook N+1: each booking separately fetched
+        its learner, coach, skill, reflection, summary and unread count — ~10
+        queries per row. The navbar polls this endpoint every 30s for every
+        signed-in user, so it's the hottest query in the app.
+        """
+        return (
+            SessionBooking.objects
+            .select_related(
+                'learner',            # learner_name
+                'mentor', 'mentor__user',  # mentor_name / permissions
+                'skill',              # skill_title, price
+                'slot',               # slot_start / slot_end
+                'reflection',         # has_reflection (OneToOne reverse)
+                'ai_summary',         # has_summary (OneToOne reverse)
+            )
+            .annotate(
+                # Mirrors SessionBookingSerializer.get_unread_messages exactly.
+                _unread_count=Count(
+                    'messages',
+                    filter=Q(messages__receiver=self.request.user, messages__is_read=False),
+                    distinct=True,
+                ),
+            )
+        )
+
     def get_queryset(self):
         # Ensure the user has a profile before attempting to filter by role
         if not hasattr(self.request.user, 'profile') or not self.request.user.is_authenticated:
             return SessionBooking.objects.none()
 
         user_profile = self.request.user.profile
+        qs = self._base_queryset()
         # If the user is a coach, they see sessions where they are the mentor
         if user_profile.role == 'coach':
-            # Assuming SessionBooking has a 'mentor' ForeignKey to UserProfile
-            return SessionBooking.objects.filter(mentor=user_profile).order_by('-created_at')
+            return qs.filter(mentor=user_profile).order_by('-created_at')
         # If the user is a client, they see sessions where they are the learner
         elif user_profile.role == 'client':
-            # Assuming SessionBooking has a 'learner' ForeignKey to CustomUser
-            return SessionBooking.objects.filter(learner=self.request.user).order_by('-created_at')
+            return qs.filter(learner=self.request.user).order_by('-created_at')
         # For any other role or if no role is defined, return an empty queryset
         return SessionBooking.objects.none()
 
@@ -204,7 +246,7 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
         try:
             # If a coach declines a booking that occupies a slot, free the slot + refund.
             if serializer.validated_data.get('status') == 'declined' and booking.slot:
-                cancel_booking(booking, new_status='declined')
+                cancel_booking(booking, new_status='declined', cancelled_by=self.request.user)
             else:
                 serializer.save()
         except Exception as e:
@@ -252,10 +294,12 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
                     {'detail': "This session hasn't started yet, so it can't be completed."},
                     status=HTTP_400_BAD_REQUEST,
                 )
-        elif end_dt and now < end_dt - timedelta(minutes=2):
-            # Automatic / accidental: only after the booked end (rejoin-safe).
+        elif end_dt and now < end_dt + timedelta(minutes=settings.SESSION_REJOIN_MINUTES):
+            # Automatic / accidental: the same link stays live through the whole
+            # rejoin window (N3), so a session is only auto-finalised once that
+            # window has fully closed. Until then it's rejoinable and continues.
             return Response(
-                {'detail': 'This session is still within its scheduled time and can be rejoined.'},
+                {'detail': 'This session is still within its rejoin window and can be reconnected.'},
                 status=HTTP_400_BAD_REQUEST,
             )
 
@@ -290,6 +334,159 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
             booking.save(update_fields=[field])
         return Response({'ok': True})
 
+    @action(detail=True, methods=['post'], url_path='reopen')
+    def reopen(self, request, pk=None):
+        """Resume a session that was ended/finalised but is still within its
+        rejoin window (N3): flip completed/no_show back to 'accepted' so the SAME
+        link works again and the meeting can continue. Attendance timestamps are
+        preserved (they still decide completed vs no-show at the real end); the
+        client must be re-admitted through the waiting room on resume."""
+        booking = self.get_object()
+        user = request.user
+        is_coach = booking.mentor.user_id == user.id
+        is_learner = booking.learner_id == user.id
+        if not (is_coach or is_learner):
+            return Response({'detail': 'Permission denied.'}, status=HTTP_403_FORBIDDEN)
+        if booking.status == 'accepted':
+            return Response(self.get_serializer(booking).data)  # already open
+        if booking.status not in ('completed', 'no_show'):
+            return Response({'detail': "This session can't be resumed."}, status=HTTP_400_BAD_REQUEST)
+
+        from datetime import datetime as _dt, timezone as _tz, timedelta
+        end_dt = None
+        if booking.slot and booking.slot.end_datetime:
+            end_dt = booking.slot.end_datetime
+        elif booking.session_date and booking.session_time:
+            start_dt = _dt.combine(booking.session_date, booking.session_time).replace(tzinfo=_tz.utc)
+            end_dt = start_dt + timedelta(minutes=booking.duration or 60)
+        now = dj_tz.now()
+        if end_dt and now > end_dt + timedelta(minutes=settings.SESSION_REJOIN_MINUTES):
+            return Response({'detail': 'The rejoin window for this session has closed.'},
+                            status=HTTP_400_BAD_REQUEST)
+
+        booking.status = 'accepted'
+        booking.client_admit_status = ''  # waiting room is non-persistent — re-admit on resume
+        booking.save(update_fields=['status', 'client_admit_status'])
+        return Response(self.get_serializer(booking).data)
+
+    # ── Waiting room (coach is host; client needs admitting) ────────────────
+    @action(detail=True, methods=['post'], url_path='request-join')
+    def request_join(self, request, pk=None):
+        """Client asks the coach to let them in. Admission is NOT persistent —
+        every fresh join goes through the coach again, so this always resets to
+        'requested' (any prior admit is cleared). A mid-session LiveKit reconnect
+        reuses the existing token and never calls this, so it won't re-prompt."""
+        booking = self.get_object()
+        if booking.learner_id != request.user.id:
+            return Response({'detail': 'Only the client requests admission.'}, status=HTTP_403_FORBIDDEN)
+        from .livekit_views import coach_in_room
+        booking.client_admit_status = 'requested'
+        booking.save(update_fields=['client_admit_status'])
+        return Response({'status': 'requested', 'coach_present': coach_in_room(booking)})
+
+    @action(detail=True, methods=['get'], url_path='join-status')
+    def join_status(self, request, pk=None):
+        """Client polls whether the coach has admitted them yet."""
+        booking = self.get_object()
+        if booking.learner_id != request.user.id:
+            return Response({'detail': 'Permission denied.'}, status=HTTP_403_FORBIDDEN)
+        from .livekit_views import coach_in_room
+        return Response({'status': booking.client_admit_status or 'none',
+                         'coach_present': coach_in_room(booking)})
+
+    @action(detail=True, methods=['get'], url_path='pending-joins')
+    def pending_joins(self, request, pk=None):
+        """Coach polls for a client waiting to be let in."""
+        booking = self.get_object()
+        if booking.mentor.user_id != request.user.id:
+            return Response({'detail': 'Permission denied.'}, status=HTTP_403_FORBIDDEN)
+        waiting = booking.client_admit_status == 'requested'
+        name = f"{booking.learner.first_name} {booking.learner.last_name}".strip() or booking.learner.username
+        return Response({'waiting': waiting, 'client_name': name if waiting else None})
+
+    @action(detail=True, methods=['post'], url_path='admit')
+    def admit(self, request, pk=None):
+        booking = self.get_object()
+        if booking.mentor.user_id != request.user.id:
+            return Response({'detail': 'Only the coach can admit.'}, status=HTTP_403_FORBIDDEN)
+        booking.client_admit_status = 'admitted'
+        booking.save(update_fields=['client_admit_status'])
+        return Response({'status': 'admitted'})
+
+    @action(detail=True, methods=['post'], url_path='deny')
+    def deny(self, request, pk=None):
+        booking = self.get_object()
+        if booking.mentor.user_id != request.user.id:
+            return Response({'detail': 'Only the coach can deny.'}, status=HTTP_403_FORBIDDEN)
+        booking.client_admit_status = 'denied'
+        booking.save(update_fields=['client_admit_status'])
+        return Response({'status': 'denied'})
+
+    # ── Guest invites (N4: add a 3rd/4th person to a 1:1 call) ──────────────
+    @action(detail=True, methods=['post', 'delete'], url_path='guest-invite')
+    def guest_invite(self, request, pk=None):
+        """Coach turns the shareable guest link on (POST → returns a signed token
+        to share) or off (DELETE). Guests still have to be admitted individually."""
+        booking = self.get_object()
+        if booking.mentor.user_id != request.user.id:
+            return Response({'detail': 'Only the coach can invite guests.'}, status=HTTP_403_FORBIDDEN)
+        if request.method == 'DELETE':
+            booking.guest_link_active = False
+            booking.save(update_fields=['guest_link_active'])
+            booking.call_guests.filter(status='requested').update(status='denied')
+            return Response({'active': False})
+        from .services import booking_is_joinable
+        if not booking_is_joinable(booking):
+            return Response({'detail': 'This session is not open right now.'}, status=HTTP_400_BAD_REQUEST)
+        booking.guest_link_active = True
+        booking.save(update_fields=['guest_link_active'])
+        from .livekit_views import make_guest_link_token
+        return Response({'active': True, 'token': make_guest_link_token(booking)})
+
+    @action(detail=True, methods=['get'], url_path='guest-pending')
+    def guest_pending(self, request, pk=None):
+        """Coach polls for guests waiting to be admitted + the link state."""
+        booking = self.get_object()
+        if booking.mentor.user_id != request.user.id:
+            return Response({'detail': 'Permission denied.'}, status=HTTP_403_FORBIDDEN)
+        waiting = [{'guest_uid': g.guest_uid, 'name': g.name}
+                   for g in booking.call_guests.filter(status='requested').order_by('created_at')]
+        return Response({'waiting': waiting, 'link_active': booking.guest_link_active})
+
+    @action(detail=True, methods=['post'], url_path='guest-admit')
+    def guest_admit(self, request, pk=None):
+        booking = self.get_object()
+        if booking.mentor.user_id != request.user.id:
+            return Response({'detail': 'Only the coach can admit.'}, status=HTTP_403_FORBIDDEN)
+        uid = request.data.get('guest_uid')
+        updated = booking.call_guests.filter(guest_uid=uid, status='requested').update(status='admitted')
+        if not updated:
+            return Response({'detail': 'Guest not found.'}, status=HTTP_404_NOT_FOUND)
+        return Response({'status': 'admitted'})
+
+    @action(detail=True, methods=['post'], url_path='guest-deny')
+    def guest_deny(self, request, pk=None):
+        booking = self.get_object()
+        if booking.mentor.user_id != request.user.id:
+            return Response({'detail': 'Only the coach can deny.'}, status=HTTP_403_FORBIDDEN)
+        uid = request.data.get('guest_uid')
+        booking.call_guests.filter(guest_uid=uid).update(status='denied')
+        return Response({'status': 'denied'})
+
+    @action(detail=True, methods=['post'], url_path='guest-remove')
+    def guest_remove(self, request, pk=None):
+        """Coach removes a participant (an invited guest) from the live room."""
+        booking = self.get_object()
+        if booking.mentor.user_id != request.user.id:
+            return Response({'detail': 'Only the coach can remove someone.'}, status=HTTP_403_FORBIDDEN)
+        identity = request.data.get('identity') or ''
+        from .livekit_views import remove_room_participant
+        remove_room_participant(booking, identity)
+        # If it's a guest, mark them denied so they can't immediately rejoin.
+        if identity.startswith('guest-'):
+            booking.call_guests.filter(guest_uid=identity[len('guest-'):]).update(status='denied')
+        return Response({'ok': True})
+
     # Custom action for clients to cancel a booking
     @action(detail=True, methods=['patch'])
     def cancel(self, request, pk=None):
@@ -308,8 +505,9 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
         if booking.status not in ['pending', 'accepted']:
             return Response({'detail': 'This booking cannot be cancelled.'}, status=HTTP_400_BAD_REQUEST)
 
-        # Release the slot and refund, then mark declined.
-        cancel_booking(booking, new_status='declined')
+        # Release the slot and refund, then mark declined. Both parties are
+        # emailed (the coach must know their client dropped the session).
+        cancel_booking(booking, new_status='declined', cancelled_by=user)
 
         serializer = self.get_serializer(booking)
         return Response(serializer.data, status=HTTP_200_OK)
@@ -327,7 +525,7 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
         if booking.status not in ['pending', 'accepted']:
             return Response({'detail': 'This session cannot be cancelled.'}, status=HTTP_400_BAD_REQUEST)
 
-        cancel_booking(booking, new_status='declined')
+        cancel_booking(booking, new_status='declined', cancelled_by=user)
 
         serializer = self.get_serializer(booking)
         return Response(serializer.data, status=HTTP_200_OK)
@@ -443,7 +641,13 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated or not hasattr(user, 'profile'):
             return TimeSlot.objects.none()
         if user.profile.role in ('coach', 'admin'):
-            return TimeSlot.objects.filter(coach=user.profile).prefetch_related('invites')
+            # select_related: the serializer reads coach.user.username per row.
+            return (
+                TimeSlot.objects
+                .filter(coach=user.profile)
+                .select_related('coach', 'coach__user', 'skill')
+                .prefetch_related('invites')
+            )
         return TimeSlot.objects.none()
 
     def _ensure_coach(self):
@@ -550,6 +754,9 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
         release_expired_holds()
         coach_id = request.query_params.get('coach')
         skill_id = request.query_params.get('skill')
+        # The serializer reads coach.user.username on every row — pull the coach
+        # and skill in with the slots instead of one lookup per slot.
+        base = TimeSlot.objects.select_related('coach', 'coach__user', 'skill')
 
         from .services import min_notice_cutoff, locked_skill_id
         # E2: a programme-locked client only ever sees their own offering's slots.
@@ -560,7 +767,7 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
                     return Response([])
                 skill_id = skill_id or str(locked)
                 coach_id = None  # skill implies the coach
-        qs = TimeSlot.objects.filter(status='open')
+        qs = base.filter(status='open')
         if skill_id:
             from skills.models import Skill
             try:
@@ -1061,10 +1268,17 @@ class CreatePaymentIntentView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        print("REQUEST DATA:", request.data)  # add this
+        # (No request-body logging here — this is the payment path; dumping the
+        # raw body into the server log is how card/PII data ends up in plain text.)
         skill_id = request.data.get('skill_id')
-        duration = int(request.data.get('duration', 60))
-        print("skill_id:", skill_id, "duration:", duration)  # add this
+        try:
+            duration = int(request.data.get('duration', 60))
+        except (TypeError, ValueError):
+            return Response({'error': 'Invalid duration.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Bound the duration: it scales the amount, and a negative/huge value
+        # would mint a nonsense PaymentIntent.
+        if duration < 1 or duration > 480:
+            return Response({'error': 'Invalid duration.'}, status=status.HTTP_400_BAD_REQUEST)
         try:
             from skills.models import Skill
             skill = Skill.objects.get(id=skill_id)
@@ -1122,10 +1336,41 @@ class ConfirmBookingPaymentView(APIView):
         if not slot_id:
             return Response({'error': 'A time slot is required to book a session.'},
                             status=status.HTTP_400_BAD_REQUEST)
+
+        # ── Bind the payment to THIS user and THIS session ────────────────────
+        # A succeeded PaymentIntent alone proves only that *someone* paid *some*
+        # amount for *something*. CreatePaymentIntentView stamps the buyer, the
+        # offering and the duration into the intent's metadata; without checking
+        # them here, a caller could pay for the cheapest offering and confirm a
+        # booking for an expensive one, or replay one payment into many bookings.
+        meta = intent.metadata or {}
+        if str(meta.get('user_id') or '') != str(request.user.id):
+            return Response({'error': 'This payment does not belong to your account.'},
+                            status=status.HTTP_403_FORBIDDEN)
+        if str(meta.get('skill_id') or '') != str(booking_data.get('skill') or ''):
+            return Response({'error': 'This payment was made for a different session.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        # One payment, one booking.
+        if SessionBooking.objects.filter(payment_intent_id=payment_intent_id).exists():
+            return Response({'error': 'This payment has already been used for a booking.'},
+                            status=status.HTTP_409_CONFLICT)
+
         try:
             with transaction.atomic():
                 skill = Skill.objects.get(id=booking_data['skill'])
                 mentor_profile = skill.profile
+
+                # And that the amount actually covers the current price — the
+                # offering's price could have changed after the intent was made.
+                slot_for_price = TimeSlot.objects.filter(id=slot_id).first()
+                billed_minutes = slot_for_price.duration_minutes if slot_for_price else 60
+                expected_cents = int(round(float(skill.price) * (billed_minutes / 60) * 100))
+                paid_cents = int(getattr(intent, 'amount_received', None) or intent.amount or 0)
+                if paid_cents < expected_cents:
+                    return Response(
+                        {'error': 'The amount paid does not cover this session.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
                 # E2: a programme-locked client may only book their offering.
                 from .services import program_lock_error

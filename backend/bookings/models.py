@@ -45,6 +45,16 @@ class SessionBooking(models.Model):
     # completed vs no-show once the session's time has passed.
     coach_joined_at = models.DateTimeField(null=True, blank=True)
     client_joined_at = models.DateTimeField(null=True, blank=True)
+    # Waiting-room admission (coach is host): the client can only get a call
+    # token once the coach admits them. '' = not requested yet.
+    ADMIT_CHOICES = (
+        ('', 'None'), ('requested', 'Requested'), ('admitted', 'Admitted'), ('denied', 'Denied'),
+    )
+    client_admit_status = models.CharField(max_length=10, choices=ADMIT_CHOICES, default='', blank=True)
+    # Whether a shareable guest-invite link is currently live for this session's
+    # call (N4). The coach turns it on to invite an extra person mid-call; guests
+    # still have to be admitted individually (see CallGuest).
+    guest_link_active = models.BooleanField(default=False)
     skill_level = models.CharField(max_length=50, blank=True, null=True)
     message = models.TextField(blank=True, null=True)
     notes_available = models.BooleanField(default=False) # This field was added previously
@@ -67,6 +77,20 @@ class SessionBooking(models.Model):
         null=True, blank=True,
         help_text="The bookable time slot this session occupies (slot-based booking)."
     )
+
+    class Meta:
+        constraints = [
+            # One Stripe payment can only ever pay for one booking. The view also
+            # checks this, but two concurrent confirms would both pass that check
+            # — only the database can actually settle the race. Free bookings
+            # leave payment_intent_id NULL, which the condition excludes.
+            models.UniqueConstraint(
+                fields=['payment_intent_id'],
+                condition=~models.Q(payment_intent_id=None) & ~models.Q(payment_intent_id=''),
+                name='unique_payment_intent_per_booking',
+            ),
+        ]
+
     def clean(self):
         super().clean() # Always call the parent's clean method first
 
@@ -486,6 +510,25 @@ class SessionReflection(models.Model):
 
     def __str__(self):
         return f"Reflection for booking {self.booking_id}"
+
+
+class CallGuest(models.Model):
+    """An extra person the coach invites into a 1:1 session call at short notice
+    (N4). They join via a shareable guest link, but — like the client — they can
+    only enter once the coach admits them; the link alone never lets them in."""
+    STATUS_CHOICES = (
+        ('requested', 'Requested'), ('admitted', 'Admitted'), ('denied', 'Denied'),
+    )
+    booking = models.ForeignKey(
+        SessionBooking, on_delete=models.CASCADE, related_name='call_guests'
+    )
+    guest_uid = models.CharField(max_length=40, unique=True)  # LiveKit identity: guest-<uid>
+    name = models.CharField(max_length=120)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='requested')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Guest {self.name} ({self.status}) on booking {self.booking_id}"
 
 
 class SessionSummary(models.Model):

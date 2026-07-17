@@ -1,0 +1,23 @@
+{% extends "emails/base.txt" %}
+{% block content %}SESSION CANCELLED
+
+Hi {{ recipient_name }},
+
+{% if cancelled_by_you %}You cancelled your {{ skill_name }} session with {{ other_name }}.{% else %}{{ canceller_name }} has cancelled the {{ skill_name }} session with {{ other_name }}.{% endif %}
+
+CANCELLED SESSION:
+  {{ session_when }}
+  Duration: {{ duration }} minutes
+
+This time is now free again{% if role == 'coach' %} and is open for other clients to book{% endif %}.{% if refunded %}
+
+A refund has been issued for this session.{% endif %}
+{% if role == 'client' %}
+Would you like to book another time? You can browse available times here:
+{{ browse_link }}
+{% else %}
+You can see your remaining sessions here:
+{{ manage_url }}
+{% endif %}
+Warm regards,
+Dr. Nath — Coaching for Impact{% endblock %}

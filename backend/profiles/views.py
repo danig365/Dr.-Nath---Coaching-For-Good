@@ -94,13 +94,16 @@ class CustomTokenRefreshSerializer(TokenRefreshSerializer):
     """
     def validate(self, attrs):
         data = super().validate(attrs)
-        refresh = RefreshToken(attrs['refresh'])
-        user_id = refresh.payload.get('user_id')
+        # Read the user from the freshly-minted ACCESS token, not by re-parsing
+        # the incoming refresh token: with BLACKLIST_AFTER_ROTATION the call
+        # above has already blacklisted that raw token, so parsing it again
+        # raises "Token is blacklisted" and every refresh 401s.
+        access = AccessToken(data['access'])
+        user_id = access.payload.get('user_id')
         try:
             user = CustomUser.objects.select_related('profile').get(id=user_id)
         except CustomUser.DoesNotExist:
             return data
-        access = AccessToken(data['access'])
         inject_user_claims(access, user)
         data['access'] = str(access)
         return data

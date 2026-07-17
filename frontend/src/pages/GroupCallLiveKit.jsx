@@ -5,7 +5,7 @@ import { toast } from "react-toastify";
 import {
   FiMic, FiMicOff, FiVideo, FiVideoOff,
   FiPhoneOff, FiMessageSquare, FiClock, FiSend, FiX, FiUsers, FiPaperclip, FiDownload, FiFile,
-  FiAlertTriangle, FiRefreshCw,
+  FiAlertTriangle, FiRefreshCw, FiMonitor,
 } from "react-icons/fi";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { api } from "../utils/auth";
@@ -13,8 +13,8 @@ import { MAX_UPLOAD_BYTES, formatBytes, isImageType } from "../utils/chatAttachm
 import { useAuth } from "../context/AuthContext";
 import { getGroupCallToken } from "../utils/livekit";
 import BackgroundPicker from "../components/BackgroundPicker";
-import { applyBackground, getLocalVideoTrack } from "../utils/videoBackground";
-import { SESSION_GRACE_MS } from "../utils/sessionTiming";
+import { applyBackground, getLocalVideoTrack, preloadBackgroundAssets } from "../utils/videoBackground";
+import { SESSION_REJOIN_MS } from "../utils/sessionTiming";
 
 const fmt = (s) => {
   const x = Math.max(0, Math.round(s));
@@ -37,6 +37,23 @@ function describeMediaError(err) {
 }
 
 // One remote participant's tile — attaches their LiveKit video + audio tracks.
+// A shared screen shown as the main view.
+function ScreenView({ track, name }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const t = track;
+    if (t && ref.current) { t.attach(ref.current); return () => { try { t.detach(ref.current); } catch { /* noop */ } }; }
+  }, [track]);
+  return (
+    <div className="relative w-full h-full rounded-2xl overflow-hidden bg-black" style={{ border: "1px solid rgba(200,169,81,0.4)" }}>
+      <video ref={ref} autoPlay playsInline className="w-full h-full object-contain" />
+      <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md text-xs font-semibold text-white" style={{ background: "rgba(0,0,0,0.6)" }}>
+        {name ? `${name}'s screen` : "Shared screen"}
+      </span>
+    </div>
+  );
+}
+
 function RemoteTile({ data }) {
   const videoRef = useRef(null);
   const audioRef = useRef(null);
@@ -83,9 +100,17 @@ export default function GroupCallLiveKit() {
   const camWantRef = useRef(true);       // desired camera state on join
   const micWantRef = useRef(true);       // desired mic state on join
   const [remotes, setRemotes] = useState({}); // sid -> { name, videoTrack, audioTrack }
+  const [screenShare, setScreenShare] = useState(null); // { track, name } — a remote shared screen
+  const [screenSharing, setScreenSharing] = useState(false); // I'm sharing my screen
+  const [screenBusy, setScreenBusy] = useState(false);
+  const [canScreenShare] = useState(() =>
+    typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia);
   const [timeLeft, setTimeLeft] = useState(null);
   const [bgOption, setBgOption] = useState("none");
   const [bgBusy, setBgBusy] = useState(false);
+  const customBgRef = useRef(null); // object-URL of an uploaded custom background
+  const [overtime, setOvertime] = useState(false); // past scheduled end, still within the rejoin window
+  const overtimeRef = useRef(false);
 
   const [chatOpen, setChatOpen] = useState(false);
   const [chat, setChat] = useState([]);
@@ -97,11 +122,16 @@ export default function GroupCallLiveKit() {
   const roomRef = useRef(null);
   const chatWsRef = useRef(null);
   const chatFileInputRef = useRef(null);
+  const docInputRef = useRef(null); // "Share document" quick action in the controls
   const localVideoRef = useRef(null);
   const timerRef = useRef(null);
   const chatEndRef = useRef(null);
   const chatOpenRef = useRef(false);
   const endRef = useRef(null);
+
+  // Start pulling the virtual-background engine into cache now, while the user is
+  // still in the lobby — so picking a background later applies instantly.
+  useEffect(() => { preloadBackgroundAssets(); }, []);
 
   // ── Load session ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -121,7 +151,9 @@ export default function GroupCallLiveKit() {
         }
         if (!found) { toast.error("Session not found or you're not enrolled."); navigate(-1); return; }
         if (found.status === "cancelled") { toast.error("This session was cancelled."); navigate(-1); return; }
-        if (new Date(found.end_datetime).getTime() + SESSION_GRACE_MS < Date.now()) { toast.error("This session has already ended."); navigate(-1); return; }
+        // The same link stays live through the rejoin window (N3) so a group
+        // session can run over / be reconnected and continued.
+        if (new Date(found.end_datetime).getTime() + SESSION_REJOIN_MS < Date.now()) { toast.error("This session has already ended."); navigate(-1); return; }
         endRef.current = new Date(found.end_datetime).getTime();
         setSession(found);
         setTimeLeft(Math.floor((endRef.current - Date.now()) / 1000));
@@ -161,6 +193,8 @@ export default function GroupCallLiveKit() {
     if (roomRef.current) { try { roomRef.current.disconnect(); } catch { /* noop */ } roomRef.current = null; }
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     setRemotes({});
+    setScreenShare(null);
+    setScreenSharing(false);
     chatWsRef.current?.close();
     chatWsRef.current = null;
   }, []);
@@ -174,11 +208,14 @@ export default function GroupCallLiveKit() {
 
   const startTimer = useCallback(() => {
     timerRef.current = setInterval(() => {
-      // Display counts to the scheduled end (shows 00:00 once reached), but the
-      // call only force-closes after a grace window past it.
-      const remaining = Math.floor((endRef.current - Date.now()) / 1000);
-      setTimeLeft(remaining);
-      if (Date.now() > endRef.current + SESSION_GRACE_MS) finishSession("timeout");
+      const now = Date.now();
+      // Countdown to the scheduled end (shows 00:00 once reached). The scheduled
+      // end is a SOFT boundary — an "overtime" notice shows and the call keeps
+      // going until the rejoin window fully closes (N3).
+      const remaining = Math.floor((endRef.current - now) / 1000);
+      setTimeLeft(Math.max(remaining, 0));
+      if (now >= endRef.current && !overtimeRef.current) { overtimeRef.current = true; setOvertime(true); }
+      if (now > endRef.current + SESSION_REJOIN_MS) finishSession("timeout");
     }, 1000);
   }, [finishSession]);
 
@@ -209,7 +246,7 @@ export default function GroupCallLiveKit() {
       await room.localParticipant.setMicrophoneEnabled(micWantRef.current);
       const camPub = room.localParticipant.getTrackPublication(Track.Source.Camera);
       camPub?.track?.attach(localVideoRef.current);
-      if (camWantRef.current && bgOption !== "none") await applyBackground(getLocalVideoTrack(room), bgOption);
+      if (camWantRef.current && bgOption !== "none") await applyBackground(getLocalVideoTrack(room), bgOption, customBgRef.current);
       setCamOn(camWantRef.current);
       setMicOn(micWantRef.current);
       setMediaError("");
@@ -261,8 +298,16 @@ export default function GroupCallLiveKit() {
       room
         .on(RoomEvent.ParticipantConnected, (p) => upsertParticipant(p))
         .on(RoomEvent.ParticipantDisconnected, (p) => dropParticipant(p))
-        .on(RoomEvent.TrackSubscribed, (track, _pub, p) => setTrack(p, track, true))
-        .on(RoomEvent.TrackUnsubscribed, (track, _pub, p) => setTrack(p, track, false))
+        .on(RoomEvent.TrackSubscribed, (track, pub, p) => {
+          if (pub?.source === Track.Source.ScreenShare) setScreenShare({ track, name: p.name || p.identity });
+          else setTrack(p, track, true);
+        })
+        .on(RoomEvent.TrackUnsubscribed, (track, pub, p) => {
+          if (pub?.source === Track.Source.ScreenShare) setScreenShare(null);
+          else setTrack(p, track, false);
+        })
+        .on(RoomEvent.LocalTrackPublished, (pub) => { if (pub.source === Track.Source.ScreenShare) setScreenSharing(true); })
+        .on(RoomEvent.LocalTrackUnpublished, (pub) => { if (pub.source === Track.Source.ScreenShare) setScreenSharing(false); })
         .on(RoomEvent.Disconnected, () => { /* handled via finishSession */ });
 
       await room.connect(url, token);
@@ -282,6 +327,24 @@ export default function GroupCallLiveKit() {
     startTimer();
     await enableMedia();
   }, [id, upsertParticipant, dropParticipant, setTrack, connectChat, startTimer, cleanup, enableMedia]);
+
+  // Keep the local camera bound to its <video> — the element re-mounts when the
+  // layout switches between grid and screen-share, which would otherwise leave
+  // the self-view black.
+  useEffect(() => {
+    const active = callState === "connected" || callState === "connecting";
+    if (!active || !camOn) return undefined;
+    let tries = 0;
+    const attach = () => {
+      const t = roomRef.current?.localParticipant?.getTrackPublication(Track.Source.Camera)?.track;
+      const el = localVideoRef.current;
+      if (t && el) { try { t.attach(el); } catch { /* noop */ } return true; }
+      return false;
+    };
+    if (attach()) return undefined;
+    const id = setInterval(() => { tries += 1; if (attach() || tries > 12) clearInterval(id); }, 350);
+    return () => clearInterval(id);
+  }, [callState, camOn, screenShare]);
 
   // ── Lobby device toggles + join ─────────────────────────────────────────────
   const toggleLobbyCam = () => {
@@ -360,17 +423,36 @@ export default function GroupCallLiveKit() {
       if (next) {
         const camPub = roomRef.current?.localParticipant.getTrackPublication(Track.Source.Camera);
         camPub?.track?.attach(localVideoRef.current);
-        if (bgOption !== "none") await applyBackground(getLocalVideoTrack(roomRef.current), bgOption);
+        if (bgOption !== "none") await applyBackground(getLocalVideoTrack(roomRef.current), bgOption, customBgRef.current);
       }
     } catch { /* noop */ }
   };
 
-  const changeBackground = useCallback(async (optionId) => {
+  const changeBackground = useCallback(async (optionId, image) => {
     setBgBusy(true);
     setBgOption(optionId);
-    await applyBackground(getLocalVideoTrack(roomRef.current), optionId);
+    // Remember the uploaded image so it survives camera off→on / restarts.
+    if (optionId === "custom" && image) customBgRef.current = image;
+    const res = await applyBackground(getLocalVideoTrack(roomRef.current), optionId, customBgRef.current);
+    if (res?.ok === false && res.reason === "unsupported") {
+      toast.error("Virtual backgrounds aren't supported on this device or browser.");
+      setBgOption("none");
+    }
     setBgBusy(false);
   }, []);
+
+  const toggleScreenShare = async () => {
+    const room = roomRef.current;
+    if (!room) return;
+    setScreenBusy(true);
+    try {
+      await room.localParticipant.setScreenShareEnabled(!screenSharing);
+    } catch (err) {
+      if (err?.name !== "NotAllowedError" && err?.name !== "AbortError") {
+        toast.error("Couldn't share your screen. Please try again.");
+      }
+    } finally { setScreenBusy(false); }
+  };
 
   const inCall = callState === "connecting" || callState === "connected";
   const remoteList = Object.entries(remotes);
@@ -481,7 +563,8 @@ export default function GroupCallLiveKit() {
           </div>
         )}
 
-        {inCall && (
+        {/* Grid layout — nobody is sharing a screen */}
+        {inCall && !screenShare && (
           <div className="w-full h-full grid gap-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "1fr" }}>
             {/* Local tile */}
             <div className="relative rounded-2xl overflow-hidden bg-black" style={{ border: "1px solid rgba(200,169,81,0.4)" }}>
@@ -509,6 +592,43 @@ export default function GroupCallLiveKit() {
                 <p className="text-sm" style={{ color: "rgba(255,255,255,0.45)" }}>Waiting for others to join…</p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Screen-share layout — the shared screen is the main view, people below */}
+        {inCall && screenShare && (
+          <div className="w-full h-full flex flex-col gap-3">
+            <div className="flex-1 min-h-0">
+              <ScreenView track={screenShare.track} name={screenShare.name} />
+            </div>
+            <div className="h-24 sm:h-28 flex gap-3 overflow-x-auto shrink-0">
+              {/* Local tile (compact) */}
+              <div className="relative rounded-xl overflow-hidden bg-black shrink-0 h-full aspect-video" style={{ border: "1px solid rgba(200,169,81,0.4)" }}>
+                <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ visibility: camOn ? "visible" : "hidden" }} />
+                {!camOn && (
+                  <div className="absolute inset-0 flex items-center justify-center" style={{ background: "#14213D" }}>
+                    <FiVideoOff size={20} style={{ color: "#C8A951" }} />
+                  </div>
+                )}
+                <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-white" style={{ background: "rgba(0,0,0,0.55)" }}>You</span>
+              </div>
+              {remoteList.map(([sid, data]) => (
+                <div key={sid} className="shrink-0 h-full aspect-video"><RemoteTile data={data} /></div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* "You're sharing your screen" indicator */}
+        {inCall && screenSharing && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2.5 px-4 py-2 rounded-full shadow-xl"
+            style={{ background: "rgba(20,33,61,0.92)", border: "1px solid rgba(200,169,81,0.4)" }}>
+            <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#C8A951" }} />
+            <span className="text-xs font-semibold text-white">You're sharing your screen</span>
+            <button onClick={toggleScreenShare} disabled={screenBusy}
+              className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: "rgba(239,68,68,0.9)", color: "white" }}>
+              Stop
+            </button>
           </div>
         )}
 
@@ -546,6 +666,23 @@ export default function GroupCallLiveKit() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Overtime: scheduled time is up, but the call keeps going and the same
+            link stays live so people can continue / reconnect (N3). */}
+        <AnimatePresence>
+          {overtime && callState === "connected" && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="absolute top-4 left-1/2 -translate-x-1/2 z-20 px-5 py-2.5 rounded-xl flex items-center gap-2"
+              style={{ background: "rgba(200,169,81,0.95)", backdropFilter: "blur(8px)" }}
+            >
+              <FiClock size={14} style={{ color: "#14213D" }} />
+              <span className="text-sm font-bold" style={{ color: "#14213D" }}>
+                Scheduled time is up — you can keep going or end the session.
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Controls */}
@@ -559,6 +696,22 @@ export default function GroupCallLiveKit() {
           </button>
           <button onClick={toggleCam} className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: camOn ? "rgba(255,255,255,0.1)" : "#EF4444" }}>
             {camOn ? <FiVideo size={18} className="text-white" /> : <FiVideoOff size={18} className="text-white" />}
+          </button>
+          {canScreenShare && (
+            <button onClick={toggleScreenShare} disabled={screenBusy}
+              className="w-12 h-12 rounded-full flex items-center justify-center disabled:opacity-50"
+              style={{ background: screenSharing ? "rgba(200,169,81,0.9)" : "rgba(255,255,255,0.1)" }}
+              title={screenSharing ? "Stop sharing your screen" : "Share your screen"}>
+              <FiMonitor size={18} style={{ color: screenSharing ? "#14213D" : "white" }} />
+            </button>
+          )}
+          {/* Share a document — opens the picker, then the chat with it staged */}
+          <input type="file" ref={docInputRef} className="hidden"
+            onChange={(e) => { handleChatFile(e); setChatOpen(true); }} />
+          <button onClick={() => docInputRef.current?.click()}
+            className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.1)" }}
+            title="Share a document">
+            <FiPaperclip size={18} className="text-white" />
           </button>
           <BackgroundPicker selected={bgOption} onSelect={changeBackground} busy={bgBusy} />
           <button onClick={() => setChatOpen((o) => !o)} className="absolute right-6 w-11 h-11 rounded-full flex items-center justify-center"

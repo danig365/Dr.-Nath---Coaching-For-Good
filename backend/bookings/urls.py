@@ -8,7 +8,10 @@ from .views import (
     BookingInvoiceView, GroupEnrollmentInvoiceView, MagicJoinView, SessionReflectionView,
     SessionAISummaryView,
 )
-from .livekit_views import BookingCallTokenView, GroupCallTokenView
+from .livekit_views import (
+    BookingCallTokenView, GroupCallTokenView,
+    GuestJoinRequestView, GuestJoinStatusView, GuestCallTokenView,
+)
 
 router = DefaultRouter()
 router.register(r'reviews', ReviewViewSet, basename='review')
@@ -33,6 +36,10 @@ urlpatterns = [
     path('<int:pk>/invoice/', BookingInvoiceView.as_view(), name='booking-invoice'),
     path('livekit/token/booking/<int:booking_id>/', BookingCallTokenView.as_view(), name='livekit-booking-token'),
     path('livekit/token/group/<int:session_id>/', GroupCallTokenView.as_view(), name='livekit-group-token'),
+    # Guest join (N4) — public; gated by the signed link token + coach admit.
+    path('<int:booking_id>/guest-request/', GuestJoinRequestView.as_view(), name='guest-request'),
+    path('<int:booking_id>/guest-status/', GuestJoinStatusView.as_view(), name='guest-status'),
+    path('<int:booking_id>/guest-token/', GuestCallTokenView.as_view(), name='guest-token'),
     path('magic-join/<str:token>/', MagicJoinView.as_view(), name='magic-join'),
     path('<int:booking_id>/reflection/', SessionReflectionView.as_view(), name='session-reflection'),
     path('<int:booking_id>/ai-summary/', SessionAISummaryView.as_view(), name='session-ai-summary'),
