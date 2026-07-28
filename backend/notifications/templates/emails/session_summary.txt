@@ -1,0 +1,30 @@
+{% extends "emails/base.txt" %}
+{% block content %}YOUR SESSION SUMMARY
+
+Hi {{ recipient_name }},
+
+Here's the AI summary of your {{ skill_name }} session ({{ session_when }}).
+{% if summary %}
+OVERVIEW
+{{ summary }}
+{% endif %}{% if key_points %}
+KEY POINTS{% for p in key_points %}
+  - {{ p }}{% endfor %}
+{% endif %}{% if action_items %}
+ACTION ITEMS{% for a in action_items %}
+  - {{ a }}{% endfor %}
+{% endif %}{% if reflection_points %}
+POINTS TO REFLECT ON{% for rp in reflection_points %}
+  - {{ rp }}{% endfor %}
+{% endif %}
+------------------------------------------------------------
+BOOK YOUR NEXT SESSION NOW:
+{{ book_link }}
+{% if remind_link %}
+Or have us remind you to schedule it (we'll nudge you over the next few days):
+{{ remind_link }}
+{% endif %}
+This summary is generated automatically from the conversation and may not be perfectly accurate — please treat it as a helpful aid.
+
+Warm regards,
+Dr. Nath — Coaching for Impact{% endblock %}

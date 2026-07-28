@@ -1,0 +1,61 @@
+{% extends "emails/base.html" %}
+{% block title %}Your session summary{% endblock %}
+{% block content %}
+  <h1 style="margin:0 0 8px; font-size:22px; font-weight:normal; color:#1B2B4A;">Your session summary</h1>
+  <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;">
+    Hi {{ recipient_name }}, here's the AI summary of your <strong>{{ skill_name }}</strong> session ({{ session_when }}).
+  </p>
+
+  {% if summary %}
+  <p style="margin:0 0 6px; font-size:12px; font-weight:bold; letter-spacing:1px; text-transform:uppercase; color:#A9863A;">Overview</p>
+  <p style="margin:0 0 20px; font-size:14px; line-height:1.7; color:#4A5568; font-family:Arial, sans-serif;">{{ summary }}</p>
+  {% endif %}
+
+  {% if key_points %}
+  <p style="margin:0 0 6px; font-size:12px; font-weight:bold; letter-spacing:1px; text-transform:uppercase; color:#A9863A;">Key points</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:18px;">
+    {% for p in key_points %}
+    <tr><td style="padding:3px 0 3px 0; font-family:Arial, sans-serif; font-size:14px; line-height:1.6; color:#4A5568;">
+      <span style="color:#C8A951;">&bull;</span>&nbsp; {{ p }}
+    </td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {% if action_items %}
+  <p style="margin:0 0 6px; font-size:12px; font-weight:bold; letter-spacing:1px; text-transform:uppercase; color:#A9863A;">Action items</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+    {% for a in action_items %}
+    <tr><td style="padding:3px 0 3px 0; font-family:Arial, sans-serif; font-size:14px; line-height:1.6; color:#4A5568;">
+      <span style="color:#2E7D32;">&#10003;</span>&nbsp; {{ a }}
+    </td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {% if reflection_points %}
+  <p style="margin:0 0 6px; font-size:12px; font-weight:bold; letter-spacing:1px; text-transform:uppercase; color:#A9863A;">Points to reflect on</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+    {% for rp in reflection_points %}
+    <tr><td style="padding:3px 0 3px 0; font-family:Arial, sans-serif; font-size:14px; line-height:1.6; color:#4A5568;">
+      <span style="color:#C8A951;">&#8226;</span>&nbsp; {{ rp }}
+    </td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px; border-top:1px solid rgba(200,169,81,0.2); padding-top:20px;">
+    <tr><td style="padding-top:18px;">
+      <a href="{{ book_link }}" style="display:inline-block; background:linear-gradient(135deg,#C8A951,#F0D98C); color:#14213D; text-decoration:none; font-weight:bold; font-size:14px; padding:12px 28px; border-radius:999px; font-family:Arial, sans-serif;">Book your next session now</a>
+    </td></tr>
+    {% if remind_link %}
+    <tr><td style="padding-top:12px;">
+      <a href="{{ remind_link }}" style="display:inline-block; background:#FFFFFF; color:#1B2B4A; text-decoration:none; font-weight:bold; font-size:13px; padding:10px 22px; border-radius:999px; border:1px solid rgba(200,169,81,0.4); font-family:Arial, sans-serif;">Send me a reminder to schedule my next session</a>
+    </td></tr>
+    {% endif %}
+  </table>
+
+  <p style="margin:22px 0 0; font-size:12px; line-height:1.5; color:#9aa3b0; font-family:Arial, sans-serif;">
+    This summary is generated automatically from the conversation and may not be perfectly accurate — please treat it as a helpful aid.
+  </p>
+{% endblock %}

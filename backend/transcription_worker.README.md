@@ -59,11 +59,38 @@ journalctl -u transcription-worker -f
   `bookings.ai_summary.generate_and_store_summary` — the same shared code path the
   browser endpoint uses.
 
+## Why enabling this also FIXES the live call audio
+
+This is not only an accuracy/coverage upgrade — it removes the cause of the
+reported "breaking / radio-like crackling / echo" audio on 1:1 calls.
+
+The browser MVP transcribes with the Web Speech API, which opens its **own,
+second capture of the physical microphone**, in parallel with the one WebRTC
+already holds for the call. Chrome cannot always share one input device between
+two capture clients, so each open/close reconfigures the shared device — heard on
+the call as dropouts, crackling, and returning echo (the echo canceller loses its
+filter state when the capture is reconfigured). Chrome also ends `continuous`
+recognition on every silence timeout, so the microphone is re-opened repeatedly
+throughout a call. Server-side transcription reads the audio LiveKit **already**
+has, so the microphone is captured exactly **once**.
+
+The handoff is automatic. `BookingCallTokenView` returns
+`server_transcription: TRANSCRIPTION_ENABLED` with the room token, and
+`SessionCallLiveKit.jsx` disables its browser transcriber when that is true. So
+flipping `TRANSCRIPTION_ENABLED=true` (with a valid key) is all it takes: the
+browser stops competing for the microphone on the next call, with no frontend
+change or redeploy. Flip it back off and the browser MVP resumes.
+
+Until a key is configured the browser MVP stays in charge, hardened to minimise
+the contention (single deterministic microphone acquisition ordered *after*
+LiveKit's, paced restarts, and a circuit breaker that gives up transcription
+rather than degrade the conversation) — see `frontend/src/utils/liveTranscribe.js`.
+
 ## Config reference (settings.py / .env)
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `TRANSCRIPTION_ENABLED` | `false` | Master switch; the worker no-ops until true. |
+| `TRANSCRIPTION_ENABLED` | `false` | Master switch. The worker no-ops until true, and it is also sent to the browser as `server_transcription` so the call page disables its own transcriber. |
 | `STT_PROVIDER` | `deepgram` | `deepgram` or `openai`. |
 | `STT_LANGUAGE` | `en` | STT language hint (`en`, `fr`, …). |
 | `DEEPGRAM_API_KEY` | — | Required when `STT_PROVIDER=deepgram`. |

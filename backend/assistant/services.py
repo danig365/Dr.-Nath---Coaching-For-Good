@@ -231,6 +231,9 @@ SUMMARY_SYSTEM_PROMPT = (
     "insights or decisions.\n"
     "  \"action_items\": an array of short strings — concrete next steps the "
     "client agreed to or should take (empty array if none were discussed).\n"
+    "  \"reflection_points\": an array of 2-4 short strings — open questions or "
+    "prompts for the client to reflect on before the next session (empty array "
+    "if none apply).\n"
     "If the transcript is short or unclear, still return the JSON with your "
     "best-effort content."
 )
@@ -249,7 +252,7 @@ def _parse_summary_json(text):
     try:
         data = json.loads(raw)
     except Exception:  # noqa: BLE001 — fall back to a plain-text summary
-        return {"summary": (text or "").strip()[:4000], "key_points": [], "action_items": []}
+        return {"summary": (text or "").strip()[:4000], "key_points": [], "action_items": [], "reflection_points": []}
 
     def _clean_list(value):
         out = []
@@ -263,6 +266,7 @@ def _parse_summary_json(text):
         "summary": str(data.get("summary", "")).strip()[:4000],
         "key_points": _clean_list(data.get("key_points")),
         "action_items": _clean_list(data.get("action_items")),
+        "reflection_points": _clean_list(data.get("reflection_points")),
     }
 
 

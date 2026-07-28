@@ -307,13 +307,48 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
         from .services import finalize_status
         booking.status = finalize_status(booking)
         booking.save()
-        # Thank-you + rebook invite only for a genuine (completed) session.
-        if booking.status == 'completed':
-            try:
-                from .notifications import send_session_thankyou
+        # Completed → thank-you + rebook invite. No-show → tell both parties and
+        # invite the client to reschedule.
+        try:
+            if booking.status == 'completed':
+                from .notifications import send_session_thankyou, send_session_summary_email
                 send_session_thankyou(booking)
-            except Exception:  # noqa: BLE001
-                pass
+                # If the summary was already generated (e.g. by the server-side
+                # worker during the call), email it now that the session is
+                # finalised. If it's not ready yet, generation will email it.
+                send_session_summary_email(booking)
+            elif booking.status == 'no_show':
+                from .notifications import send_session_missed
+                send_session_missed(booking)
+        except Exception:  # noqa: BLE001
+            pass
+        return Response(self.get_serializer(booking).data)
+
+    @action(detail=True, methods=['patch'], url_path='set-outcome')
+    def set_outcome(self, request, pk=None):
+        """Coach corrects a finished session's outcome — the platform's automatic
+        completed/no-show guess is often wrong (a session that ran on WhatsApp
+        gets flagged 'no show'; one that never happened gets 'completed'). The
+        coach can set: completed, held_offline (took place elsewhere), no_show,
+        or not_held (didn't happen). Only the coach, only on a session whose time
+        has already passed."""
+        booking = self.get_object()
+        if booking.mentor.user_id != request.user.id:
+            return Response({'detail': 'Only the coach can change a session outcome.'},
+                            status=HTTP_403_FORBIDDEN)
+        outcome = request.data.get('outcome')
+        if outcome not in SessionBooking.OUTCOME_CHOICES:
+            return Response({'detail': 'Invalid outcome.'}, status=HTTP_400_BAD_REQUEST)
+        # Only for sessions that have concluded (already finalised, or an accepted
+        # session whose booked time has passed) — never rewrite a future booking.
+        from .services import booking_end_dt
+        end = booking_end_dt(booking)
+        already_final = booking.status in ('completed', 'no_show', 'held_offline', 'not_held')
+        if not already_final and not (end and dj_tz.now() >= end):
+            return Response({'detail': 'This session has not taken place yet.'},
+                            status=HTTP_400_BAD_REQUEST)
+        booking.status = outcome
+        booking.save(update_fields=['status'])
         return Response(self.get_serializer(booking).data)
 
     @action(detail=True, methods=['post'], url_path='mark-joined')
@@ -2071,6 +2106,8 @@ class SessionAISummaryView(APIView):
         # is idempotent + cost-safe (skips the AI if an equal/longer transcript
         # was already summarised — e.g. by the server-side worker).
         transcript = (request.data.get('transcript') or '').strip()
+        # generate_and_store_summary emails the summary to both parties itself
+        # (so the server-side worker path is covered too).
         summ = generate_and_store_summary(booking, transcript)
         if not summ:
             return Response(
@@ -2081,3 +2118,47 @@ class SessionAISummaryView(APIView):
         data = SessionSummarySerializer(summ).data
         data['exists'] = True
         return Response(data)
+
+
+def _optin_result_page(heading, message, ok=True):
+    """Minimal branded confirmation page shown after clicking a link in an email."""
+    accent = '#2E7D32' if ok else '#B91C1C'
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dr. Nath — Coaching for Impact</title></head>
+<body style="margin:0; background:#FAF6EC; font-family:Arial, sans-serif;">
+  <div style="max-width:440px; margin:12vh auto; background:#fff; border:1px solid rgba(200,169,81,0.25); border-radius:16px; padding:36px 32px; text-align:center;">
+    <p style="margin:0 0 4px; font-size:12px; font-weight:bold; letter-spacing:2px; text-transform:uppercase; color:#C8A951;">Dr. Nath · Coaching for Impact</p>
+    <h1 style="margin:14px 0 8px; font-size:22px; color:{accent};">{heading}</h1>
+    <p style="margin:0 0 22px; font-size:15px; line-height:1.6; color:#4A5568;">{message}</p>
+    <a href="https://dr-nath.com/" style="display:inline-block; background:linear-gradient(135deg,#C8A951,#F0D98C); color:#14213D; text-decoration:none; font-weight:bold; font-size:14px; padding:11px 26px; border-radius:999px;">Go to the platform</a>
+  </div>
+</body></html>"""
+
+
+class RebookReminderOptInView(APIView):
+    """A client clicks 'remind me to book my next session' in their summary email.
+    Public (they aren't signed in when reading email) — gated by the signed link
+    token. Schedules 3/5/7-day nudges and shows a friendly confirmation page."""
+    permission_classes = [AllowAny]
+
+    def get(self, request, booking_id):
+        from django.http import HttpResponse
+        from .notifications import read_rebook_optin_token, schedule_rebook_reminders
+        token = request.query_params.get('t') or ''
+        if read_rebook_optin_token(token) != booking_id:
+            return HttpResponse(
+                _optin_result_page("Link expired", "This reminder link is no longer valid. You can still book anytime from the platform.", ok=False),
+                content_type='text/html', status=400)
+        booking = (SessionBooking.objects
+                   .select_related('learner', 'skill', 'mentor__user')
+                   .filter(id=booking_id).first())
+        if not booking:
+            return HttpResponse(
+                _optin_result_page("Not found", "We couldn't find that session.", ok=False),
+                content_type='text/html', status=404)
+        schedule_rebook_reminders(booking)
+        return HttpResponse(_optin_result_page(
+            "You're all set 🎉",
+            "We'll remind you to book your next session over the coming days. You can book anytime — no need to wait for the reminder.",
+        ), content_type='text/html')

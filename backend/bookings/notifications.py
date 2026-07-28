@@ -193,6 +193,199 @@ def send_join_nudge(booking):
     )
 
 
+# ── "Remind me to book my next session" — client opt-in from the summary email ──
+REBOOK_OPTIN_SALT = 'rebook-reminder-optin'
+REBOOK_OPTIN_MAX_AGE = 30 * 24 * 3600  # link stays valid 30 days
+
+
+def make_rebook_optin_token(booking):
+    from django.core import signing
+    return signing.dumps({'b': booking.id}, salt=REBOOK_OPTIN_SALT)
+
+
+def read_rebook_optin_token(token):
+    from django.core import signing
+    try:
+        data = signing.loads(token, salt=REBOOK_OPTIN_SALT, max_age=REBOOK_OPTIN_MAX_AGE)
+    except (signing.BadSignature, signing.SignatureExpired):
+        return None
+    return data.get('b')
+
+
+def schedule_rebook_reminders(booking):
+    """Queue 'book your next session' nudges to the CLIENT at +3, +5 and +7 days.
+    Client-driven (they opt in from the summary email). Idempotent via dedupe
+    keys, so clicking the link twice doesn't double-schedule."""
+    client = booking.learner
+    if not client or not client.email:
+        return 0
+    skill = booking.skill
+    skill_name = skill.name if skill else 'your programme'
+    book_link = f"{settings.SITE_URL}/book/{skill.id}" if skill else f"{settings.SITE_URL}/coaches"
+    coach_name = _display_name(booking.mentor.user) if booking.mentor else ''
+    now = dj_tz.now()
+    scheduled = 0
+    for days in (3, 5, 7):
+        note = ScheduledNotification.queue(
+            kind='rebook_reminder',
+            recipient_email=client.email,
+            recipient_user=client,
+            subject=f"Ready to book your next {skill_name} session?",
+            template='rebook_reminder',
+            context={
+                'recipient_name': _display_name(client),
+                'skill_name': skill_name,
+                'coach_name': coach_name,
+                'book_link': book_link,
+            },
+            scheduled_for=now + timedelta(days=days),
+            related=booking,
+            dedupe_key=f"booking:{booking.id}:rebook:{days}",
+        )
+        if note:
+            scheduled += 1
+
+    # A day after the last client nudge, if they still haven't rebooked, tell the
+    # coach so they can reach out personally. This is cancelled (like the client
+    # nudges) the moment the client books — see cancel_rebook_reminders.
+    coach_user = booking.mentor.user if booking.mentor else None
+    if coach_user and coach_user.email:
+        ScheduledNotification.queue(
+            kind='rebook_coach_alert',
+            recipient_email=coach_user.email,
+            recipient_user=coach_user,
+            subject=f"{_display_name(client)} hasn't rebooked yet",
+            template='rebook_coach_alert',
+            context={
+                'recipient_name': _display_name(coach_user),
+                'client_name': _display_name(client),
+                'skill_name': skill_name,
+                'manage_url': f"{settings.SITE_URL}/my-sessions",
+            },
+            scheduled_for=now + timedelta(days=8),
+            related=booking,
+            dedupe_key=f"booking:{booking.id}:rebook_coach_alert",
+        )
+    return scheduled
+
+
+def cancel_rebook_reminders(user):
+    """Stop nudging a client to rebook once they've actually booked again — cancels
+    their pending rebook reminders AND the coach 'not rebooked' alert tied to them.
+    Returns the number cancelled."""
+    from notifications.models import ScheduledNotification as SN
+    # The client's own pending nudges.
+    n = SN.objects.filter(
+        recipient_user=user, kind='rebook_reminder', status='pending',
+    ).update(status='cancelled')
+    # The coach alerts for bookings where this user was the client. Resolve via
+    # the related booking so we only touch this client's alerts.
+    from .models import SessionBooking
+    from django.contrib.contenttypes.models import ContentType
+    ct = ContentType.objects.get_for_model(SessionBooking)
+    booking_ids = list(
+        SessionBooking.objects.filter(learner=user).values_list('id', flat=True)
+    )
+    n += SN.objects.filter(
+        content_type=ct, object_id__in=booking_ids,
+        kind='rebook_coach_alert', status='pending',
+    ).update(status='cancelled')
+    return n
+
+
+def send_session_summary_email(booking):
+    """Email the AI summary of a finished session to BOTH parties, right after the
+    summary is generated (so it lands within minutes of the session ending).
+
+    Sent once per session (SessionSummary.summary_email_sent guards it — both
+    participants POST the transcript at session end). Includes a "Book your next
+    session" button. Best-effort — never raises into the caller.
+    """
+    summ = getattr(booking, 'ai_summary', None)
+    if not summ or summ.summary_email_sent:
+        return
+    # Only for sessions that actually took place.
+    if booking.status not in ('completed', 'held_offline'):
+        return
+    if not (summ.summary or summ.key_points or summ.action_items):
+        return
+
+    start_utc = session_start_utc(booking)
+    skill = booking.skill
+    skill_name = skill.name if skill else 'your session'
+    book_link = f"{settings.SITE_URL}/book/{skill.id}" if skill else f"{settings.SITE_URL}/coaches"
+
+    sent_any = False
+    for r in _recipients(booking):
+        if not r['email']:
+            continue
+        ctx = _context(booking, r, start_utc) if start_utc else {'recipient_name': r['name']}
+        ctx.update({
+            'skill_name': skill_name,
+            'summary': summ.summary or '',
+            'key_points': summ.key_points or [],
+            'action_items': summ.action_items or [],
+            'reflection_points': summ.reflection_points or [],
+            'book_link': book_link,
+        })
+        # Only the client gets the "remind me to rebook" opt-in button.
+        if r['role'] == 'client':
+            ctx['remind_link'] = f"{settings.SITE_URL}/api/bookings/{booking.id}/rebook-reminders/opt-in/?t={make_rebook_optin_token(booking)}"
+        try:
+            note = ScheduledNotification.queue(
+                kind='session_summary',
+                recipient_email=r['email'],
+                recipient_user=r['user'],
+                subject=f"Your session summary — {skill_name}",
+                template='session_summary',
+                context=ctx,
+                scheduled_for=dj_tz.now(),
+                related=booking,
+                dedupe_key=f"booking:{booking.id}:summary:{r['role']}",
+            )
+            if note and note.status == ScheduledNotification.STATUS_PENDING:
+                note.send()
+                sent_any = True
+        except Exception as err:  # noqa: BLE001 — never block on email
+            logger.warning("Booking %s: summary email to %s failed: %s", booking.id, r['email'], err)
+
+    if sent_any:
+        summ.summary_email_sent = True
+        summ.save(update_fields=['summary_email_sent'])
+
+
+def send_session_missed(booking):
+    """A session was finalised as a no-show (it didn't take place). Tell both
+    parties and invite the client to rebook. Sent once per booking (dedupe key +
+    the pending-only send guard). Best-effort — never raises into the caller.
+    """
+    start_utc = session_start_utc(booking)
+    if not start_utc:
+        return
+    skill_name = booking.skill.name if booking.skill else 'your session'
+    for r in _recipients(booking):
+        if not r['email']:
+            continue
+        ctx = _context(booking, r, start_utc)
+        ctx['browse_link'] = f"{settings.SITE_URL}/skills"
+        try:
+            note = ScheduledNotification.queue(
+                kind='session_missed',
+                recipient_email=r['email'],
+                recipient_user=r['user'],
+                subject=f"Let's reschedule — {skill_name}",
+                template='session_missed',
+                context=ctx,
+                scheduled_for=dj_tz.now(),
+                related=booking,
+                dedupe_key=f"booking:{booking.id}:missed:{r['role']}",
+            )
+            if note and note.status == ScheduledNotification.STATUS_PENDING:
+                note.send()
+        except Exception as err:  # noqa: BLE001 — never block finalisation on email
+            logger.warning("Booking %s: missed-session email to %s failed: %s", booking.id, r['email'], err)
+
+
 def send_session_thankyou(booking):
     """After a session completes, thank the client and show the coach's next open
     slots so they can rebook in one click. Sent once per booking (idempotent via
@@ -260,6 +453,14 @@ def schedule_booking_notifications(booking):
     if not start_utc:
         logger.warning("Booking %s has no resolvable start time; skipping notifications.", booking.id)
         return
+
+    # The client just booked — stop any "please rebook" nudges (and the coach
+    # 'not rebooked' alert) they may have opted into after a previous session.
+    try:
+        if booking.learner:
+            cancel_rebook_reminders(booking.learner)
+    except Exception:  # noqa: BLE001 — never block a booking on this
+        pass
 
     now = dj_tz.now()
     skill_name = booking.skill.name if booking.skill else 'your session'

@@ -1,0 +1,9 @@
+{% extends "emails/base.html" %}
+{% block title %}Time to book your next session?{% endblock %}
+{% block content %}
+  <h1 style="margin:0 0 8px; font-size:22px; font-weight:normal; color:#1B2B4A;">Time to book your next session?</h1>
+  <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;">
+    Hi {{ recipient_name }}, just a friendly reminder to schedule your next <strong>{{ skill_name }}</strong> session{% if coach_name %} with {{ coach_name }}{% endif %}. Keeping a steady rhythm makes the biggest difference.
+  </p>
+  <a href="{{ book_link }}" style="display:inline-block; background:linear-gradient(135deg,#C8A951,#F0D98C); color:#14213D; text-decoration:none; font-weight:bold; font-size:14px; padding:12px 28px; border-radius:999px; font-family:Arial, sans-serif;">Book a time</a>
+{% endblock %}

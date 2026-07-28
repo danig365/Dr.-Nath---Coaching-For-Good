@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   FiCalendar, FiClock, FiMessageSquare, FiX,
   FiVideo, FiDollarSign, FiUpload, FiCheck,
-  FiSearch, FiFilter, FiChevronDown, FiLink, FiUsers, FiFileText, FiRepeat, FiBell, FiXCircle,
+  FiSearch, FiFilter, FiChevronDown, FiLink, FiUsers, FiFileText, FiRepeat, FiBell, FiXCircle, FiEdit2,
 } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
@@ -17,18 +17,31 @@ import SessionSummaryModal from "../components/SessionSummaryModal";
 import { downloadFile } from "../utils/downloadFile";
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
+// Human labels for every booking status (shared wording across the app).
+export const STATUS_LABELS = {
+  pending: "Pending", accepted: "Accepted", confirmed: "Confirmed",
+  completed: "Completed", cancelled: "Cancelled", declined: "Declined",
+  no_show: "No Show",
+  held_offline: "Held off-platform",
+  not_held: "Did not take place",
+};
+
 const StatusBadge = ({ status }) => {
   const map = {
     pending:   { bg: "rgba(251,191,36,0.12)", color: "#92400E", border: "1px solid rgba(251,191,36,0.3)" },
     accepted:  { bg: "rgba(52,168,83,0.1)",   color: "#2E7D32", border: "1px solid rgba(52,168,83,0.25)" },
     confirmed: { bg: "rgba(52,168,83,0.1)",   color: "#2E7D32", border: "1px solid rgba(52,168,83,0.25)" },
     completed: { bg: "rgba(200,169,81,0.12)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.3)" },
+    // Held off-platform = it happened, just elsewhere → positive tone.
+    held_offline: { bg: "rgba(52,168,83,0.1)", color: "#2E7D32", border: "1px solid rgba(52,168,83,0.25)" },
     cancelled: { bg: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" },
     declined:  { bg: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" },
     no_show:   { bg: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" },
+    // Did not take place = neutral, not a failure.
+    not_held:  { bg: "rgba(74,85,104,0.08)", color: "#4A5568", border: "1px solid rgba(74,85,104,0.2)" },
   };
   const s = map[status] || map.pending;
-  const label = status === "no_show" ? "No Show" : status.charAt(0).toUpperCase() + status.slice(1);
+  const label = STATUS_LABELS[status] || (status.charAt(0).toUpperCase() + status.slice(1));
   return (
     <span className="text-xs font-semibold px-3 py-1 rounded-full shrink-0" style={{ background: s.bg, color: s.color, border: s.border }}>
       {label}
@@ -46,6 +59,44 @@ const noShowReason = (session) => {
       : by === "client" ? "The client didn't join this session."
         : "This session wasn't attended by both parties.";
   return `${lead} ${detail} A session completes only when both people join.`;
+};
+
+// ─── Coach: correct a finished session's outcome ─────────────────────────────
+const OUTCOME_OPTIONS = [
+  { value: "completed",    label: "Took place — on the platform" },
+  { value: "held_offline", label: "Took place — off the platform (e.g. WhatsApp)" },
+  { value: "no_show",      label: "No show — someone didn't join" },
+  { value: "not_held",     label: "Did not take place at all" },
+];
+
+const OutcomeMenu = ({ current, onPick }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap shrink-0 transition-all"
+        style={{ background: "rgba(200,169,81,0.1)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.25)" }}>
+        <FiEdit2 size={13} /> Correct outcome
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 mt-1 z-20 w-64 rounded-xl overflow-hidden shadow-xl"
+            style={{ background: "white", border: "1px solid rgba(200,169,81,0.25)" }}>
+            {OUTCOME_OPTIONS.map(o => (
+              <button key={o.value} type="button"
+                onClick={() => { setOpen(false); if (o.value !== current) onPick(o.value); }}
+                className="w-full text-left px-3.5 py-2.5 text-xs flex items-center justify-between gap-2 hover:bg-[#FAF6EC]"
+                style={{ color: "#1B2B4A", borderBottom: "1px solid rgba(200,169,81,0.08)" }}>
+                <span>{o.label}</span>
+                {o.value === current && <FiCheck size={13} style={{ color: "#2E7D32" }} />}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
 };
 
 // ─── Unread Badge ─────────────────────────────────────────────────────────────
@@ -80,7 +131,7 @@ const ActionBtn = ({ onClick, icon: Icon, label, badge, variant = "default" }) =
 };
 
 // ─── Session Card (compact) ────────────────────────────────────────────────────
-const SessionCard = ({ session, activeTab, onCancel, onChangeProgram, onNudge, onSetMeetingLink, onUploadNotes, onReflect, onSummary, onJoin, navigate, index }) => {
+const SessionCard = ({ session, activeTab, onCancel, onChangeProgram, onNudge, onSetMeetingLink, onUploadNotes, onReflect, onSummary, onSetOutcome, onJoin, navigate, index }) => {
   const { timezone } = useAuth(); // viewer's display timezone (coach's set zone)
   // Absolute UTC start, rendered in the viewer's timezone. slot_start is the
   // source of truth; fall back to session_date/time treated as UTC ("Z").
@@ -206,6 +257,11 @@ const SessionCard = ({ session, activeTab, onCancel, onChangeProgram, onNudge, o
                     <ActionBtn onClick={() => downloadFile(`/bookings/${session.id}/invoice/`, "receipt.pdf")} icon={FiFileText} label="Receipt" />
                   )}
                 </>
+              )}
+              {/* Coach can correct any concluded session's outcome — shown in both
+                  the Completed and No-Show tabs. */}
+              {["completed", "held_offline", "no_show", "not_held"].includes(session.status) && (
+                <OutcomeMenu current={session.status} onPick={(o) => onSetOutcome(session, o)} />
               )}
             </div>
           </div>
@@ -419,11 +475,15 @@ const MySessions = () => {
   // nav always matches this tab.
   const isLive = (s) => isSessionLive(s);
   const upcomingSessions = sessions.filter(isUpcomingSession);
+  // "Completed" holds delivered sessions — on-platform AND those the coach marked
+  // as held off-platform (they did take place).
   const pastSessions = sessions.filter(s =>
-    s.status === "completed" ||
+    s.status === "completed" || s.status === "held_offline" ||
     ((s.status === "pending" || s.status === "accepted") && !isLive(s))
   );
-  const noShowSessions = sessions.filter(s => s.status === "no_show");
+  // "No Show" holds sessions that didn't take place — the automatic no-show and
+  // any the coach explicitly marked as "did not take place".
+  const noShowSessions = sessions.filter(s => s.status === "no_show" || s.status === "not_held");
 
   // Coach's own offerings, for the "Change Program" picker.
   const [mySkills, setMySkills] = useState([]);
@@ -519,6 +579,19 @@ const MySessions = () => {
   const joinSession = (link) => {
     if (link) window.open(link, "_blank");
     else toast.error("No meeting link available yet.");
+  };
+
+  // Coach corrects a concluded session's outcome (e.g. a session that ran on
+  // WhatsApp shouldn't read "No Show", and one that never happened shouldn't
+  // read "Completed"). Updates the list in place.
+  const handleSetOutcome = async (session, outcome) => {
+    try {
+      const res = await api.patch(`/bookings/${session.id}/set-outcome/`, { outcome });
+      setSessions(prev => prev.map(s => (s.id === session.id ? { ...s, ...res.data } : s)));
+      toast.success("Session outcome updated.");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Couldn't update the outcome.");
+    }
   };
 
   const totalEarnings = sessions
@@ -770,6 +843,7 @@ const MySessions = () => {
                   onUploadNotes={handleUploadNotes}
                   onReflect={setReflectSession}
                   onSummary={setSummarySession}
+                  onSetOutcome={handleSetOutcome}
                   onJoin={joinSession}
                   navigate={navigate}
                 />

@@ -13,7 +13,14 @@ class SessionBooking(models.Model):
         ('rescheduled', 'Rescheduled'),
         ('completed', 'Completed'),
         ('no_show', 'No Show'),  # scheduled time passed but not both parties joined
+        # Coach corrections for when the platform's automatic guess is wrong:
+        ('held_offline', 'Held off-platform'),  # it took place, just elsewhere (e.g. WhatsApp)
+        ('not_held', 'Did not take place'),      # it never happened at all
     )
+    # Terminal statuses a coach may set as a manual correction, and whether that
+    # outcome counts as a real session (for numbering, "sessions had", etc.).
+    OUTCOME_CHOICES = ('completed', 'held_offline', 'no_show', 'not_held')
+    OUTCOMES_THAT_HAPPENED = ('completed', 'held_offline')
 
     mentor = models.ForeignKey(
         UserProfile,
@@ -540,7 +547,11 @@ class SessionSummary(models.Model):
     summary = models.TextField(blank=True, default='')
     key_points = models.JSONField(default=list, blank=True)   # list of short strings
     action_items = models.JSONField(default=list, blank=True)  # list of short strings
+    reflection_points = models.JSONField(default=list, blank=True)  # prompts to reflect on
     transcript_chars = models.PositiveIntegerField(default=0)
+    # Set once the post-session summary email has gone out, so both participants
+    # POSTing the transcript at session end don't each trigger an email.
+    summary_email_sent = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

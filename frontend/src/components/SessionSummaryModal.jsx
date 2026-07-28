@@ -82,6 +82,19 @@ export default function SessionSummaryModal({ session, onClose }) {
                 </ul>
               </div>
             )}
+            {(data.reflection_points || []).length > 0 && (
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#A9863A" }}>Points to reflect on</label>
+                <ul className="space-y-1.5">
+                  {data.reflection_points.map((p, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm" style={{ color: DARK }}>
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ background: GOLD }} />
+                      <span>{p}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <p className="text-[11px] leading-relaxed pt-1" style={{ color: "rgba(74,85,104,0.6)" }}>
               Generated automatically from the session transcript. It may not be perfectly accurate — please treat it as a helpful aid.
             </p>

@@ -32,6 +32,21 @@ class CurrentUserAndProfileSerializer(serializers.ModelSerializer):
         full = f"{obj.first_name} {obj.last_name}".strip()
         return full or obj.username
 
+    def validate_email(self, value):
+        # Email is editable (it's also the notification address), so it must stay
+        # unique — otherwise two accounts could share one, breaking password reset
+        # and letting notifications cross wires. Compared case-insensitively,
+        # excluding the current user.
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError("Email can't be blank.")
+        qs = CustomUser.objects.filter(email__iexact=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError("That email is already in use by another account.")
+        return value
+
     def update(self, instance, validated_data):
         profile_data = validated_data.pop('profile', {})
         for attr, value in validated_data.items():

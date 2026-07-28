@@ -68,6 +68,9 @@ class Command(BaseCommand):
                     send_session_thankyou(booking)
                 else:
                     no_show += 1
+                    # Tell both parties it didn't take place + invite a reschedule.
+                    from bookings.notifications import send_session_missed
+                    send_session_missed(booking)
 
         if completed or no_show or not quiet:
             self.stdout.write(self.style.SUCCESS(

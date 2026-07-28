@@ -5,9 +5,9 @@ import { toast } from "react-toastify";
 import {
   FiMic, FiMicOff, FiVideo, FiVideoOff,
   FiPhoneOff, FiMessageSquare, FiClock, FiSend, FiX, FiPaperclip, FiDownload, FiFile,
-  FiAlertTriangle, FiRefreshCw, FiFileText, FiMonitor, FiUserPlus, FiCopy, FiTrash2,
+  FiAlertTriangle, FiRefreshCw, FiFileText, FiMonitor, FiUserPlus, FiCopy, FiTrash2, FiHeadphones,
 } from "react-icons/fi";
-import { Room, RoomEvent, Track } from "livekit-client";
+import { Room, RoomEvent, Track, AudioPresets } from "livekit-client";
 import { api } from "../utils/auth";
 import { MAX_UPLOAD_BYTES, formatBytes, isImageType } from "../utils/chatAttachments";
 import { useAuth } from "../context/AuthContext";
@@ -21,6 +21,9 @@ import { RemoteTile, ScreenView } from "../components/CallTiles";
 import { applyBackground, getLocalVideoTrack, preloadBackgroundAssets } from "../utils/videoBackground";
 import { SESSION_GRACE_MS, SESSION_REJOIN_MS } from "../utils/sessionTiming";
 import { isTranscriptionSupported, createTranscriber, buildTranscriptText } from "../utils/liveTranscribe";
+import {
+  diag, resetDiag, logAudioDevices, logMicTrackSettings, startAudioStatsProbe,
+} from "../utils/callDiagnostics";
 
 function formatTime(seconds) {
   const s = Math.max(0, Math.round(seconds));
@@ -64,6 +67,22 @@ export default function SessionCallLiveKit() {
   const aiNotesOnRef = useRef(true);
   const transcriptRef = useRef([]);        // merged [{speaker, text, ts}]
   const transcriberRef = useRef(null);
+  // Browser transcription opens a SECOND capture of the physical microphone
+  // alongside LiveKit's. `micLive` gates it so LiveKit's capture is always the
+  // one that opens the device first and owns its format / echo-cancellation
+  // state; the transcriber only ever attaches to an already-running device.
+  const [micLive, setMicLive] = useState(false);
+  // Set when transcription had to be given up mid-call (contended device or a
+  // restart storm) or was paused because the connection went bad. The call and
+  // the other side's notes carry on regardless.
+  const [aiDegraded, setAiDegraded] = useState("");
+  // True when the backend transcription worker is running for this call — the
+  // browser then never opens its own microphone capture for notes.
+  const [serverStt, setServerStt] = useState(false);
+  const netPoorRef = useRef(false);
+  const [netPoor, setNetPoor] = useState(false);
+  const joiningRef = useRef(false);        // guard: never build two Rooms
+  const statsStopRef = useRef(null);
   const myLabel = user?.role === "coach" ? "Coach" : "Client";
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
@@ -206,7 +225,13 @@ export default function SessionCallLiveKit() {
   // ── Cleanup ────────────────────────────────────────────────────────────────
   const cleanup = useCallback(() => {
     clearInterval(timerRef.current);
+    try { statsStopRef.current?.(); } catch { /* noop */ }
+    statsStopRef.current = null;
+    // Release the second microphone consumer BEFORE tearing the room down.
     try { transcriberRef.current?.stop(); } catch { /* noop */ }
+    transcriberRef.current = null;
+    setMicLive(false);
+    joiningRef.current = false;
     if (roomRef.current) { try { roomRef.current.disconnect(); } catch { /* noop */ } roomRef.current = null; }
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     remotesRef.current = {};
@@ -299,6 +324,10 @@ export default function SessionCallLiveKit() {
   // ── AI note-taking helpers ──────────────────────────────────────────────
   useEffect(() => { aiNotesOnRef.current = aiNotesOn; }, [aiNotesOn]);
 
+  // If note-taking has to back off mid-call, say so — silently losing the notes
+  // is worse than a short banner, and it explains the state to the coach.
+  useEffect(() => { if (aiDegraded) setShowAiBanner(true); }, [aiDegraded]);
+
   // Auto-hide the consent banner a few seconds after both sides connect.
   useEffect(() => {
     if (callState !== "connected" || !showAiBanner) return undefined;
@@ -319,20 +348,57 @@ export default function SessionCallLiveKit() {
     }
   }, [myLabel]);
 
-  // Run the transcriber while we're in-call, AI notes are on, the mic is live
-  // and the browser supports it. Muting the mic pauses transcription.
+  // Report transcriber lifecycle into the diagnostics log, and surface the two
+  // states the user should know about (given up / paused).
+  const handleTranscriberStatus = useCallback((event, detail) => {
+    diag("stt", event, detail);
+    if (event === "blocked") {
+      setAiDegraded(detail?.reason === "not-allowed" || detail?.reason === "service-not-allowed"
+        ? "Microphone access for note-taking was blocked."
+        : "Note-taking paused to protect your call audio.");
+    }
+  }, []);
+
+  // Run the transcriber only while we're in-call, AI notes are on, the browser
+  // supports it, the mic is unmuted AND LiveKit's own microphone capture is
+  // already live. That last condition is the important one: it makes the start
+  // order DETERMINISTIC. Previously this effect fired on `callState` becoming
+  // "connecting", which is before the access token is even fetched — so the Web
+  // Speech API reliably grabbed the microphone first and LiveKit's WebRTC
+  // capture had to join (or forcibly reconfigure) a device someone else had
+  // already opened with different requirements.
+  //
+  // The extra settle delay lets the WebRTC capture graph stabilise before a
+  // second capture client touches the device, and it debounces mute/unmute so a
+  // quick toggle can't leave two recognition sessions overlapping.
+  // The transcriber is built once per call and outlives any re-render, so it must
+  // not close over a specific render's callbacks — it calls through these refs.
+  const finalCbRef = useRef(handleLocalFinal);
+  const statusCbRef = useRef(handleTranscriberStatus);
+  useEffect(() => { finalCbRef.current = handleLocalFinal; }, [handleLocalFinal]);
+  useEffect(() => { statusCbRef.current = handleTranscriberStatus; }, [handleTranscriberStatus]);
+
   useEffect(() => {
     const inCallNow = callState === "connected" || callState === "connecting";
-    const shouldRun = inCallNow && aiNotesOn && aiSupported && micOn;
-    if (shouldRun) {
+    const shouldRun = inCallNow && aiNotesOn && aiSupported && micOn && micLive && !netPoor && !serverStt;
+    if (!shouldRun) {
+      if (transcriberRef.current?.isRunning()) diag("stt", "stopping transcriber", {
+        callState, aiNotesOn, micOn, micLive, netPoor, serverStt,
+      });
+      transcriberRef.current?.stop();
+      return undefined;
+    }
+    const id = setTimeout(() => {
       if (!transcriberRef.current) {
-        transcriberRef.current = createTranscriber({ onFinal: handleLocalFinal });
+        transcriberRef.current = createTranscriber({
+          onFinal: (text) => finalCbRef.current?.(text),
+          onStatus: (event, detail) => statusCbRef.current?.(event, detail),
+        });
       }
       transcriberRef.current.start();
-    } else {
-      transcriberRef.current?.stop();
-    }
-  }, [callState, aiNotesOn, aiSupported, micOn, handleLocalFinal]);
+    }, 1200);
+    return () => clearTimeout(id);
+  }, [callState, aiNotesOn, aiSupported, micOn, micLive, netPoor, serverStt]);
 
   // Remote video/audio/screen are attached by the RemoteTile / ScreenView
   // components themselves (each owns its <video>/<audio>), so no re-attach effect
@@ -364,9 +430,20 @@ export default function SessionCallLiveKit() {
     const room = roomRef.current;
     if (!room) return;
     try {
-      // Honour the choices the user made in the pre-join lobby.
-      await room.localParticipant.setCameraEnabled(camWantRef.current);
+      // Deterministic order: the MICROPHONE is acquired first and on its own, so
+      // WebRTC's capture is the first client to open the audio device and is the
+      // one that installs echo cancellation / noise suppression / AGC on it.
+      // Only after it is publishing does browser transcription (a second capture
+      // client) get to attach — see the transcriber effect above.
+      await logAudioDevices("before mic acquire");
       await room.localParticipant.setMicrophoneEnabled(micWantRef.current);
+      const micPub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+      logMicTrackSettings(micPub?.track?.mediaStreamTrack, "after acquire");
+      setMicLive(!!micPub?.track && micPub.track.mediaStreamTrack?.readyState === "live");
+
+      // Camera second — a failing/slow camera must never delay or disturb the
+      // audio capture that the whole call depends on.
+      await room.localParticipant.setCameraEnabled(camWantRef.current);
       const camPub = room.localParticipant.getTrackPublication(Track.Source.Camera);
       localVideoTrackRef.current = camPub?.track || null;
       camPub?.track?.attach(localVideoRef.current);
@@ -374,19 +451,37 @@ export default function SessionCallLiveKit() {
       setMicOn(micWantRef.current);
       setMediaError("");
     } catch (err) {
+      diag("mic", "enableMedia failed", { name: err?.name, message: err?.message });
       setCamOn(false);
       setMicOn(false);
+      setMicLive(false);
       setMediaError(describeMediaError(err));
     }
   }, []);
 
   // ── Join — connect to the LiveKit room, then publish media (fail-soft) ───────
   const handleJoin = useCallback(async () => {
+    // Re-entrancy guard. Two overlapping joins would build two Rooms and open the
+    // microphone twice — the exact failure this page is being hardened against.
+    if (joiningRef.current || roomRef.current) {
+      diag("join", "join ignored — already joining/joined");
+      return;
+    }
+    joiningRef.current = true;
     let room;
     try {
+      resetDiag(`booking ${bookingId} as ${user?.role || "user"}`);
       setCallState("connecting");
       setMediaError("");
-      const { url, token } = await getBookingCallToken(bookingId);
+      const { url, token, server_transcription: useServerStt } = await getBookingCallToken(bookingId);
+      // If the server-side transcription worker is running it produces the whole
+      // transcript from the LiveKit stream, so the browser must not open a second
+      // microphone capture to do the same job. This is the switch that retires
+      // browser transcription entirely once an STT key is configured.
+      if (useServerStt) {
+        setServerStt(true);
+        diag("stt", "server-side transcription active — browser transcriber disabled");
+      }
 
       room = new Room({
         adaptiveStream: true,
@@ -401,8 +496,24 @@ export default function SessionCallLiveKit() {
           noiseSuppression: true,
           autoGainControl: true,
         },
+        // Audio tuned for spoken conversation on imperfect networks — this is a
+        // coaching call, not music. RED sends redundant audio so a dropped packet
+        // doesn't become a gap; DTX off keeps a continuous stream (with DTX,
+        // silence gaps can clip and stutter — the "choppy / cutting" audio) at a
+        // tiny bandwidth cost.
+        //
+        // Bitrate: AudioPresets.speech is 24 kbps, which pushes Opus into
+        // narrower bands and gives voices a thin, walkie-talkie character. 32 kbps
+        // mono keeps speech full-band and is still negligible next to the video
+        // (even doubled by RED), so there is no reason to economise here.
+        publishDefaults: {
+          audioPreset: { maxBitrate: 32_000 },
+          red: true,
+          dtx: false,
+        },
       });
       roomRef.current = room;
+      diag("join", "room created", { url });
 
       // Someone else is here. We're already "connected" the moment we join the
       // room ourselves (Meet-style: the call starts with one person); this marks
@@ -416,8 +527,12 @@ export default function SessionCallLiveKit() {
       // Remote media — route each participant's video/audio into their tile, and
       // any shared screen into the full-bleed main view (multi-party, N4).
       room
-        .on(RoomEvent.ParticipantConnected, (p) => { upsertParticipant(p); markConnected(); })
+        .on(RoomEvent.ParticipantConnected, (p) => {
+          diag("room", "participant connected", { identity: p?.identity });
+          upsertParticipant(p); markConnected();
+        })
         .on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+          diag("track", "subscribed", { kind: track?.kind, source: publication?.source, who: participant?.identity });
           if (publication?.source === Track.Source.ScreenShare) {
             setScreenShare({ track, name: participant?.name || participant?.identity });
           } else {
@@ -429,15 +544,67 @@ export default function SessionCallLiveKit() {
         // resolution switch) would otherwise leave the old, frozen one attached.
         // Also sync the "I'm sharing my screen" state to LiveKit's own events.
         .on(RoomEvent.LocalTrackPublished, (pub) => {
+          diag("track", "local track published", { source: pub.source, kind: pub.track?.kind, sid: pub.trackSid });
           if (pub.source === Track.Source.ScreenShare) { setScreenSharing(true); return; }
+          if (pub.source === Track.Source.Microphone) {
+            // The authoritative signal that LiveKit owns the audio device. The
+            // transcriber waits for this before opening its own capture, and a
+            // re-publish (reconnect, device change) re-arms that gate so the
+            // ordering holds on every acquisition, not just the first.
+            logMicTrackSettings(pub.track?.mediaStreamTrack, "published");
+            setMicLive(pub.track?.mediaStreamTrack?.readyState === "live");
+            return;
+          }
           if (pub.track?.kind === Track.Kind.Video) {
             localVideoTrackRef.current = pub.track;
             if (localVideoRef.current) pub.track.attach(localVideoRef.current);
           }
         })
         .on(RoomEvent.LocalTrackUnpublished, (pub) => {
+          diag("track", "local track unpublished", { source: pub.source, sid: pub.trackSid });
           if (pub.source === Track.Source.ScreenShare) setScreenSharing(false);
+          // Mic gone → stand the transcriber down until it's published again, so
+          // it can never be the only thing holding the device.
+          if (pub.source === Track.Source.Microphone) setMicLive(false);
         })
+        // ── Diagnostics + adaptation ────────────────────────────────────────
+        // Connection quality is the one signal that tells us the trouble is the
+        // network rather than the device. When the local link goes bad we also
+        // stop competing for the microphone: browser transcription is the first
+        // thing to sacrifice, the conversation is the last.
+        .on(RoomEvent.ConnectionQualityChanged, (quality, participant) => {
+          const isLocal = participant?.identity === room.localParticipant?.identity;
+          diag("net", "connection quality", { quality, who: isLocal ? "local" : (participant?.identity || "remote") });
+          if (!isLocal) return;
+          const poor = quality === "poor" || quality === "lost";
+          if (poor !== netPoorRef.current) {
+            netPoorRef.current = poor;
+            setNetPoor(poor);
+            if (poor) setAiDegraded("Note-taking paused while your connection recovers.");
+            else setAiDegraded("");
+          }
+        })
+        .on(RoomEvent.Reconnecting, () => {
+          diag("net", "reconnecting — standing transcriber down");
+          // A reconnect re-publishes tracks; block the second capture until the
+          // fresh mic publication lands so the two can't race on the way back up.
+          setMicLive(false);
+        })
+        .on(RoomEvent.SignalReconnecting, () => diag("net", "signal reconnecting"))
+        .on(RoomEvent.Reconnected, () => {
+          diag("net", "reconnected");
+          const micPub = room.localParticipant?.getTrackPublication(Track.Source.Microphone);
+          logMicTrackSettings(micPub?.track?.mediaStreamTrack, "after reconnect");
+          setMicLive(micPub?.track?.mediaStreamTrack?.readyState === "live");
+        })
+        .on(RoomEvent.MediaDevicesError, (e) => diag("mic", "media devices error", { name: e?.name, message: e?.message }))
+        .on(RoomEvent.LocalAudioSilenceDetected, () => {
+          // LiveKit heard nothing at all from our mic after publishing — the
+          // classic symptom of the capture being stolen by another client.
+          diag("mic", "LOCAL AUDIO SILENCE DETECTED — capture may have been lost");
+        })
+        .on(RoomEvent.TrackMuted, (pub, participant) => diag("track", "track muted", { source: pub?.source, who: participant?.identity }))
+        .on(RoomEvent.TrackUnmuted, (pub, participant) => diag("track", "track unmuted", { source: pub?.source, who: participant?.identity }))
         .on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
           if (publication?.source === Track.Source.ScreenShare) {
             setScreenShare((cur) => (cur && cur.track === track ? null : cur));
@@ -468,6 +635,11 @@ export default function SessionCallLiveKit() {
         .on(RoomEvent.Disconnected, () => { /* self disconnect handled by finishSession */ });
 
       await room.connect(url, token);
+      diag("join", "connected to room", { name: room.name, participants: room.remoteParticipants?.size ?? 0 });
+      // Sample audio RTP stats periodically and log only when they look wrong, so
+      // an intermittent report can be traced to loss/jitter vs a capture fault.
+      statsStopRef.current?.();
+      statsStopRef.current = startAudioStatsProbe(room);
       // We're in the room — the call has started (Meet-style: one person is
       // enough). Show our own video + controls immediately, not a blocking
       // "connecting" overlay.
@@ -483,18 +655,24 @@ export default function SessionCallLiveKit() {
       }
     } catch (err) {
       // Only a genuine connection/token/network failure lands here.
+      diag("join", "connect failed", { name: err?.name, message: err?.message });
       const detail = err?.response?.data?.detail;
       toast.error(detail || "Could not connect to the session. Please check your internet and try again.");
       cleanup();
       setCallState("idle");
+      joiningRef.current = false;
       return;
     }
 
     // We're in the room — turn on our media. The session clock does NOT start
     // here: it begins only once the other participant is also present (see
     // markConnected), so it never counts down while you're waiting alone.
-    await enableMedia();
-  }, [bookingId, startTimer, finishSession, cleanup, enableMedia, upsertParticipant, dropParticipant, setParticipantTrack]);
+    try {
+      await enableMedia();
+    } finally {
+      joiningRef.current = false;
+    }
+  }, [bookingId, user, startTimer, finishSession, cleanup, enableMedia, upsertParticipant, dropParticipant, setParticipantTrack]);
 
   const handleEndCall = useCallback(() => {
     // With the rejoin window (N3), leaving never auto-completes a session that's
@@ -508,7 +686,9 @@ export default function SessionCallLiveKit() {
   // ── Pre-join lobby: live camera/mic preview + device check ──────────────────
   const stopPreview = useCallback(() => {
     if (previewStreamRef.current) {
-      previewStreamRef.current.getTracks().forEach((t) => t.stop());
+      const tracks = previewStreamRef.current.getTracks();
+      tracks.forEach((t) => t.stop());
+      diag("mic", "lobby preview released", { tracks: tracks.map((t) => `${t.kind}:${t.readyState}`) });
       previewStreamRef.current = null;
     }
     if (previewRef.current) previewRef.current.srcObject = null;
@@ -547,9 +727,13 @@ export default function SessionCallLiveKit() {
   const joinFromLobby = async () => {
     if (isCoachUser) {
       stopPreview(); // free the devices so LiveKit can acquire them cleanly
-      // Give the camera a moment to fully release — re-acquiring it too quickly
-      // can hand LiveKit a frozen track (self video stuck / peers see black).
-      await new Promise((r) => setTimeout(r, 200));
+      // Give the devices a moment to fully release before LiveKit re-acquires
+      // them. Too quick and the camera comes back frozen (self video stuck /
+      // peers see black); for the microphone, overlapping the release with the
+      // new acquisition is what leaves the audio device in a reconfigured,
+      // crackling state. The browser's release is asynchronous, so this settle
+      // is deliberate, not incidental.
+      await new Promise((r) => setTimeout(r, 350));
       handleJoin();
       return;
     }
@@ -766,6 +950,7 @@ export default function SessionCallLiveKit() {
   // ── Cleanup on unmount ──────────────────────────────────────────────────────
   useEffect(() => () => {
     clearInterval(timerRef.current);
+    try { statsStopRef.current?.(); } catch { /* noop */ }
     try { transcriberRef.current?.stop(); } catch { /* noop */ }
     try { roomRef.current?.disconnect(); } catch { /* noop */ }
     chatWsRef.current?.close();
@@ -773,8 +958,21 @@ export default function SessionCallLiveKit() {
 
   const toggleMic = async () => {
     const next = !micOn;
-    try { await roomRef.current?.localParticipant.setMicrophoneEnabled(next); setMicOn(next); }
-    catch { /* noop */ }
+    diag("mic", next ? "unmute requested" : "mute requested");
+    // Stand the transcriber's capture down FIRST when muting, and don't let it
+    // come back up on unmute until LiveKit's own capture is confirmed live —
+    // otherwise a quick mute/unmute is exactly the window in which two
+    // recognition sessions used to end up holding the device at once.
+    if (!next) setMicLive(false);
+    try {
+      await roomRef.current?.localParticipant.setMicrophoneEnabled(next);
+      setMicOn(next);
+      if (next) {
+        const micPub = roomRef.current?.localParticipant.getTrackPublication(Track.Source.Microphone);
+        logMicTrackSettings(micPub?.track?.mediaStreamTrack, "after unmute");
+        setMicLive(micPub?.track?.mediaStreamTrack?.readyState === "live");
+      }
+    } catch (err) { diag("mic", "toggle failed", { name: err?.name }); }
   };
 
   const toggleCam = async () => {
@@ -964,10 +1162,17 @@ export default function SessionCallLiveKit() {
 
         <div className="flex items-center gap-2 shrink-0">
           {inCall && aiSupported && aiNotesOn && (
-            <span className="hidden sm:flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: "rgba(200,169,81,0.12)", color: "#C8A951", border: "1px solid rgba(200,169,81,0.25)" }} title="AI note-taking is on">
-              <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#C8A951" }} />
-              AI notes
-            </span>
+            aiDegraded ? (
+              <span className="hidden sm:flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.55)", border: "1px solid rgba(255,255,255,0.12)" }} title={aiDegraded}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.4)" }} />
+                Notes paused
+              </span>
+            ) : (
+              <span className="hidden sm:flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: "rgba(200,169,81,0.12)", color: "#C8A951", border: "1px solid rgba(200,169,81,0.25)" }} title="AI note-taking is on">
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#C8A951" }} />
+                AI notes
+              </span>
+            )
           )}
           <span className="hidden sm:inline-flex text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: "rgba(200,169,81,0.12)", color: "#C8A951", border: "1px solid rgba(200,169,81,0.25)" }}>
             {booking?.duration} min
@@ -1033,7 +1238,16 @@ export default function SessionCallLiveKit() {
               >
                 <FiVideo size={20} /> {isCoachUser ? "Join now" : "Ask to join"}
               </motion.button>
-              <p className="text-xs mt-4" style={{ color: "rgba(255,255,255,0.4)" }}>
+              {/* Headphones are the single biggest fix for echo / the "radio-like"
+                  feedback noise — speakers let each side's audio loop back in. */}
+              <div className="mt-4 mx-auto max-w-xs rounded-xl px-3 py-2.5 flex items-start gap-2 text-left"
+                style={{ background: "rgba(200,169,81,0.1)", border: "1px solid rgba(200,169,81,0.25)" }}>
+                <FiHeadphones size={15} style={{ color: "#C8A951" }} className="shrink-0 mt-0.5" />
+                <p className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.75)" }}>
+                  For the clearest audio, please use <strong>headphones or earphones</strong> — they prevent the echo and background noise that speakers can cause.
+                </p>
+              </div>
+              <p className="text-xs mt-3" style={{ color: "rgba(255,255,255,0.4)" }}>
                 {previewError
                   ? "You can still join — you'll be able to turn your camera on once you're in."
                   : isCoachUser
@@ -1213,9 +1427,11 @@ export default function SessionCallLiveKit() {
                 <FiFileText size={15} style={{ color: "#C8A951" }} />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-white">AI note-taking is on</p>
+                <p className="text-sm font-bold text-white">{aiDegraded ? "Note-taking paused" : "AI note-taking is on"}</p>
                 <p className="text-xs mt-0.5 leading-relaxed" style={{ color: "rgba(255,255,255,0.7)" }}>
-                  This session is being transcribed to create a private summary for you and your coach. You can turn it off anytime.
+                  {aiDegraded
+                    ? `${aiDegraded} Your call is unaffected, and the summary still uses everything captured so far.`
+                    : "This session is being transcribed to create a private summary for you and your coach. It pauses itself automatically if it would ever affect your call audio, and you can turn it off anytime."}
                 </p>
                 <div className="flex items-center gap-3 mt-2">
                   <button onClick={() => setShowAiBanner(false)} className="text-xs font-bold px-3 py-1 rounded-full" style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>Got it</button>

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
@@ -11,7 +12,7 @@ import {
   FiDollarSign, FiBriefcase, FiAward, FiShield,
   FiActivity, FiCalendar, FiTrendingUp, FiBarChart2,
   FiUserCheck, FiUserPlus, FiAlertCircle, FiTarget,
-  FiMail, FiTrash2, FiCornerUpLeft, FiSend, FiEdit2, FiPlus, FiDatabase,
+  FiMail, FiTrash2, FiCornerUpLeft, FiSend, FiEdit2, FiPlus, FiDatabase, FiEye, FiX,
 } from "react-icons/fi";
 import {
   ResponsiveContainer,
@@ -180,6 +181,7 @@ export default function AdminPanel() {
   const [compose, setCompose] = useState({ id: null, subject: "", body_html: "" });
   const [composeSaving, setComposeSaving] = useState(false);
   const [sendModal, setSendModal] = useState({ open: false, newsletter: null });
+  const [previewModal, setPreviewModal] = useState({ open: false, newsletter: null });
   const [sending, setSending] = useState(false);
   // Onboard clients (E2 pre-register)
   const [programs, setPrograms] = useState([]);
@@ -1514,22 +1516,28 @@ export default function AdminPanel() {
                           : `Draft · updated ${new Date(n.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
                       </p>
                     </div>
-                    {n.status === "draft" && (
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button onClick={() => setSendModal({ open: true, newsletter: n })}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold" style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
-                          <FiSend size={12} /> Send
-                        </button>
-                        <button onClick={() => editDraft(n)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A" }}>
-                          <FiEdit2 size={12} /> Edit
-                        </button>
-                        <button onClick={() => deleteDraft(n.id)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(239,68,68,0.08)", color: "#B91C1C" }}>
-                          <FiTrash2 size={12} /> Delete
-                        </button>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button onClick={() => setPreviewModal({ open: true, newsletter: n })}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(27,43,74,0.06)", color: "#1B2B4A" }}>
+                        <FiEye size={12} /> Preview
+                      </button>
+                      {n.status === "draft" && (
+                        <>
+                          <button onClick={() => setSendModal({ open: true, newsletter: n })}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold" style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
+                            <FiSend size={12} /> Send
+                          </button>
+                          <button onClick={() => editDraft(n)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A" }}>
+                            <FiEdit2 size={12} /> Edit
+                          </button>
+                          <button onClick={() => deleteDraft(n.id)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(239,68,68,0.08)", color: "#B91C1C" }}>
+                            <FiTrash2 size={12} /> Delete
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 ))
               )}
@@ -1759,6 +1767,60 @@ export default function AdminPanel() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Newsletter preview — portaled to <body> so it escapes any ancestor
+          stacking context and always sits above the fixed navbar. */}
+      {createPortal(
+        <AnimatePresence>
+          {previewModal.open && (
+            <motion.div className="fixed inset-0 z-[100] flex items-start justify-center px-4 py-10 overflow-y-auto"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            >
+              <motion.div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setPreviewModal({ open: false, newsletter: null })} />
+              <motion.div
+                className="relative w-full max-w-[640px] z-10"
+                initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2 text-white">
+                    <FiEye size={16} />
+                    <span className="text-sm font-semibold">Preview — how it arrives in the inbox</span>
+                  </div>
+                  <button onClick={() => setPreviewModal({ open: false, newsletter: null })}
+                    className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.2)", color: "#fff" }}>
+                    <FiX size={16} />
+                  </button>
+                </div>
+
+                <div style={{ background: "#ffffff", borderRadius: "16px", overflow: "hidden", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", fontFamily: "Georgia, 'Times New Roman', serif", color: "#1B2B4A" }}>
+                  <div style={{ background: "linear-gradient(135deg,#1B2B4A,#14213D)", padding: "28px 32px", textAlign: "center" }}>
+                    <div style={{ fontSize: "24px", fontWeight: "bold", color: "#fff", letterSpacing: ".5px" }}>Dr. Nath</div>
+                    <div style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "3px", color: "#C8A951", marginTop: "4px" }}>Coaching for Impact</div>
+                  </div>
+                  <div style={{ height: "4px", background: "linear-gradient(90deg,#C8A951,#F0D98C)" }} />
+                  <div style={{ padding: "32px" }}>
+                    <p style={{ margin: "0 0 18px", fontSize: "15px", lineHeight: 1.6, color: "#4A5568", fontFamily: "Arial, sans-serif" }}>Hi <span style={{ color: "#A9863A" }}>[First name]</span>,</p>
+                    <div style={{ fontSize: "15px", lineHeight: 1.7, color: "#1B2B4A", fontFamily: "Arial, sans-serif" }}
+                      dangerouslySetInnerHTML={{ __html: previewModal.newsletter?.body_html || "" }} />
+                    <p style={{ margin: "28px 0 0", fontSize: "12px", lineHeight: 1.6, color: "#9aa3b0", fontFamily: "Arial, sans-serif" }}>
+                      You're receiving this because you subscribed at dr-nath.com. <span style={{ color: "#A9863A" }}>Unsubscribe</span>.
+                    </p>
+                  </div>
+                  <div style={{ background: "#FAF6EC", padding: "20px 32px", textAlign: "center", borderTop: "1px solid rgba(200,169,81,0.25)" }}>
+                    <p style={{ margin: 0, fontSize: "12px", color: "#4A5568", fontFamily: "Arial, sans-serif" }}>© 2026 Dr. Nath · Coaching for Impact</p>
+                  </div>
+                </div>
+                <p className="text-center text-xs mt-3" style={{ color: "rgba(255,255,255,0.75)" }}>
+                  <strong>[First name]</strong> is a placeholder — each subscriber is greeted by their own name.
+                </p>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }

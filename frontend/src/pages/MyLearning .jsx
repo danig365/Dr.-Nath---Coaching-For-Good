@@ -19,17 +19,25 @@ import GoogleCalendarCard from "../components/GoogleCalendarCard";
 import { downloadFile } from "../utils/downloadFile";
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
+const STATUS_LABELS = {
+  pending: "Pending", accepted: "Accepted", completed: "Completed",
+  cancelled: "Cancelled", declined: "Declined", no_show: "No Show",
+  held_offline: "Held off-platform", not_held: "Did not take place",
+};
+
 const StatusBadge = ({ status }) => {
   const map = {
     pending:   { bg: "rgba(251,191,36,0.12)", color: "#92400E", border: "1px solid rgba(251,191,36,0.3)" },
     accepted:  { bg: "rgba(52,168,83,0.1)",   color: "#2E7D32", border: "1px solid rgba(52,168,83,0.25)" },
     completed: { bg: "rgba(200,169,81,0.12)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.3)" },
+    held_offline: { bg: "rgba(52,168,83,0.1)", color: "#2E7D32", border: "1px solid rgba(52,168,83,0.25)" },
     cancelled: { bg: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" },
     declined:  { bg: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" },
     no_show:   { bg: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" },
+    not_held:  { bg: "rgba(74,85,104,0.08)", color: "#4A5568", border: "1px solid rgba(74,85,104,0.2)" },
   };
   const s = map[status] || map.pending;
-  const label = status === "no_show" ? "No Show" : status.charAt(0).toUpperCase() + status.slice(1);
+  const label = STATUS_LABELS[status] || (status.charAt(0).toUpperCase() + status.slice(1));
   return (
     <span className="text-xs font-semibold px-3 py-1 rounded-full shrink-0" style={{ background: s.bg, color: s.color, border: s.border }}>
       {label}
@@ -407,10 +415,10 @@ const MyLearning = () => {
   const isLive = (s) => isSessionLive(s);
   const upcomingSessions = sessions.filter(isUpcomingSession);
   const pastSessions = sessions.filter(s =>
-    s.status === "completed" ||
+    s.status === "completed" || s.status === "held_offline" ||
     ((s.status === "pending" || s.status === "accepted") && !isLive(s))
   );
-  const noShowSessions = sessions.filter(s => s.status === "no_show");
+  const noShowSessions = sessions.filter(s => s.status === "no_show" || s.status === "not_held");
 
   const handleCancelSession = (id) => { setCancelKind("session"); setSessionToCancelId(id); setShowCancelModal(true); };
   const handleCancelGroup = (id) => { setCancelKind("group"); setSessionToCancelId(id); setShowCancelModal(true); };

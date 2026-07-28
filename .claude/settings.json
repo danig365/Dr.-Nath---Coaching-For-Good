@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(venv/bin/python manage.py shell -c ' *)"
+      "Bash(venv/bin/python manage.py shell -c ' *)",
+      "Bash(systemctl status *)",
+      "Read(//etc/systemd/system/**)",
+      "Bash(curl -s -o /dev/null -w \"  site: HTTP %{http_code}\\\\n\" https://dr-nath.com/)",
+      "Bash(sed -E 's/\\(wss:\\\\/\\\\/[^.]*\\).*/\\\\1.../')"
     ]
   }
 }

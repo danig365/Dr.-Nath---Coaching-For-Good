@@ -1,0 +1,17 @@
+{% extends "emails/base.txt" %}
+{% block content %}LET'S RESCHEDULE
+
+Hi {{ recipient_name }},
+
+It looks like your {{ skill_name }} session didn't take place:
+
+  {{ session_when }}
+  Duration: {{ duration }} minutes
+
+No problem — these things happen. {% if role == 'client' %}You can book a new time here:
+{{ browse_link }}
+{% else %}Your client can rebook a new time, and this slot is free again for others.
+{{ manage_url }}
+{% endif %}
+Warm regards,
+Dr. Nath — Coaching for Impact{% endblock %}

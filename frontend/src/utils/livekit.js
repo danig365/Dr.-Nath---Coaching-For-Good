@@ -8,7 +8,10 @@ import { api } from "./auth";
 // Token for a 1:1 session call.
 export async function getBookingCallToken(bookingId) {
   const res = await api.get(`/bookings/livekit/token/booking/${bookingId}/`);
-  return res.data; // { url, token, room, identity }
+  // { url, token, room, identity, server_transcription }
+  // `server_transcription` true means the backend worker transcribes the call,
+  // so the browser must not open its own microphone capture to do it too.
+  return res.data;
 }
 
 // Token for a group session call.

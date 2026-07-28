@@ -21,6 +21,29 @@ const Tag = ({ label, color = "gold" }) => {
   );
 };
 
+// ─── Labelled edit field (input / number / textarea) ─────────────────────────
+const EditField = ({ label, value, onChange, type = "text", placeholder = "", rows, hint }) => (
+  <div>
+    <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "rgba(74,85,104,0.6)" }}>{label}</p>
+    {rows ? (
+      <textarea
+        rows={rows} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        className="w-full px-4 py-2.5 rounded-xl text-sm focus:outline-none resize-none"
+        style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }}
+        onFocus={e => e.target.style.borderColor = "#C8A951"} onBlur={e => e.target.style.borderColor = "rgba(200,169,81,0.3)"}
+      />
+    ) : (
+      <input
+        type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        className="w-full px-4 py-2.5 rounded-xl text-sm focus:outline-none"
+        style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }}
+        onFocus={e => e.target.style.borderColor = "#C8A951"} onBlur={e => e.target.style.borderColor = "rgba(200,169,81,0.3)"}
+      />
+    )}
+    {hint && <p className="text-[11px] mt-1" style={{ color: "rgba(74,85,104,0.5)" }}>{hint}</p>}
+  </div>
+);
+
 // ─── Section Card ─────────────────────────────────────────────────────────────
 const Card = ({ children, className = "" }) => (
   <div
@@ -68,7 +91,23 @@ const ProfilePage = () => {
         coaching_goals: d.profile.coaching_goals || [],
       };
       setProfile(p);
-      setFormData({ bio: p.bio || "", first_name: p.firstName, last_name: p.lastName, linkedin_url: p.linkedin_url || "" });
+      setFormData({
+        first_name: p.firstName,
+        last_name: p.lastName,
+        email: p.email || "",
+        bio: p.bio || "",
+        linkedin_url: p.linkedin_url || "",
+        hourly_rate: p.hourly_rate ?? "",
+        years_experience: p.years_experience ?? "",
+        organisation: p.organisation || "",
+        job_title: p.job_title || "",
+        // Arrays are edited as comma-separated text; joined here, split on save.
+        specialties: (p.specialties || []).join(", "),
+        certifications: (p.certifications || []).join(", "),
+        industries: (p.industries || []).join(", "),
+        languages: (p.languages || []).join(", "),
+        coaching_goals: (p.coaching_goals || []).join(", "),
+      });
     } catch (err) {
       toast.error("Failed to load profile.");
       if (err.message?.includes("Session expired")) logout();
@@ -79,26 +118,62 @@ const ProfilePage = () => {
 
   useEffect(() => { if (isAuthenticated) fetchData(); }, [fetchData, isAuthenticated]);
 
+  // "a, b ,c" → ["a","b","c"] (drops blanks + surrounding spaces).
+  const toList = (s) => (s || "").split(",").map(x => x.trim()).filter(Boolean);
+  // "" → null for optional numbers, so the backend doesn't get an empty string.
+  const toNum = (v) => (v === "" || v === null || v === undefined ? null : Number(v));
+
   const handleSubmit = async () => {
     setSaving(true);
     try {
+      const profilePayload = {
+        bio: formData.bio,
+        linkedin_url: formData.linkedin_url,
+        organisation: formData.organisation,
+        job_title: formData.job_title,
+        specialties: toList(formData.specialties),
+        certifications: toList(formData.certifications),
+        industries: toList(formData.industries),
+        languages: toList(formData.languages),
+        coaching_goals: toList(formData.coaching_goals),
+      };
+      // Coach-only numeric fields (leave client payloads clean).
+      if (isCoach()) {
+        profilePayload.hourly_rate = toNum(formData.hourly_rate);
+        profilePayload.years_experience = toNum(formData.years_experience);
+      }
       const res = await api.patch("/profile/", {
         first_name: formData.first_name,
         last_name: formData.last_name,
-        profile: { bio: formData.bio, linkedin_url: formData.linkedin_url },
+        email: formData.email,
+        profile: profilePayload,
       });
+      const rp = res.data.profile;
       setProfile(prev => ({
         ...prev,
-        bio: res.data.profile.bio,
-        linkedin_url: res.data.profile.linkedin_url || "",
         fullName: res.data.full_name,
         firstName: res.data.first_name || "",
         lastName: res.data.last_name || "",
+        email: res.data.email,
+        bio: rp.bio,
+        linkedin_url: rp.linkedin_url || "",
+        hourly_rate: rp.hourly_rate,
+        years_experience: rp.years_experience,
+        organisation: rp.organisation,
+        job_title: rp.job_title,
+        specialties: rp.specialties || [],
+        certifications: rp.certifications || [],
+        industries: rp.industries || [],
+        languages: rp.languages || [],
+        coaching_goals: rp.coaching_goals || [],
       }));
       setEditMode(false);
       toast.success("Profile updated.");
-    } catch {
-      toast.error("Failed to update profile.");
+    } catch (err) {
+      // Surface a specific backend message (e.g. duplicate email) if there is one.
+      const detail = err?.response?.data;
+      const msg = detail?.email?.[0] || detail?.profile?.[0] || detail?.detail;
+      toast.error(msg || "Failed to update profile.");
     } finally {
       setSaving(false);
     }
@@ -181,10 +256,22 @@ const ProfilePage = () => {
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 text-sm mb-3" style={{ color: "#4A5568" }}>
-                  <FiMail size={13} style={{ color: "#C8A951" }} />
-                  <span>{profile.email}</span>
-                </div>
+                {editMode ? (
+                  <div className="mb-3 max-w-sm">
+                    <EditField
+                      label="Email (where notifications are sent)"
+                      type="email"
+                      value={formData.email}
+                      onChange={v => setFormData(f => ({ ...f, email: v }))}
+                      placeholder="you@example.com"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-sm mb-3" style={{ color: "#4A5568" }}>
+                    <FiMail size={13} style={{ color: "#C8A951" }} />
+                    <span>{profile.email}</span>
+                  </div>
+                )}
 
                 {profile.job_title && (
                   <div className="flex items-center gap-2 text-sm" style={{ color: "#4A5568" }}>
@@ -287,109 +374,155 @@ const ProfilePage = () => {
                 Coach Details
               </p>
 
-              {/* Stats row */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-5">
-                {profile.hourly_rate && (
-                  <div className="rounded-xl p-4" style={{ background: "#F3ECD9" }}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <FiDollarSign size={14} style={{ color: "#C8A951" }} />
-                      <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "rgba(74,85,104,0.7)" }}>Rate</span>
+              {editMode ? (
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <EditField label="Hourly rate (USD)" type="number" value={formData.hourly_rate}
+                    onChange={v => setFormData(f => ({ ...f, hourly_rate: v }))} placeholder="150" />
+                  <EditField label="Years of experience" type="number" value={formData.years_experience}
+                    onChange={v => setFormData(f => ({ ...f, years_experience: v }))} placeholder="6" />
+                  <div className="sm:col-span-2">
+                    <EditField label="Specialties" value={formData.specialties}
+                      onChange={v => setFormData(f => ({ ...f, specialties: v }))}
+                      placeholder="Leadership, Wellness, Career" hint="Separate each with a comma." />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <EditField label="Certifications" value={formData.certifications}
+                      onChange={v => setFormData(f => ({ ...f, certifications: v }))}
+                      placeholder="ICF, EMCC" hint="Separate each with a comma." />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <EditField label="Industries" value={formData.industries}
+                      onChange={v => setFormData(f => ({ ...f, industries: v }))}
+                      placeholder="Healthcare, Finance" hint="Separate each with a comma." />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <EditField label="Languages" value={formData.languages}
+                      onChange={v => setFormData(f => ({ ...f, languages: v }))}
+                      placeholder="English, French" hint="Separate each with a comma." />
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Stats row */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-5">
+                    {profile.hourly_rate && (
+                      <div className="rounded-xl p-4" style={{ background: "#F3ECD9" }}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <FiDollarSign size={14} style={{ color: "#C8A951" }} />
+                          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "rgba(74,85,104,0.7)" }}>Rate</span>
+                        </div>
+                        <p className="text-xl font-bold text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>
+                          ${profile.hourly_rate}<span className="text-xs font-normal text-[#4A5568]">/hr</span>
+                        </p>
+                      </div>
+                    )}
+                    {profile.years_experience && (
+                      <div className="rounded-xl p-4" style={{ background: "#F3ECD9" }}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <FiClock size={14} style={{ color: "#C8A951" }} />
+                          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "rgba(74,85,104,0.7)" }}>Experience</span>
+                        </div>
+                        <p className="text-xl font-bold text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>
+                          {profile.years_experience}<span className="text-xs font-normal text-[#4A5568]"> yrs</span>
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {profile.specialties?.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "rgba(74,85,104,0.6)" }}>
+                        <FiAward size={12} className="inline mr-1" /> Specialties
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.specialties.map(s => <Tag key={s} label={s} color="gold" />)}
+                      </div>
                     </div>
-                    <p className="text-xl font-bold text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>
-                      ${profile.hourly_rate}<span className="text-xs font-normal text-[#4A5568]">/hr</span>
-                    </p>
-                  </div>
-                )}
-                {profile.years_experience && (
-                  <div className="rounded-xl p-4" style={{ background: "#F3ECD9" }}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <FiClock size={14} style={{ color: "#C8A951" }} />
-                      <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "rgba(74,85,104,0.7)" }}>Experience</span>
+                  )}
+
+                  {profile.certifications?.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "rgba(74,85,104,0.6)" }}>
+                        Certifications
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.certifications.map(c => <Tag key={c} label={c} color="green" />)}
+                      </div>
                     </div>
-                    <p className="text-xl font-bold text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>
-                      {profile.years_experience}<span className="text-xs font-normal text-[#4A5568]"> yrs</span>
-                    </p>
-                  </div>
-                )}
-              </div>
+                  )}
 
-              {profile.specialties?.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "rgba(74,85,104,0.6)" }}>
-                    <FiAward size={12} className="inline mr-1" /> Specialties
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {profile.specialties.map(s => <Tag key={s} label={s} color="gold" />)}
-                  </div>
-                </div>
-              )}
+                  {profile.industries?.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "rgba(74,85,104,0.6)" }}>
+                        Industries
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.industries.map(i => <Tag key={i} label={i} color="rose" />)}
+                      </div>
+                    </div>
+                  )}
 
-              {profile.certifications?.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "rgba(74,85,104,0.6)" }}>
-                    Certifications
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {profile.certifications.map(c => <Tag key={c} label={c} color="green" />)}
-                  </div>
-                </div>
-              )}
-
-              {profile.industries?.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "rgba(74,85,104,0.6)" }}>
-                    Industries
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {profile.industries.map(i => <Tag key={i} label={i} color="rose" />)}
-                  </div>
-                </div>
-              )}
-
-              {profile.languages?.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "rgba(74,85,104,0.6)" }}>
-                    <FiGlobe size={12} className="inline mr-1" /> Languages
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {profile.languages.map(l => <Tag key={l} label={l} color="rose" />)}
-                  </div>
-                </div>
+                  {profile.languages?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "rgba(74,85,104,0.6)" }}>
+                        <FiGlobe size={12} className="inline mr-1" /> Languages
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.languages.map(l => <Tag key={l} label={l} color="rose" />)}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </Card>
           </motion.div>
         )}
 
         {/* ── CLIENT DETAILS ────────────────────────────────── */}
-        {!isCoach() && !isAdmin() && (profile.organisation || profile.job_title || profile.coaching_goals?.length > 0) && (
+        {!isCoach() && !isAdmin() && (editMode || profile.organisation || profile.job_title || profile.coaching_goals?.length > 0) && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}>
             <Card>
               <p className="text-xs font-semibold uppercase tracking-wider mb-4" style={{ color: "rgba(200,169,81,0.8)" }}>
                 <FiStar size={12} className="inline mr-1" /> Client Details
               </p>
 
-              {profile.organisation && (
-                <div className="flex items-center gap-2 text-sm mb-2" style={{ color: "#4A5568" }}>
-                  <FiBriefcase size={13} style={{ color: "#C8A951" }} />
-                  <span><span className="font-medium text-[#1B2B4A]">Organisation:</span> {profile.organisation}</span>
-                </div>
-              )}
-              {profile.job_title && (
-                <div className="flex items-center gap-2 text-sm mb-4" style={{ color: "#4A5568" }}>
-                  <FiAward size={13} style={{ color: "#C8A951" }} />
-                  <span><span className="font-medium text-[#1B2B4A]">Job Title:</span> {profile.job_title}</span>
-                </div>
-              )}
-
-              {profile.coaching_goals?.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "rgba(74,85,104,0.6)" }}>
-                    Coaching Goals
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {profile.coaching_goals.map(g => <Tag key={g} label={g} color="gold" />)}
+              {editMode ? (
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <EditField label="Organisation" value={formData.organisation}
+                    onChange={v => setFormData(f => ({ ...f, organisation: v }))} placeholder="Acme Ltd" />
+                  <EditField label="Job title" value={formData.job_title}
+                    onChange={v => setFormData(f => ({ ...f, job_title: v }))} placeholder="Product Manager" />
+                  <div className="sm:col-span-2">
+                    <EditField label="Coaching goals" value={formData.coaching_goals}
+                      onChange={v => setFormData(f => ({ ...f, coaching_goals: v }))}
+                      placeholder="Confidence, Work-life balance" hint="Separate each with a comma." />
                   </div>
                 </div>
+              ) : (
+                <>
+                  {profile.organisation && (
+                    <div className="flex items-center gap-2 text-sm mb-2" style={{ color: "#4A5568" }}>
+                      <FiBriefcase size={13} style={{ color: "#C8A951" }} />
+                      <span><span className="font-medium text-[#1B2B4A]">Organisation:</span> {profile.organisation}</span>
+                    </div>
+                  )}
+                  {profile.job_title && (
+                    <div className="flex items-center gap-2 text-sm mb-4" style={{ color: "#4A5568" }}>
+                      <FiAward size={13} style={{ color: "#C8A951" }} />
+                      <span><span className="font-medium text-[#1B2B4A]">Job Title:</span> {profile.job_title}</span>
+                    </div>
+                  )}
+                  {profile.coaching_goals?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "rgba(74,85,104,0.6)" }}>
+                        Coaching Goals
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.coaching_goals.map(g => <Tag key={g} label={g} color="gold" />)}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </Card>
           </motion.div>

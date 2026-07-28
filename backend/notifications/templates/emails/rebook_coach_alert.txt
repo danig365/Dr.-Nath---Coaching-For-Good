@@ -1,0 +1,14 @@
+{% extends "emails/base.txt" %}
+{% block content %}A CLIENT HASN'T REBOOKED
+
+Hi {{ recipient_name }},
+
+{{ client_name }} asked to be reminded to book their next {{ skill_name }} session, but hasn't booked yet despite our reminders.
+
+It might be a good moment to reach out to them personally.
+
+See your sessions:
+{{ manage_url }}
+
+Warm regards,
+Dr. Nath — Coaching for Impact{% endblock %}

@@ -1,0 +1,9 @@
+{% extends "emails/base.html" %}
+{% block title %}A client hasn't rebooked{% endblock %}
+{% block content %}
+  <h1 style="margin:0 0 8px; font-size:22px; font-weight:normal; color:#1B2B4A;">A client hasn't rebooked</h1>
+  <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;">
+    Hi {{ recipient_name }}, <strong>{{ client_name }}</strong> asked to be reminded to book their next <strong>{{ skill_name }}</strong> session, but hasn't booked yet despite our reminders. It might be a good moment to reach out to them personally.
+  </p>
+  <a href="{{ manage_url }}" style="display:inline-block; background:linear-gradient(135deg,#C8A951,#F0D98C); color:#14213D; text-decoration:none; font-weight:bold; font-size:14px; padding:11px 26px; border-radius:999px; font-family:Arial, sans-serif;">View my sessions</a>
+{% endblock %}

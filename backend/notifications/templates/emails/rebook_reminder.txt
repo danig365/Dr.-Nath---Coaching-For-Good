@@ -1,0 +1,12 @@
+{% extends "emails/base.txt" %}
+{% block content %}TIME TO BOOK YOUR NEXT SESSION?
+
+Hi {{ recipient_name }},
+
+Just a friendly reminder to schedule your next {{ skill_name }} session{% if coach_name %} with {{ coach_name }}{% endif %}. Keeping a steady rhythm makes the biggest difference.
+
+Book a time that suits you:
+{{ book_link }}
+
+Warm regards,
+Dr. Nath — Coaching for Impact{% endblock %}

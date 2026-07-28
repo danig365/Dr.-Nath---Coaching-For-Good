@@ -8,6 +8,7 @@ import {
 import { Room, RoomEvent, Track } from "livekit-client";
 import { RemoteTile, ScreenView } from "../components/CallTiles";
 import { requestGuestJoin, getGuestJoinStatus, getGuestCallToken } from "../utils/livekit";
+import { diag, logMicTrackSettings } from "../utils/callDiagnostics";
 
 // Public join page for a guest the coach invited into a 1:1 call (N4). No
 // account needed: the guest enters a name, asks to join, and — once the coach
@@ -111,8 +112,15 @@ export default function GuestCall() {
       room = new Room({
         adaptiveStream: true, dynacast: true, disconnectOnPageLeave: false,
         audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        // Publish audio exactly like the coach/client pages do (this page was
+        // previously falling back to the library defaults, so a guest's voice was
+        // encoded differently from everyone else's on the same call): voice-tuned
+        // bitrate, RED redundancy against packet loss, DTX off for a continuous
+        // stream. See SessionCallLiveKit for the reasoning.
+        publishDefaults: { audioPreset: { maxBitrate: 32_000 }, red: true, dtx: false },
       });
       roomRef.current = room;
+      diag("join", "guest room created", { url });
       room
         .on(RoomEvent.ParticipantConnected, upsert)
         .on(RoomEvent.TrackSubscribed, (track, pub, p) => {
@@ -134,14 +142,30 @@ export default function GuestCall() {
         .on(RoomEvent.ParticipantDisconnected, (p) => {
           drop(p);
           setScreenShare((cur) => (cur && cur.name === (p.name || p.identity) ? null : cur));
-        });
+        })
+        // Diagnostics, so a guest reporting bad audio leaves the same evidence
+        // trail as the coach and client pages.
+        .on(RoomEvent.ConnectionQualityChanged, (quality, p) => diag("net", "connection quality", {
+          quality, who: p?.identity === room.localParticipant?.identity ? "local" : (p?.identity || "remote"),
+        }))
+        .on(RoomEvent.Reconnecting, () => diag("net", "reconnecting"))
+        .on(RoomEvent.Reconnected, () => diag("net", "reconnected"))
+        .on(RoomEvent.MediaDevicesError, (e) => diag("mic", "media devices error", { name: e?.name }))
+        .on(RoomEvent.LocalAudioSilenceDetected, () => diag("mic", "LOCAL AUDIO SILENCE DETECTED"));
       await room.connect(url, token);
+      diag("join", "guest connected", { name: room.name });
       setStage("connected");
       room.remoteParticipants.forEach((p) => upsert(p));
       // Publish our media (fail-soft — a permission problem must not drop us).
       try {
-        await room.localParticipant.setCameraEnabled(camWantRef.current);
+        // Microphone first and on its own (parity with the coach/client pages):
+        // the audio device is acquired before the camera so a slow or failing
+        // camera can never disturb the capture the conversation depends on.
         await room.localParticipant.setMicrophoneEnabled(micWantRef.current);
+        logMicTrackSettings(
+          room.localParticipant.getTrackPublication(Track.Source.Microphone)?.track?.mediaStreamTrack,
+          "guest after acquire");
+        await room.localParticipant.setCameraEnabled(camWantRef.current);
         const camPub = room.localParticipant.getTrackPublication(Track.Source.Camera);
         localVideoTrackRef.current = camPub?.track || null;
         camPub?.track?.attach(localVideoRef.current);

@@ -164,6 +164,12 @@ def _token_response_for(identity, name, room):
         'token': token,
         'room': room,
         'identity': identity,
+        # Tells the browser whether the server-side transcription worker is
+        # handling this call. When it is, the browser must NOT run its own Web
+        # Speech API transcriber: that opens a SECOND capture of the physical
+        # microphone alongside WebRTC's, which degrades the live call audio
+        # (crackling, dropouts, echo). One transcript source, one mic capture.
+        'server_transcription': bool(settings.TRANSCRIPTION_ENABLED),
     })
 
 

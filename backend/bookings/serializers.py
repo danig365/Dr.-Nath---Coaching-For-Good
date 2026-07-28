@@ -103,7 +103,7 @@ class SessionSummarySerializer(serializers.ModelSerializer):
     class Meta:
         model = SessionSummary
         fields = ['id', 'booking', 'summary', 'key_points', 'action_items',
-                  'transcript_chars', 'created_at', 'updated_at']
+                  'reflection_points', 'transcript_chars', 'created_at', 'updated_at']
         read_only_fields = fields
 
 
@@ -151,15 +151,23 @@ class SessionBookingSerializer(serializers.ModelSerializer):
         'coach_joined_at', 'client_joined_at', 'no_show_by', 'session_number',
        ]
 
+    # Statuses that don't represent a delivered/upcoming session, so they take no
+    # session number: cancelled/declined were called off, no-show and "did not
+    # take place" never happened. (A session held off-platform DID happen, so it
+    # counts.) Counting any of these would make the next real session read one
+    # higher than the sessions the client has actually had.
+    _UNNUMBERED_STATUSES = ('declined', 'cancelled', 'no_show', 'not_held')
+
     def get_session_number(self, obj):
         """1-based position of this session among that client's sessions on the
-        same programme, in chronological order. Cancelled/declined ones don't
-        take a number — otherwise the count would jump for no visible reason.
+        same programme, in chronological order. Cancelled/declined/no-show ones
+        don't take a number, so the count reflects sessions that actually
+        happened plus the ones still to come.
 
         Numbered for the whole payload in a single query (see the cache below);
         counting per row cost one query per booking.
         """
-        if obj.status in ('declined', 'cancelled') or not obj.session_date:
+        if obj.status in self._UNNUMBERED_STATUSES or not obj.session_date:
             return None
         cache = self.context.get('_session_number_cache')
         if cache is None:
@@ -181,7 +189,7 @@ class SessionBookingSerializer(serializers.ModelSerializer):
                 learner_id__in={l for l, _ in pairs},
                 skill_id__in={s for _, s in pairs},
             )
-            .exclude(status__in=('declined', 'cancelled'))
+            .exclude(status__in=self._UNNUMBERED_STATUSES)
             .values_list('id', 'learner_id', 'skill_id', 'session_date', 'session_time')
         )
         groups = defaultdict(list)

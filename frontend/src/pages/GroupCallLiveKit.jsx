@@ -15,6 +15,9 @@ import { getGroupCallToken } from "../utils/livekit";
 import BackgroundPicker from "../components/BackgroundPicker";
 import { applyBackground, getLocalVideoTrack, preloadBackgroundAssets } from "../utils/videoBackground";
 import { SESSION_REJOIN_MS } from "../utils/sessionTiming";
+import {
+  diag, resetDiag, logAudioDevices, logMicTrackSettings, startAudioStatsProbe,
+} from "../utils/callDiagnostics";
 
 const fmt = (s) => {
   const x = Math.max(0, Math.round(s));
@@ -120,6 +123,8 @@ export default function GroupCallLiveKit() {
   const [chatUploading, setChatUploading] = useState(false);
 
   const roomRef = useRef(null);
+  const joiningRef = useRef(false);   // guard: never build two Rooms
+  const statsStopRef = useRef(null);
   const chatWsRef = useRef(null);
   const chatFileInputRef = useRef(null);
   const docInputRef = useRef(null); // "Share document" quick action in the controls
@@ -190,6 +195,9 @@ export default function GroupCallLiveKit() {
 
   const cleanup = useCallback(() => {
     clearInterval(timerRef.current);
+    try { statsStopRef.current?.(); } catch { /* noop */ }
+    statsStopRef.current = null;
+    joiningRef.current = false;
     if (roomRef.current) { try { roomRef.current.disconnect(); } catch { /* noop */ } roomRef.current = null; }
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     setRemotes({});
@@ -242,8 +250,16 @@ export default function GroupCallLiveKit() {
     const room = roomRef.current;
     if (!room) return;
     try {
-      await room.localParticipant.setCameraEnabled(camWantRef.current);
+      // Microphone first and on its own (parity with SessionCallLiveKit): the
+      // audio device is acquired before the camera and before any background
+      // processor, so a slow or failing camera can never disturb the capture the
+      // conversation depends on.
+      await logAudioDevices("before mic acquire");
       await room.localParticipant.setMicrophoneEnabled(micWantRef.current);
+      const micPub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+      logMicTrackSettings(micPub?.track?.mediaStreamTrack, "after acquire");
+
+      await room.localParticipant.setCameraEnabled(camWantRef.current);
       const camPub = room.localParticipant.getTrackPublication(Track.Source.Camera);
       camPub?.track?.attach(localVideoRef.current);
       if (camWantRef.current && bgOption !== "none") await applyBackground(getLocalVideoTrack(room), bgOption, customBgRef.current);
@@ -251,6 +267,7 @@ export default function GroupCallLiveKit() {
       setMicOn(micWantRef.current);
       setMediaError("");
     } catch (err) {
+      diag("mic", "enableMedia failed", { name: err?.name, message: err?.message });
       setCamOn(false);
       setMicOn(false);
       setMediaError(describeMediaError(err));
@@ -260,7 +277,9 @@ export default function GroupCallLiveKit() {
   // ── Pre-join lobby: live camera/mic preview + device check ──────────────────
   const stopPreview = useCallback(() => {
     if (previewStreamRef.current) {
-      previewStreamRef.current.getTracks().forEach((t) => t.stop());
+      const tracks = previewStreamRef.current.getTracks();
+      tracks.forEach((t) => t.stop());
+      diag("mic", "lobby preview released", { tracks: tracks.map((t) => `${t.kind}:${t.readyState}`) });
       previewStreamRef.current = null;
     }
     if (previewRef.current) previewRef.current.srcObject = null;
@@ -281,8 +300,13 @@ export default function GroupCallLiveKit() {
 
   // ── Join: connect to the LiveKit room, then publish media (fail-soft) ────────
   const handleJoin = useCallback(async () => {
+    // Re-entrancy guard: two overlapping joins would build two Rooms and acquire
+    // the microphone twice (parity with SessionCallLiveKit).
+    if (joiningRef.current || roomRef.current) { diag("join", "join ignored — already joining/joined"); return; }
+    joiningRef.current = true;
     let room;
     try {
+      resetDiag(`group session ${id}`);
       setCallState("connecting");
       const { url, token } = await getGroupCallToken(id);
 
@@ -292,13 +316,18 @@ export default function GroupCallLiveKit() {
         // Keep the call alive when the user switches tabs/apps or browses elsewhere.
         disconnectOnPageLeave: false,
         audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        // Voice-optimised, packet-loss-resilient audio (see SessionCallLiveKit for
+        // why 32 kbps rather than the 24 kbps speech preset).
+        publishDefaults: { audioPreset: { maxBitrate: 32_000 }, red: true, dtx: false },
       });
       roomRef.current = room;
+      diag("join", "room created", { url });
 
       room
         .on(RoomEvent.ParticipantConnected, (p) => upsertParticipant(p))
         .on(RoomEvent.ParticipantDisconnected, (p) => dropParticipant(p))
         .on(RoomEvent.TrackSubscribed, (track, pub, p) => {
+          diag("track", "subscribed", { kind: track?.kind, source: pub?.source, who: p?.identity });
           if (pub?.source === Track.Source.ScreenShare) setScreenShare({ track, name: p.name || p.identity });
           else setTrack(p, track, true);
         })
@@ -306,17 +335,41 @@ export default function GroupCallLiveKit() {
           if (pub?.source === Track.Source.ScreenShare) setScreenShare(null);
           else setTrack(p, track, false);
         })
-        .on(RoomEvent.LocalTrackPublished, (pub) => { if (pub.source === Track.Source.ScreenShare) setScreenSharing(true); })
-        .on(RoomEvent.LocalTrackUnpublished, (pub) => { if (pub.source === Track.Source.ScreenShare) setScreenSharing(false); })
+        .on(RoomEvent.LocalTrackPublished, (pub) => {
+          diag("track", "local track published", { source: pub.source, kind: pub.track?.kind });
+          if (pub.source === Track.Source.Microphone) logMicTrackSettings(pub.track?.mediaStreamTrack, "published");
+          if (pub.source === Track.Source.ScreenShare) setScreenSharing(true);
+        })
+        .on(RoomEvent.LocalTrackUnpublished, (pub) => {
+          diag("track", "local track unpublished", { source: pub.source });
+          if (pub.source === Track.Source.ScreenShare) setScreenSharing(false);
+        })
+        // Diagnostics so an intermittent audio report can be traced afterwards.
+        .on(RoomEvent.ConnectionQualityChanged, (quality, p) => diag("net", "connection quality", {
+          quality, who: p?.identity === room.localParticipant?.identity ? "local" : (p?.identity || "remote"),
+        }))
+        .on(RoomEvent.Reconnecting, () => diag("net", "reconnecting"))
+        .on(RoomEvent.Reconnected, () => {
+          diag("net", "reconnected");
+          const micPub = room.localParticipant?.getTrackPublication(Track.Source.Microphone);
+          logMicTrackSettings(micPub?.track?.mediaStreamTrack, "after reconnect");
+        })
+        .on(RoomEvent.MediaDevicesError, (e) => diag("mic", "media devices error", { name: e?.name, message: e?.message }))
+        .on(RoomEvent.LocalAudioSilenceDetected, () => diag("mic", "LOCAL AUDIO SILENCE DETECTED — capture may have been lost"))
         .on(RoomEvent.Disconnected, () => { /* handled via finishSession */ });
 
       await room.connect(url, token);
+      diag("join", "connected to room", { name: room.name, participants: room.remoteParticipants?.size ?? 0 });
+      statsStopRef.current?.();
+      statsStopRef.current = startAudioStatsProbe(room);
     } catch (err) {
       // Only a genuine connection/token/network failure lands here.
+      diag("join", "connect failed", { name: err?.name, message: err?.message });
       const detail = err?.response?.data?.detail;
       toast.error(detail || "Could not connect to the session. Please check your internet and try again.");
       cleanup();
       setCallState("idle");
+      joiningRef.current = false;
       return;
     }
 
@@ -325,7 +378,11 @@ export default function GroupCallLiveKit() {
     setCallState("connected");
     connectChat();
     startTimer();
-    await enableMedia();
+    try {
+      await enableMedia();
+    } finally {
+      joiningRef.current = false;
+    }
   }, [id, upsertParticipant, dropParticipant, setTrack, connectChat, startTimer, cleanup, enableMedia]);
 
   // Keep the local camera bound to its <video> — the element re-mounts when the
@@ -357,7 +414,9 @@ export default function GroupCallLiveKit() {
   };
   const joinFromLobby = async () => {
     stopPreview(); // free the devices so LiveKit can acquire them cleanly
-    await new Promise((r) => setTimeout(r, 200));
+    // The browser releases capture devices asynchronously; re-acquiring before
+    // the release completes is what leaves audio reconfigured and crackling.
+    await new Promise((r) => setTimeout(r, 350));
     handleJoin();
   };
 
