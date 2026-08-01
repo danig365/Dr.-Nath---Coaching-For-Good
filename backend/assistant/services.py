@@ -333,3 +333,95 @@ def summarize_session(transcript):
 
     result = _parse_summary_json(text)
     return result if result.get("summary") or result.get("key_points") else None
+
+
+TOPICS_SYSTEM_PROMPT = (
+    "You are analysing a coach's recent coaching sessions. From the material "
+    "provided (each block is one session's summary and key points), identify the "
+    "themes that came up MOST across the sessions. Return ONLY a JSON object of "
+    'the form {"topics": ["short topic phrase", ...]} — 3 to 8 concise phrases '
+    "(2-5 words each), ordered from most to least discussed. Merge similar ideas "
+    'into one phrase. If there is not enough material, return {"topics": []}.'
+)
+
+
+def summarize_topics(texts):
+    """Given an iterable of short text blocks (recent session summaries / key
+    points), return a ranked list of the most-discussed topic phrases.
+
+    Returns [] on no content, no provider, or any error — never raises.
+    """
+    blocks = [str(t).strip() for t in (texts or []) if str(t).strip()]
+    if not blocks:
+        return []
+
+    provider, api_key = _active_provider()
+    if not provider:
+        return []
+
+    material = "\n\n---\n\n".join(blocks)[:SUMMARY_TRANSCRIPT_LIMIT]
+    user_msg = (
+        "Material from the coach's recent sessions (one block per session):\n\n"
+        f"{material}\n\n"
+        "Return only the JSON object with the most-discussed topics."
+    )
+
+    try:
+        if provider == "anthropic":
+            import anthropic
+
+            client = anthropic.Anthropic(api_key=api_key)
+            model = (
+                getattr(settings, "SUMMARY_MODEL", "")
+                or getattr(settings, "ASSISTANT_MODEL", "")
+                or DEFAULT_ANTHROPIC_MODEL
+            )
+            resp = client.messages.create(
+                model=model,
+                max_tokens=400,
+                system=TOPICS_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_msg}],
+            )
+            text = "".join(
+                b.text for b in resp.content if getattr(b, "type", None) == "text"
+            ).strip()
+        else:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=api_key)
+            model = (
+                getattr(settings, "SUMMARY_MODEL", "")
+                or getattr(settings, "ASSISTANT_MODEL", "")
+                or DEFAULT_OPENAI_MODEL
+            )
+            resp = client.chat.completions.create(
+                model=model,
+                max_tokens=400,
+                messages=[
+                    {"role": "system", "content": TOPICS_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_msg},
+                ],
+            )
+            text = (resp.choices[0].message.content or "").strip()
+    except Exception as exc:  # noqa: BLE001 — never surface as a hard error
+        logger.error("Topic summary (%s) failed: %s", provider, exc)
+        return []
+
+    import json
+    import re
+
+    raw = (text or "").strip()
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if match:
+        raw = match.group(0)
+    try:
+        data = json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return []
+
+    out = []
+    for item in (data.get("topics") or []):
+        s = str(item).strip()
+        if s:
+            out.append(s[:120])
+    return out[:8]

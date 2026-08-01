@@ -50,6 +50,13 @@ New users must clearly pick **Client** or **Coach** — nothing is pre-selected.
 You can write, **preview** and send newsletters from the dashboard. Your first issue, *"One month in — celebrating your wellness journey,"* is prepared as a draft.
 **Check (admin login):** **Activity → Newsletter → Issues →** click **Preview** to see it exactly as it lands in the inbox, then **Send** when happy. *(It goes to newsletter subscribers — tell us if you'd like your clients added.)*
 
+### 11. Weekly insights email ✅ *(new)*
+**What it is:** every **Monday** you'll receive an email — *"Your weekly coaching insights"* — with (1) **clients you haven't seen recently** who have nothing booked, so you can reach out, and (2) the **topics that came up most** across your recent sessions.
+**How to check:**
+- On a Monday, look in **nathinno@gmail.com** for **"Your weekly coaching insights"**.
+- It lists clients to reconnect with (and how long since their last session), your most-discussed topics, and a **View my sessions** button.
+- *(Want a test copy now instead of waiting for Monday? Just ask and we'll send one.)*
+
 ---
 
 *If anything doesn't behave as described, just note the item number and what you saw, and it'll be sorted.*

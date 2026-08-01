@@ -1,0 +1,22 @@
+{% extends "emails/base.txt" %}
+{% block content %}YOUR WEEKLY INSIGHTS
+
+Hi {{ recipient_name }},
+
+Here's your weekly summary to help you stay close to your clients.
+
+CLIENTS TO RECONNECT WITH{% if neglected_clients %}{% for c in neglected_clients %}
+  - {{ c.name }} — {% if c.days_since %}last session {{ c.days_since }} day{{ c.days_since|pluralize }} ago{% else %}no session yet{% endif %}{% endfor %}{% else %}
+  You're all caught up — every client has a recent or upcoming session.{% endif %}
+
+MOST-DISCUSSED TOPICS LATELY{% if top_topics %}{% for t in top_topics %}
+  - {{ t }}{% endfor %}{% else %}
+  Not enough recent session data to summarise topics yet.{% endif %}
+
+View my sessions:
+{{ manage_url }}
+
+This summary is generated automatically each week — topics are AI-generated and may not be perfectly accurate.
+
+Warm regards,
+Dr. Nath — Coaching for Impact{% endblock %}
