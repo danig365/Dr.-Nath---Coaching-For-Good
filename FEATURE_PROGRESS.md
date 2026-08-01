@@ -43,7 +43,7 @@ recently, and (b) the most-discussed topics across their recent sessions.
   - Dry-run + full locmem/rollback end-to-end (queue → dispatch → render) passed; nothing persisted, no real email.
   - Testing instructions added to `CLIENT_VERIFICATION_GUIDE.md` (item 11).
 
-**Testing instructions (client):** `CLIENT_VERIFICATION_GUIDE.md` item 11 — Monday email "Your weekly coaching insights".
+**Testing instructions (client):** `CLIENT_VERIFICATION_GUIDE.md` item 1 (guide now covers additional features only; the earlier feedback-fixes guide was already sent to the client).
 **Commit:** see below.
 
 **Config:** `WEEKLY_INSIGHTS_NEGLECT_DAYS` (default 21), `WEEKLY_INSIGHTS_TOPICS_DAYS` (default 30). Timer: `weekly-coach-insights.timer` (Mon 08:00 UTC).
