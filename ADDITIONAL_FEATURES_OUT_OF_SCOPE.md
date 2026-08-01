@@ -54,11 +54,27 @@ For fairness, every item notes **why** it sits outside the original brief, with 
 
 > **One decision needed before we start #5 and #6:** should a chemistry-session visitor create an account, or book as a guest/lead with no account? This affects the build, so we'll confirm your preference (and the intake-form questions) first.
 
----
-
-## Not a development item — for discussion
-**The C4G mobile application & payment (feedback point 6).** Starting the mobile app and the payment schedule (upfront / balance) is a **commercial** matter, not a build task in itself. The native mobile app *is* part of the original brief, so it is a **contracted next phase**, not an out-of-scope extra — it simply needs to be scheduled and its payment milestone agreed.
 
 ---
 
-*Happy to prepare a cost and timeline for any of the six items above — individually or as a bundle — so you can choose which to proceed with.*
+## Investment
+
+All six additions above are offered as **one bundle** — the complete AI-and-experience upgrade — rather than billed feature by feature.
+
+| Platform | Additional-features bundle | |
+|---|---|---|
+| **Web application** | **$300** | one-off, alongside the current web build |
+| **Mobile application** | ~~$300~~ **$200** | **$100 discount** — added at the mobile stage |
+
+**How this fits your existing plan**
+
+Our original agreement is **$1,500** for the full build — **$500** to begin, **$500** on **web** completion, and **$500** on **mobile** completion. The features in this document are additions on top of that:
+
+- **Now (web):** **+ $300** — the full bundle built into the web application.
+- **Later (mobile):** your agreed **$500** on mobile completion **+ $200** for the same bundle on mobile.
+
+The mobile bundle would normally match the web at $300; as a thank-you for building both platforms with us, it is **discounted to $200 — you save $100**.
+
+---
+
+*Happy to proceed with the web bundle whenever you approve. Before we begin the Chemistry Session and intake flow (items 5 & 6), we'll just confirm the intake-form questions and whether visitors book with an account or as a guest.*

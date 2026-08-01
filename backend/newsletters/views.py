@@ -64,20 +64,53 @@ class NewsletterViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def send(self, request, pk=None):
-        """Queue this newsletter to every active subscriber. The existing
-        notification dispatcher delivers the queued emails. Idempotent per
-        subscriber via dedupe_key, and the issue becomes immutable once sent."""
+        """Queue this newsletter to the chosen audience. The existing dispatcher
+        delivers the queued emails. Idempotent per recipient via dedupe_key, and
+        the issue becomes immutable once sent.
+
+        Body param `audience`: 'subscribers' (default), 'clients', or 'both'.
+        Registered clients are folded into the subscriber list (source='client')
+        so they get a proper unsubscribe link, dedupe, and — if they've ever
+        unsubscribed — are respectfully skipped. Sending to 'both' never
+        double-sends: a client who is also a subscriber shares one row (unique
+        email), so they receive a single copy."""
         newsletter = self.get_object()
         if newsletter.status == Newsletter.STATUS_SENT:
             return Response({'detail': 'This newsletter has already been sent.'},
                             status=status.HTTP_400_BAD_REQUEST)
 
         from notifications.models import ScheduledNotification
+        from profiles.models import UserProfile
 
-        subscribers = NewsletterSubscriber.objects.filter(is_active=True)
+        audience = (request.data.get('audience') or 'subscribers').lower()
+        if audience not in ('subscribers', 'clients', 'both'):
+            return Response({'detail': "audience must be 'subscribers', 'clients' or 'both'."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Collect recipients as NewsletterSubscriber rows keyed by email (dedupes
+        # across the two audiences automatically).
+        recipients = {}
+
+        if audience in ('subscribers', 'both'):
+            for sub in NewsletterSubscriber.objects.filter(is_active=True):
+                recipients[sub.email] = sub
+
+        if audience in ('clients', 'both'):
+            clients = UserProfile.objects.filter(role='client').select_related('user')
+            for prof in clients:
+                user = prof.user
+                if not user.email:
+                    continue
+                sub, _ = NewsletterSubscriber.objects.get_or_create(
+                    email=user.email,
+                    defaults={'first_name': user.first_name or '', 'source': 'client'},
+                )
+                if sub.is_active:  # respect a prior unsubscribe
+                    recipients.setdefault(sub.email, sub)
+
         now = timezone.now()
         count = 0
-        for sub in subscribers:
+        for sub in recipients.values():
             unsubscribe_url = f"{settings.SITE_URL}/api/newsletter/unsubscribe/{sub.unsubscribe_token}/"
             ScheduledNotification.queue(
                 kind='newsletter',
@@ -107,10 +140,15 @@ class SubscriberListView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
+        from profiles.models import UserProfile
         qs = NewsletterSubscriber.objects.all()
+        registered_clients = UserProfile.objects.filter(
+            role='client', user__email__gt='',
+        ).count()
         return Response({
             'total': qs.count(),
             'active': qs.filter(is_active=True).count(),
+            'registered_clients': registered_clients,
             'subscribers': SubscriberSerializer(qs, many=True).data,
         })
 

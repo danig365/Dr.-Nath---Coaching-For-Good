@@ -19,6 +19,7 @@ class NewsletterSubscriber(models.Model):
     SOURCE_CHOICES = [
         ('modal', 'Pop-up modal'),
         ('band', 'Homepage band'),
+        ('client', 'Registered client'),
         ('other', 'Other'),
     ]
 

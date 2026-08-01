@@ -182,6 +182,7 @@ export default function AdminPanel() {
   const [composeSaving, setComposeSaving] = useState(false);
   const [sendModal, setSendModal] = useState({ open: false, newsletter: null });
   const [previewModal, setPreviewModal] = useState({ open: false, newsletter: null });
+  const [sendAudience, setSendAudience] = useState("subscribers"); // subscribers | clients | both
   const [sending, setSending] = useState(false);
   // Onboard clients (E2 pre-register)
   const [programs, setPrograms] = useState([]);
@@ -286,10 +287,11 @@ export default function AdminPanel() {
     if (!n) return;
     setSending(true);
     try {
-      const res = await api.post(`/newsletter/admin/newsletters/${n.id}/send/`);
-      toast.success(`Queued to ${res.data.sent_count} subscriber${res.data.sent_count === 1 ? "" : "s"}.`);
+      const res = await api.post(`/newsletter/admin/newsletters/${n.id}/send/`, { audience: sendAudience });
+      toast.success(`Queued to ${res.data.sent_count} recipient${res.data.sent_count === 1 ? "" : "s"}.`);
       if (compose.id === n.id) resetCompose();
       setSendModal({ open: false, newsletter: null });
+      setSendAudience("subscribers");
       await fetchNewsletters();
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to send.");
@@ -1690,10 +1692,39 @@ export default function AdminPanel() {
                     <p className="text-xs text-[#4A5568]">This cannot be undone.</p>
                   </div>
                 </div>
-                <p className="text-sm leading-relaxed mb-6" style={{ color: "#4A5568" }}>
-                  Send <span className="font-bold text-[#1B2B4A]">&ldquo;{sendModal.newsletter?.subject}&rdquo;</span> to{" "}
-                  <span className="font-bold text-[#1B2B4A]">{subscriberInfo.active}</span> active subscriber{subscriberInfo.active === 1 ? "" : "s"}?
+                <p className="text-sm leading-relaxed mb-4" style={{ color: "#4A5568" }}>
+                  Send <span className="font-bold text-[#1B2B4A]">&ldquo;{sendModal.newsletter?.subject}&rdquo;</span> to:
                 </p>
+                {(() => {
+                  const subs = subscriberInfo.active || 0;
+                  const clis = subscriberInfo.registered_clients || 0;
+                  const opts = [
+                    { key: "subscribers", label: "Newsletter subscribers", hint: `${subs} active` },
+                    { key: "clients", label: "All registered clients", hint: `${clis} client${clis === 1 ? "" : "s"}` },
+                    { key: "both", label: "Both subscribers and clients", hint: "one copy each — no duplicates" },
+                  ];
+                  return (
+                    <div className="space-y-2 mb-6">
+                      {opts.map((o) => (
+                        <button key={o.key} type="button" onClick={() => setSendAudience(o.key)}
+                          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition"
+                          style={{
+                            background: sendAudience === o.key ? "rgba(200,169,81,0.14)" : "white",
+                            border: `1px solid ${sendAudience === o.key ? "#C8A951" : "rgba(200,169,81,0.25)"}`,
+                          }}>
+                          <span className="w-4 h-4 rounded-full shrink-0 flex items-center justify-center"
+                            style={{ border: `2px solid ${sendAudience === o.key ? "#A9863A" : "rgba(27,43,74,0.25)"}` }}>
+                            {sendAudience === o.key && <span className="w-2 h-2 rounded-full" style={{ background: "#A9863A" }} />}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block text-sm font-semibold text-[#1B2B4A]">{o.label}</span>
+                            <span className="block text-xs" style={{ color: "#4A5568" }}>{o.hint}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
                 <div className="flex gap-3">
                   <button onClick={() => setSendModal({ open: false, newsletter: null })} disabled={sending}
                     className="flex-1 py-3 rounded-xl text-sm font-semibold border disabled:opacity-50"
@@ -1796,10 +1827,14 @@ export default function AdminPanel() {
 
                 <div style={{ background: "#ffffff", borderRadius: "16px", overflow: "hidden", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", fontFamily: "Georgia, 'Times New Roman', serif", color: "#1B2B4A" }}>
                   <div style={{ background: "linear-gradient(135deg,#1B2B4A,#14213D)", padding: "28px 32px", textAlign: "center" }}>
-                    <div style={{ fontSize: "24px", fontWeight: "bold", color: "#fff", letterSpacing: ".5px" }}>Dr. Nath</div>
+                    <div style={{ fontSize: "24px", fontWeight: "bold", color: "#fff", letterSpacing: ".5px" }}>
+                      <a href="https://www.dr-nath.com" style={{ color: "#fff", textDecoration: "none" }}>dr-nath.com Newsletter</a>
+                    </div>
                     <div style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "3px", color: "#C8A951", marginTop: "4px" }}>Coaching for Impact</div>
                   </div>
-                  <div style={{ height: "4px", background: "linear-gradient(90deg,#C8A951,#F0D98C)" }} />
+                  <div style={{ background: "linear-gradient(90deg,#C8A951,#F0D98C)", padding: "10px 32px", textAlign: "center" }}>
+                    <span style={{ fontSize: "12px", fontWeight: "bold", letterSpacing: "3px", textTransform: "uppercase", color: "#14213D", fontFamily: "Arial, sans-serif" }}>1st Edition</span>
+                  </div>
                   <div style={{ padding: "32px" }}>
                     <p style={{ margin: "0 0 18px", fontSize: "15px", lineHeight: 1.6, color: "#4A5568", fontFamily: "Arial, sans-serif" }}>Hi <span style={{ color: "#A9863A" }}>[First name]</span>,</p>
                     <div style={{ fontSize: "15px", lineHeight: 1.7, color: "#1B2B4A", fontFamily: "Arial, sans-serif" }}
