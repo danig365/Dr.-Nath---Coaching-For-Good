@@ -3,11 +3,24 @@ import { api } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "react-toastify";
 import { motion, AnimatePresence } from "framer-motion";
-import { FiActivity, FiCheck, FiZap, FiPlus, FiEdit2, FiTrash2, FiArchive, FiRotateCcw, FiX } from "react-icons/fi";
+import { FiActivity, FiCheck, FiZap, FiPlus, FiEdit2, FiTrash2, FiArchive, FiRotateCcw, FiX, FiStar } from "react-icons/fi";
 
 const GOLD = "#C8A951";
 const DARK = "#1B2B4A";
 const BROWN = "#4A5568";
+
+// Wellness domains — mirror Habit.CATEGORY_CHOICES on the backend.
+const CATEGORIES = [
+  { key: "nutrition", label: "Nutrition & eating" },
+  { key: "activity", label: "Physical activity" },
+  { key: "sleep", label: "Sleep" },
+  { key: "stress", label: "Stress" },
+  { key: "mindfulness", label: "Mindfulness" },
+  { key: "relationships", label: "Relationships" },
+  { key: "burnout", label: "Burnout" },
+  { key: "balance", label: "Work-life balance" },
+];
+const CAT_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.key, c.label]));
 
 const isoDate = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -44,6 +57,9 @@ function HabitCard({ habit, readOnly, onToggleDay, onEdit, onArchive, onDelete }
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-lg font-normal" style={{ color: DARK, fontFamily: "'Playfair Display', serif" }}>{habit.title}</h3>
+            {habit.category && (
+              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full" style={{ background: "rgba(91,117,102,0.12)", color: "#5B7566" }}>{CAT_LABEL[habit.category] || habit.category}</span>
+            )}
             {habit.active === false && (
               <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full" style={{ background: "rgba(74,85,104,0.1)", color: BROWN }}>Archived</span>
             )}
@@ -115,6 +131,7 @@ function HabitModal({ initial, onClose, onSave }) {
   const isEdit = !!initial?.id;
   const [title, setTitle] = useState(initial?.title || "");
   const [description, setDescription] = useState(initial?.description || "");
+  const [category, setCategory] = useState(initial?.category || "");
   const [saving, setSaving] = useState(false);
 
   const submit = async (e) => {
@@ -122,7 +139,7 @@ function HabitModal({ initial, onClose, onSave }) {
     if (!title.trim()) { toast.error("Title is required."); return; }
     setSaving(true);
     try {
-      await onSave({ title: title.trim(), description: description.trim() });
+      await onSave({ title: title.trim(), description: description.trim(), category });
     } finally {
       setSaving(false);
     }
@@ -140,7 +157,12 @@ function HabitModal({ initial, onClose, onSave }) {
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Meditate 10 minutes"
           className="w-full px-4 py-2.5 rounded-xl text-sm mb-3 focus:outline-none" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: DARK }} />
         <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional details…" rows={3}
-          className="w-full px-4 py-2.5 rounded-xl text-sm mb-5 resize-none focus:outline-none" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: DARK }} />
+          className="w-full px-4 py-2.5 rounded-xl text-sm mb-3 resize-none focus:outline-none" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: DARK }} />
+        <select value={category} onChange={(e) => setCategory(e.target.value)}
+          className="w-full px-4 py-2.5 rounded-xl text-sm mb-5 focus:outline-none" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: DARK }}>
+          <option value="">Wellness area (optional)…</option>
+          {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+        </select>
         <div className="flex gap-3">
           <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: "rgba(27,43,74,0.06)", color: BROWN }}>Cancel</button>
           <button type="submit" disabled={saving} className="flex-1 py-2.5 rounded-xl text-sm font-bold disabled:opacity-60" style={{ background: GOLD, color: "#14213D" }}>
@@ -148,6 +170,88 @@ function HabitModal({ initial, onClose, onSave }) {
           </button>
         </div>
       </motion.form>
+    </motion.div>
+  );
+}
+
+function SuggestModal({ clientId, clientName, onClose, onAssigned }) {
+  const [domain, setDomain] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState(null); // null = not generated yet
+  const [added, setAdded] = useState({});
+  const [busyIdx, setBusyIdx] = useState(null);
+
+  const generate = async () => {
+    setLoading(true); setSuggestions(null); setAdded({});
+    try {
+      const res = await api.post("/bookings/habits/suggest/", { client_id: clientId, domain });
+      const list = res.data.suggestions || [];
+      setSuggestions(list);
+      if (!list.length) toast.info(res.data.detail || "No suggestions right now.");
+    } catch (err) {
+      toast.error(err.response?.data?.error || "Failed to get suggestions.");
+      setSuggestions([]);
+    } finally { setLoading(false); }
+  };
+
+  const add = async (s, idx) => {
+    setBusyIdx(idx);
+    try {
+      const res = await api.post("/bookings/habits/", { client_id: clientId, title: s.title, description: s.description, category: s.category });
+      onAssigned(res.data);
+      setAdded((a) => ({ ...a, [idx]: true }));
+    } catch (err) {
+      toast.error(err.response?.data?.error || "Failed to add habit.");
+    } finally { setBusyIdx(null); }
+  };
+
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <div className="absolute inset-0" style={{ background: "rgba(20,33,61,0.6)" }} onClick={onClose} />
+      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+        className="relative w-full max-w-lg rounded-2xl p-6 z-10 max-h-[85vh] overflow-y-auto" style={{ background: "white" }}>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-normal text-xl" style={{ color: DARK, fontFamily: "'Playfair Display', serif" }}>Suggest habits with AI</h3>
+          <button type="button" onClick={onClose} className="p-1.5 rounded-full" style={{ background: "rgba(27,43,74,0.06)", color: BROWN }}><FiX size={16} /></button>
+        </div>
+        <p className="text-sm mb-4" style={{ color: BROWN }}>Tailored ideas for <strong style={{ color: DARK }}>{clientName}</strong>, based on their recent sessions. Review and add the ones you like.</p>
+
+        <div className="flex gap-2 mb-4">
+          <select value={domain} onChange={(e) => setDomain(e.target.value)} className="flex-1 px-4 py-2.5 rounded-xl text-sm focus:outline-none" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: DARK }}>
+            <option value="">Any wellness area</option>
+            {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+          </select>
+          <button onClick={generate} disabled={loading} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold disabled:opacity-60 shrink-0" style={{ background: GOLD, color: "#14213D" }}>
+            {loading ? "Thinking…" : suggestions === null ? "Generate" : "Regenerate"}
+          </button>
+        </div>
+
+        {loading && <p className="text-sm text-center py-6" style={{ color: BROWN }}>Generating tailored habits…</p>}
+
+        {suggestions && suggestions.length > 0 && (
+          <div className="space-y-3">
+            {suggestions.map((s, i) => (
+              <div key={i} className="rounded-xl p-4" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.2)" }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm" style={{ color: DARK }}>{s.title}</span>
+                      {s.category && <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full" style={{ background: "rgba(91,117,102,0.12)", color: "#5B7566" }}>{CAT_LABEL[s.category] || s.category}</span>}
+                    </div>
+                    {s.description && <p className="text-xs mt-1" style={{ color: BROWN }}>{s.description}</p>}
+                  </div>
+                  <button onClick={() => add(s, i)} disabled={added[i] || busyIdx === i} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold shrink-0 disabled:opacity-60" style={added[i] ? { background: "rgba(52,168,83,0.12)", color: "#2E7D32" } : { background: GOLD, color: "#14213D" }}>
+                    {added[i] ? <><FiCheck size={12} /> Added</> : busyIdx === i ? "Adding…" : <><FiPlus size={12} /> Add</>}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {suggestions && suggestions.length === 0 && !loading && (
+          <p className="text-sm text-center py-6" style={{ color: BROWN }}>No suggestions right now — try again or pick a different area.</p>
+        )}
+      </motion.div>
     </motion.div>
   );
 }
@@ -161,6 +265,7 @@ const HabitTracker = () => {
   const [clients, setClients] = useState([]);
   const [clientId, setClientId] = useState("");
   const [modal, setModal] = useState({ open: false, data: null });
+  const [suggestOpen, setSuggestOpen] = useState(false);
 
   const fetchClients = useCallback(async () => {
     try {
@@ -209,14 +314,14 @@ const HabitTracker = () => {
     }
   };
 
-  const saveHabit = async ({ title, description }) => {
+  const saveHabit = async ({ title, description, category }) => {
     try {
       if (modal.data?.id) {
-        const res = await api.patch(`/bookings/habits/${modal.data.id}/`, { title, description });
+        const res = await api.patch(`/bookings/habits/${modal.data.id}/`, { title, description, category });
         setHabits((hs) => hs.map((h) => (h.id === modal.data.id ? res.data : h)));
       } else {
         if (!clientId) { toast.error("Select a client first."); return; }
-        const res = await api.post("/bookings/habits/", { client_id: clientId, title, description });
+        const res = await api.post("/bookings/habits/", { client_id: clientId, title, description, category });
         setHabits((hs) => [res.data, ...hs]);
       }
       setModal({ open: false, data: null });
@@ -258,10 +363,17 @@ const HabitTracker = () => {
             </p>
           </div>
           {coach && (
-            <button onClick={() => setModal({ open: true, data: null })}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold shrink-0" style={{ background: GOLD, color: "#14213D" }}>
-              <FiPlus size={14} /> New habit
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => { if (!clientId) { toast.info("Select a client first."); return; } setSuggestOpen(true); }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold" style={{ background: "white", color: "#A9863A", border: "1px solid rgba(200,169,81,0.4)" }}>
+                <FiStar size={14} /> Suggest with AI
+              </button>
+              <button onClick={() => setModal({ open: true, data: null })}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold" style={{ background: GOLD, color: "#14213D" }}>
+                <FiPlus size={14} /> New habit
+              </button>
+            </div>
           )}
         </motion.div>
 
@@ -300,6 +412,14 @@ const HabitTracker = () => {
 
       <AnimatePresence>
         {modal.open && <HabitModal initial={modal.data} onClose={() => setModal({ open: false, data: null })} onSave={saveHabit} />}
+        {suggestOpen && (
+          <SuggestModal
+            clientId={clientId}
+            clientName={clients.find((c) => String(c.id) === String(clientId))?.username || "this client"}
+            onClose={() => setSuggestOpen(false)}
+            onAssigned={(h) => setHabits((hs) => [h, ...hs])}
+          />
+        )}
       </AnimatePresence>
     </div>
   );

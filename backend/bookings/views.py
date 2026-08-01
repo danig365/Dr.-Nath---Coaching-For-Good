@@ -1832,6 +1832,7 @@ def _serialize_habit(habit, today=None):
         'client_id': habit.client_id,
         'title': habit.title,
         'description': habit.description,
+        'category': habit.category,
         'active': habit.active,
         'created_at': habit.created_at.isoformat(),
         'check_in_dates': sorted(d.isoformat() for d in dates),
@@ -1867,11 +1868,14 @@ class HabitView(APIView):
         if not client_id or not title:
             return Response({'error': 'client_id and title are required.'}, status=status.HTTP_400_BAD_REQUEST)
         client = get_object_or_404(CustomUser, id=client_id)
+        category = (request.data.get('category') or '').strip()
+        valid_cats = {c[0] for c in Habit.CATEGORY_CHOICES}
         habit = Habit.objects.create(
             coach=profile,
             client=client,
             title=title,
             description=(request.data.get('description') or '').strip(),
+            category=category if category in valid_cats else '',
         )
         return Response(_serialize_habit(habit), status=status.HTTP_201_CREATED)
 
@@ -1887,6 +1891,10 @@ class HabitDetailView(APIView):
         for field in ('title', 'description'):
             if field in request.data:
                 setattr(habit, field, (request.data[field] or '').strip())
+        if 'category' in request.data:
+            cat = (request.data['category'] or '').strip()
+            valid_cats = {c[0] for c in Habit.CATEGORY_CHOICES}
+            habit.category = cat if cat in valid_cats else ''
         if 'active' in request.data:
             habit.active = bool(request.data['active'])
         habit.save()
@@ -1932,6 +1940,34 @@ class HabitCheckInView(APIView):
         else:
             habit.check_ins.filter(date=target).delete()
         return Response(_serialize_habit(habit))
+
+
+class HabitSuggestView(APIView):
+    """Coach-only: AI habit suggestions for a client (F3 — 'build' habits).
+
+    POST { client_id, domain? } → { suggestions: [{title, description, category}] }.
+    The coach reviews and creates the ones they like via the normal create endpoint.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        profile = getattr(request.user, 'profile', None)
+        if not profile or profile.role != 'coach':
+            return Response({'error': 'Only coaches can request habit suggestions.'},
+                            status=status.HTTP_403_FORBIDDEN)
+        client_id = request.data.get('client_id')
+        if not client_id:
+            return Response({'error': 'client_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        client = get_object_or_404(CustomUser, id=client_id)
+
+        from .habit_ai import suggest_habits
+        suggestions = suggest_habits(client=client, domain=(request.data.get('domain') or ''))
+        if not suggestions:
+            return Response(
+                {'suggestions': [], 'detail': 'No suggestions available right now — please try again.'},
+                status=status.HTTP_200_OK,
+            )
+        return Response({'suggestions': suggestions})
 
 
 # ─── PDF receipts / invoices ────────────────────────────────────────────────────

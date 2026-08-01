@@ -335,6 +335,50 @@ def summarize_session(transcript):
     return result if result.get("summary") or result.get("key_points") else None
 
 
+def complete_text(system_prompt, user_msg, *, max_tokens=600):
+    """Generic single-shot completion via the active provider. Returns the text,
+    or '' if no provider is configured or on any error. Never raises."""
+    provider, api_key = _active_provider()
+    if not provider:
+        return ''
+    try:
+        if provider == "anthropic":
+            import anthropic
+
+            client = anthropic.Anthropic(api_key=api_key)
+            model = (
+                getattr(settings, "SUMMARY_MODEL", "")
+                or getattr(settings, "ASSISTANT_MODEL", "")
+                or DEFAULT_ANTHROPIC_MODEL
+            )
+            resp = client.messages.create(
+                model=model, max_tokens=max_tokens, system=system_prompt,
+                messages=[{"role": "user", "content": user_msg}],
+            )
+            return "".join(
+                b.text for b in resp.content if getattr(b, "type", None) == "text"
+            ).strip()
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key)
+        model = (
+            getattr(settings, "SUMMARY_MODEL", "")
+            or getattr(settings, "ASSISTANT_MODEL", "")
+            or DEFAULT_OPENAI_MODEL
+        )
+        resp = client.chat.completions.create(
+            model=model, max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_msg},
+            ],
+        )
+        return (resp.choices[0].message.content or "").strip()
+    except Exception as exc:  # noqa: BLE001 — never surface as a hard error
+        logger.error("complete_text (%s) failed: %s", provider, exc)
+        return ''
+
+
 TOPICS_SYSTEM_PROMPT = (
     "You are analysing a coach's recent coaching sessions. From the material "
     "provided (each block is one session's summary and key points), identify the "

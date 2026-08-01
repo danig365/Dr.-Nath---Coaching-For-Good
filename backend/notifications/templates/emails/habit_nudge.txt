@@ -1,0 +1,17 @@
+{% extends "emails/base.txt" %}
+{% block content %}A LITTLE NUDGE ON YOUR HABITS
+
+Hi {{ recipient_name }},
+
+{{ message }}
+{% if habits %}
+WHERE YOU'RE AT{% for h in habits %}
+  - {{ h.title }} — {{ h.streak }}-day streak, {{ h.consistency }}% consistency{% endfor %}
+{% endif %}
+Open my habits:
+{{ manage_url }}
+
+A weekly note of encouragement from your coaching space. This is supportive guidance, not medical advice.
+
+Warm regards,
+Dr. Nath — Coaching for Impact{% endblock %}

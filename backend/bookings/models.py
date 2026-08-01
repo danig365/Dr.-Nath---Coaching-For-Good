@@ -319,8 +319,21 @@ class Habit(models.Model):
         on_delete=models.CASCADE,
         related_name='habits',
     )
+    # Wellness domains the client cares about (feedback point 3). Optional so
+    # existing free-text habits keep working.
+    CATEGORY_CHOICES = [
+        ('nutrition', 'Nutrition & eating'),
+        ('activity', 'Physical activity'),
+        ('sleep', 'Sleep'),
+        ('stress', 'Stress'),
+        ('mindfulness', 'Mindfulness'),
+        ('relationships', 'Relationships & connection'),
+        ('burnout', 'Burnout'),
+        ('balance', 'Work-life balance'),
+    ]
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, blank=True, default='')
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

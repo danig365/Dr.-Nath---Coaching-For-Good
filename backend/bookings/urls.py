@@ -4,7 +4,7 @@ from .views import (
     SessionBookingViewSet, ReviewViewSet, CreatePaymentIntentView, ConfirmBookingPaymentView,
     ConfirmFreeBookingView, UploadNotesView, MilestoneView, MilestoneDetailView, TimeSlotViewSet,
     GroupSessionViewSet, CreateGroupPaymentIntentView, ConfirmGroupPaymentView, SlotInviteViewSet,
-    HabitView, HabitDetailView, HabitCheckInView,
+    HabitView, HabitDetailView, HabitCheckInView, HabitSuggestView,
     BookingInvoiceView, GroupEnrollmentInvoiceView, MagicJoinView, SessionReflectionView,
     SessionAISummaryView, RebookReminderOptInView,
 )
@@ -32,6 +32,7 @@ urlpatterns = [
     path('habits/', HabitView.as_view(), name='habits'),
     path('habits/<int:pk>/', HabitDetailView.as_view(), name='habit-detail'),
     path('habits/<int:pk>/check-in/', HabitCheckInView.as_view(), name='habit-check-in'),
+    path('habits/suggest/', HabitSuggestView.as_view(), name='habit-suggest'),
     path('group-enrollments/<int:pk>/invoice/', GroupEnrollmentInvoiceView.as_view(), name='group-enrollment-invoice'),
     path('<int:pk>/invoice/', BookingInvoiceView.as_view(), name='booking-invoice'),
     path('livekit/token/booking/<int:booking_id>/', BookingCallTokenView.as_view(), name='livekit-booking-token'),

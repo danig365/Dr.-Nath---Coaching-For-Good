@@ -10,7 +10,7 @@ in phases; when a feature is **done** we add non-technical testing instructions 
 |---|---|---|---|
 | F2 | Weekly AI insights for the coach | S | ✅ Done |
 | F5+F6 | Chemistry Session + intake-gated flow | M | ⬜ Not started |
-| F3 | AI habit-coaching | M | ⬜ Not started |
+| F3 | AI habit-coaching | M | ✅ Done |
 | F4 | Canvas-style learning space | L | ⬜ Not started |
 | F1 | Zoom-style meeting analytics | XL | ⬜ Not started (needs STT key) |
 
@@ -47,3 +47,40 @@ recently, and (b) the most-discussed topics across their recent sessions.
 **Commit:** see below.
 
 **Config:** `WEEKLY_INSIGHTS_NEGLECT_DAYS` (default 21), `WEEKLY_INSIGHTS_TOPICS_DAYS` (default 30). Timer: `weekly-coach-insights.timer` (Mon 08:00 UTC).
+
+---
+
+## F3 — AI habit-coaching
+
+**Goal (feedback point 3):** use AI to help clients **build** and **sustain** healthy
+habits across nutrition, activity, sleep, stress, mindfulness, relationships,
+burnout and work-life balance. Builds on the existing manual Habit tracker.
+
+**Scope (A + B, recommended):**
+- **A. AI habit suggestions (coach):** coach picks a client + wellness domain → AI suggests 3-5 concrete daily habits (tailored with the client's recent session context) → coach assigns the ones they like.
+- **B. AI adherence nudges (client):** a scheduled job emails clients a short, AI-written encouragement based on their check-in streaks/gaps + one small tip.
+- AI output is supportive coaching, not medical advice (baked into prompts).
+
+### Phases
+- [x] **Phase 1 — Backend AI + model** ✅
+  - `Habit.category` field (8 wellness domains) + migration `0027`.
+  - `assistant/services.py`: `complete_text()` generic helper.
+  - `bookings/habit_ai.py`: `suggest_habits()` + `habit_nudge_message()` (graceful, no medical claims).
+  - Endpoint `POST /bookings/habits/suggest/` (coach-only); `category` now accepted on create/edit and returned in `_serialize_habit`.
+  - *Live-tested:* 5 tailored sleep habits + a warm streak-aware nudge.
+- [x] **Phase 2 — Coach UI** ✅
+  - "Suggest with AI" button + modal (wellness-area picker → Generate/Regenerate → per-suggestion Add) in HabitTracker.
+  - Wellness-area dropdown on habit create/edit; category badge on HabitCard.
+  - *Tested:* coach 200 (5 tailored suggestions), client 403. Deployed.
+- [x] **Phase 3 — Client nudges** ✅
+  - `send_habit_nudges` command (per-client active habits → streak/consistency → AI encouragement, per-week dedupe).
+  - `emails/habit_nudge.html/.txt`.
+  - systemd `habit-nudges.timer/.service` — **enabled**, Thu 09:00 UTC.
+  - End-to-end test (create habit+check-ins → queue → dispatch → render) passed; rolled back.
+- [x] **Phase 4 — Test, guide, commit** ✅
+  - Verification guide item 2 (AI habit coaching, both sides).
+
+**Testing instructions (client):** `CLIENT_VERIFICATION_GUIDE.md` item 2.
+**Commit:** see below.
+
+**Schedule:** habit nudges Thu 09:00 UTC (`habit-nudges.timer`); AI suggestions on-demand via Habit Tracker.

@@ -14,7 +14,19 @@ A running checklist of the **additional features** being added to the platform. 
 **How to check:**
 - On a Monday, look in **nathinno@gmail.com** for **"Your weekly coaching insights"**.
 - It lists the clients to reconnect with (and how long since their last session), your most-discussed topics, and a **View my sessions** button.
-- *(Would you like a test copy sent now instead of waiting for Monday? Just ask and we'll send one.)*
+
+### 2. AI habit coaching ✅ *(new)*
+Helps you **build** habits for a client and helps clients **sustain** them.
+
+**A. Suggest habits with AI (your side):**
+- Go to **Habit Tracker**, choose a client from the dropdown, then click **Suggest with AI**.
+- Optionally pick a wellness area (nutrition, sleep, stress, etc.) and click **Generate**.
+- The AI proposes tailored daily habits (based on that client's recent sessions). Click **Add** on the ones you like — they're assigned to the client instantly. You can also set a wellness area when creating or editing any habit.
+
+**B. Weekly encouragement for clients (their side):**
+- Each **Thursday**, any client with active habits receives a warm, personal email — *"A little nudge on your habits"* — celebrating their streaks, gently re-encouraging anything they've slipped on, and offering one small tip, plus an **Open my habits** button.
+
+*(To see a sample of either right away, just ask and we'll trigger one.)*
 
 ---
 
