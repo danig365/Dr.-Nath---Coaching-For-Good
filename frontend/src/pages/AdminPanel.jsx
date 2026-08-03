@@ -182,7 +182,8 @@ export default function AdminPanel() {
   const [composeSaving, setComposeSaving] = useState(false);
   const [sendModal, setSendModal] = useState({ open: false, newsletter: null });
   const [previewModal, setPreviewModal] = useState({ open: false, newsletter: null });
-  const [sendAudience, setSendAudience] = useState("subscribers"); // subscribers | clients | both
+  const [sendAudience, setSendAudience] = useState("subscribers"); // subscribers | clients | both | custom
+  const [customEmails, setCustomEmails] = useState("");
   const [sending, setSending] = useState(false);
   // Onboard clients (E2 pre-register)
   const [programs, setPrograms] = useState([]);
@@ -285,13 +286,16 @@ export default function AdminPanel() {
   const confirmSend = async () => {
     const n = sendModal.newsletter;
     if (!n) return;
+    if (sendAudience === "custom" && !customEmails.trim()) { toast.error("Enter at least one email address."); return; }
     setSending(true);
     try {
-      const res = await api.post(`/newsletter/admin/newsletters/${n.id}/send/`, { audience: sendAudience });
+      const payload = { audience: sendAudience };
+      if (sendAudience === "custom") payload.emails = customEmails;
+      const res = await api.post(`/newsletter/admin/newsletters/${n.id}/send/`, payload);
       toast.success(`Sent to ${res.data.sent_count} recipient${res.data.sent_count === 1 ? "" : "s"} — a confirmation copy has been emailed to you.`);
       if (compose.id === n.id) resetCompose();
       setSendModal({ open: false, newsletter: null });
-      setSendAudience("subscribers");
+      setSendAudience("subscribers"); setCustomEmails("");
       await fetchNewsletters();
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to send.");
@@ -1702,25 +1706,34 @@ export default function AdminPanel() {
                     { key: "subscribers", label: "Newsletter subscribers", hint: `${subs} active` },
                     { key: "clients", label: "All registered clients", hint: `${clis} client${clis === 1 ? "" : "s"}` },
                     { key: "both", label: "Both subscribers and clients", hint: "one copy each — no duplicates" },
+                    { key: "custom", label: "Specific email addresses", hint: "type the emails you want to reach" },
                   ];
                   return (
                     <div className="space-y-2 mb-6">
                       {opts.map((o) => (
-                        <button key={o.key} type="button" onClick={() => setSendAudience(o.key)}
-                          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition"
-                          style={{
-                            background: sendAudience === o.key ? "rgba(200,169,81,0.14)" : "white",
-                            border: `1px solid ${sendAudience === o.key ? "#C8A951" : "rgba(200,169,81,0.25)"}`,
-                          }}>
-                          <span className="w-4 h-4 rounded-full shrink-0 flex items-center justify-center"
-                            style={{ border: `2px solid ${sendAudience === o.key ? "#A9863A" : "rgba(27,43,74,0.25)"}` }}>
-                            {sendAudience === o.key && <span className="w-2 h-2 rounded-full" style={{ background: "#A9863A" }} />}
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block text-sm font-semibold text-[#1B2B4A]">{o.label}</span>
-                            <span className="block text-xs" style={{ color: "#4A5568" }}>{o.hint}</span>
-                          </span>
-                        </button>
+                        <div key={o.key}>
+                          <button type="button" onClick={() => setSendAudience(o.key)}
+                            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition"
+                            style={{
+                              background: sendAudience === o.key ? "rgba(200,169,81,0.14)" : "white",
+                              border: `1px solid ${sendAudience === o.key ? "#C8A951" : "rgba(200,169,81,0.25)"}`,
+                            }}>
+                            <span className="w-4 h-4 rounded-full shrink-0 flex items-center justify-center"
+                              style={{ border: `2px solid ${sendAudience === o.key ? "#A9863A" : "rgba(27,43,74,0.25)"}` }}>
+                              {sendAudience === o.key && <span className="w-2 h-2 rounded-full" style={{ background: "#A9863A" }} />}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-semibold text-[#1B2B4A]">{o.label}</span>
+                              <span className="block text-xs" style={{ color: "#4A5568" }}>{o.hint}</span>
+                            </span>
+                          </button>
+                          {o.key === "custom" && sendAudience === "custom" && (
+                            <textarea value={customEmails} onChange={(e) => setCustomEmails(e.target.value)} rows={3}
+                              placeholder="email1@example.com, email2@example.com, …"
+                              className="w-full mt-2 px-3 py-2 rounded-xl text-sm resize-none focus:outline-none"
+                              style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }} />
+                          )}
+                        </div>
                       ))}
                     </div>
                   );

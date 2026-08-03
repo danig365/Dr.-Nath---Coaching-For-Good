@@ -83,13 +83,38 @@ class NewsletterViewSet(viewsets.ModelViewSet):
         from profiles.models import UserProfile
 
         audience = (request.data.get('audience') or 'subscribers').lower()
-        if audience not in ('subscribers', 'clients', 'both'):
-            return Response({'detail': "audience must be 'subscribers', 'clients' or 'both'."},
+        if audience not in ('subscribers', 'clients', 'both', 'custom'):
+            return Response({'detail': "audience must be 'subscribers', 'clients', 'both' or 'custom'."},
                             status=status.HTTP_400_BAD_REQUEST)
 
         # Collect recipients as NewsletterSubscriber rows keyed by email (dedupes
-        # across the two audiences automatically).
+        # across audiences automatically).
         recipients = {}
+
+        if audience == 'custom':
+            # Explicit list the coach typed in (comma / newline / semicolon separated).
+            import re
+            from django.core.validators import validate_email
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            raw = request.data.get('emails') or ''
+            parts = raw if isinstance(raw, list) else re.split(r'[,\n;]+', str(raw))
+            for part in parts:
+                email = part.strip().lower()
+                if not email:
+                    continue
+                try:
+                    validate_email(email)
+                except DjangoValidationError:
+                    continue
+                # Explicit recipients are sent to as entered (get_or_create gives
+                # them an unsubscribe token + dedupe).
+                sub, _ = NewsletterSubscriber.objects.get_or_create(
+                    email=email, defaults={'source': 'other'},
+                )
+                recipients[sub.email] = sub
+            if not recipients:
+                return Response({'detail': 'Enter at least one valid email address.'},
+                                status=status.HTTP_400_BAD_REQUEST)
 
         if audience in ('subscribers', 'both'):
             for sub in NewsletterSubscriber.objects.filter(is_active=True):
@@ -139,6 +164,7 @@ class NewsletterViewSet(viewsets.ModelViewSet):
             'subscribers': 'newsletter subscribers',
             'clients': 'registered clients',
             'both': 'subscribers and clients',
+            'custom': 'selected recipients',
         }.get(audience, 'recipients')
         confirm_emails = set()
         if request.user.email:
