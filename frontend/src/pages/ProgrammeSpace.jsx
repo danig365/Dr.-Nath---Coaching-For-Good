@@ -174,25 +174,21 @@ export default function ProgrammeSpace() {
   return (
     <div className="min-h-screen pt-36 pb-16 px-4 sm:px-6" style={{ background: CREAM }}>
       <div className="max-w-3xl mx-auto">
-        {/* Hero */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-          className="rounded-2xl p-5 md:p-6" style={{ background: "linear-gradient(135deg,#1B2B4A,#14213D)", color: "white" }}>
-          <div className="flex items-center justify-between mb-3">
+        {/* Hero — compact banner */}
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl px-5 py-4" style={{ background: "linear-gradient(135deg,#1B2B4A,#14213D)", color: "white" }}>
+          <div className="flex items-center justify-between mb-2">
             <button onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-all" style={{ background: "rgba(255,255,255,0.12)", color: "white" }}>
               <FiArrowLeft size={13} /> Back
             </button>
-            <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: GOLD }}>Programme Space</span>
+            <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: GOLD }}>Programme Space</span>
           </div>
-          <h1 className="text-2xl font-normal mb-1.5" style={{ fontFamily: "'Playfair Display', serif" }}>{overview.name}</h1>
-          {overview.description && <p className="text-sm leading-relaxed opacity-90 mb-4 line-clamp-2" style={{ maxWidth: "62ch" }}>{overview.description}</p>}
-          <div className="flex items-center gap-6">
+          <h1 className="text-xl md:text-2xl font-normal mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>{overview.name}</h1>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs opacity-90">
             {stats.map((s) => (
-              <div key={s.label}>
-                <div className="text-xl font-bold" style={{ color: GOLD }}>{s.value}</div>
-                <div className="text-[11px] uppercase tracking-wider opacity-70">{s.label}</div>
-              </div>
+              <span key={s.label}><span className="font-bold text-sm" style={{ color: GOLD }}>{s.value}</span> {s.label.toLowerCase()}</span>
             ))}
-            <div className="ml-auto text-xs opacity-75 text-right">with<br />{overview.coach_name}</div>
+            <span className="ml-auto opacity-75">with {overview.coach_name}</span>
           </div>
         </motion.div>
 
