@@ -273,11 +273,13 @@ export default function AdminPanel() {
     }
   };
 
-  const deleteDraft = async (id) => {
+  const deleteDraft = async (n) => {
+    if (!window.confirm(`Delete the draft "${n.subject}"? This cannot be undone.`)) return;
     try {
-      await api.delete(`/newsletter/admin/newsletters/${id}/`);
-      if (compose.id === id) resetCompose();
+      await api.delete(`/newsletter/admin/newsletters/${n.id}/`);
+      if (compose.id === n.id) resetCompose();
       await fetchNewsletters();
+      toast.success("Draft deleted.");
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to delete.");
     }
@@ -1537,7 +1539,7 @@ export default function AdminPanel() {
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A" }}>
                             <FiEdit2 size={12} /> Edit
                           </button>
-                          <button onClick={() => deleteDraft(n.id)}
+                          <button onClick={() => deleteDraft(n)}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(239,68,68,0.08)", color: "#B91C1C" }}>
                             <FiTrash2 size={12} /> Delete
                           </button>
