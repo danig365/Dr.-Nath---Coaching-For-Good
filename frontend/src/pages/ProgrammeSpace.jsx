@@ -174,16 +174,17 @@ export default function ProgrammeSpace() {
   return (
     <div className="min-h-screen pt-36 pb-16 px-4 sm:px-6" style={{ background: CREAM }}>
       <div className="max-w-3xl mx-auto">
-        <button onClick={() => navigate(-1)} className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-full border transition-all mb-4" style={{ borderColor: "rgba(200,169,81,0.3)", color: "#A9863A", background: "white" }}>
-          <FiArrowLeft size={14} /> Back
-        </button>
-
         {/* Hero */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-          className="rounded-2xl p-6 md:p-8" style={{ background: "linear-gradient(135deg,#1B2B4A,#14213D)", color: "white" }}>
-          <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: GOLD }}>Programme Space</p>
-          <h1 className="text-2xl md:text-3xl font-normal mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>{overview.name}</h1>
-          {overview.description && <p className="text-sm leading-relaxed opacity-90 mb-4" style={{ maxWidth: "62ch" }}>{overview.description}</p>}
+          className="rounded-2xl p-5 md:p-6" style={{ background: "linear-gradient(135deg,#1B2B4A,#14213D)", color: "white" }}>
+          <div className="flex items-center justify-between mb-3">
+            <button onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-all" style={{ background: "rgba(255,255,255,0.12)", color: "white" }}>
+              <FiArrowLeft size={13} /> Back
+            </button>
+            <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: GOLD }}>Programme Space</span>
+          </div>
+          <h1 className="text-2xl font-normal mb-1.5" style={{ fontFamily: "'Playfair Display', serif" }}>{overview.name}</h1>
+          {overview.description && <p className="text-sm leading-relaxed opacity-90 mb-4 line-clamp-2" style={{ maxWidth: "62ch" }}>{overview.description}</p>}
           <div className="flex items-center gap-6">
             {stats.map((s) => (
               <div key={s.label}>
@@ -196,7 +197,7 @@ export default function ProgrammeSpace() {
         </motion.div>
 
         {/* Tabs */}
-        <div className="flex gap-1 mt-5 mb-5 p-1 rounded-full overflow-x-auto" style={{ background: "rgba(27,43,74,0.05)" }}>
+        <div className="flex gap-1 mt-4 mb-4 p-1 rounded-full overflow-x-auto" style={{ background: "rgba(27,43,74,0.05)" }}>
           {TABS.map((t) => {
             const active = tab === t.key;
             return (
