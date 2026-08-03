@@ -14,6 +14,9 @@ class Skill(models.Model):
     # For tags, JSONField is often convenient for a simple list, or ManyToManyField for reusable tags
     tags = models.JSONField(default=list, blank=True)                  # e.g., ["Hooks", "Context API"]
     active = models.BooleanField(default=True)                         # e.g., true/false
+    # When true, this skill is offered publicly as a free "Chemistry Session"
+    # (discovery call) that web visitors book via an intake-gated public flow.
+    is_chemistry = models.BooleanField(default=False)
     # sessions_completed and avg_rating are often calculated, but can be stored if you need to manually set them
     sessions_completed = models.PositiveIntegerField(default=0)        # Total sessions mentored for this skill
     avg_rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True) # Average rating for this skill

@@ -34,14 +34,22 @@ class FormTemplateViewSet(viewsets.ModelViewSet):
             qs = qs.filter(active=True)
         return qs
 
+    def _check_skill(self, profile, serializer):
+        skill = serializer.validated_data.get('skill')
+        if skill and skill.profile_id != profile.id:
+            from rest_framework.exceptions import ValidationError as DRFValidationError
+            raise DRFValidationError({'skill': "That programme isn't yours."})
+
     def perform_create(self, serializer):
         profile = _coach_profile(self.request.user)
         if not profile:
             raise PermissionDenied("Only coaches can create templates.")
+        self._check_skill(profile, serializer)
         serializer.save(coach=profile)
 
     def perform_update(self, serializer):
         # get_queryset already restricts to the coach's own templates.
+        self._check_skill(_coach_profile(self.request.user), serializer)
         serializer.save()
 
     def perform_destroy(self, instance):

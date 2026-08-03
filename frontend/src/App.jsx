@@ -29,6 +29,7 @@ import GuestCall from "./pages/GuestCall";
 import Milestones from "./pages/Milestones";
 import HabitTracker from "./pages/HabitTracker";
 import ProgrammeSpace from "./pages/ProgrammeSpace";
+import ChemistryBooking from "./pages/ChemistryBooking";
 import Agreements from "./pages/Agreements";
 import Forms from "./pages/Forms";
 import MyAvailability from "./pages/MyAvailability";
@@ -95,6 +96,7 @@ export default function App() {
               a time without an account; BookSessionPage defers login to Confirm
               (it stashes the selection and auto-resumes after sign-in). */}
           <Route path="/book/:id" element={<BookSessionPage />} />
+          <Route path="/chemistry" element={<ChemistryBooking />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password/:uid/:token" element={<ResetPassword />} />
 

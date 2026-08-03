@@ -41,6 +41,12 @@ class FormTemplate(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True, help_text="Optional intro shown to the client.")
     kind = models.CharField(max_length=12, choices=KIND_CHOICES, default=KIND_INTAKE)
+    # Optional: designate this template as the intake form for a specific skill.
+    # Used by the public Chemistry Session flow (intake-gated booking).
+    skill = models.ForeignKey(
+        'skills.Skill', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='intake_forms',
+    )
 
     # Ordered list of question dicts (see module docstring).
     questions = models.JSONField(default=list, blank=True)

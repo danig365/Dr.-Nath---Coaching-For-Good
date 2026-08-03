@@ -1482,6 +1482,41 @@ class ConfirmBookingPaymentView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+class ChemistryInfoView(APIView):
+    """Public: the free Chemistry Session offering + its intake questions (F5/F6).
+
+    Returns the skill marked is_chemistry plus the coach's intake form for it, so a
+    web visitor can complete the intake before the calendar unlocks. AllowAny."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from skills.models import Skill
+        from formbuilder.models import FormTemplate
+        skill = (
+            Skill.objects.filter(is_chemistry=True, active=True)
+            .select_related('profile__user').first()
+        )
+        if not skill:
+            return Response({'detail': 'No chemistry session is available right now.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        coach = skill.profile.user
+        tmpl = (
+            FormTemplate.objects.filter(skill=skill, kind='intake', active=True)
+            .order_by('-updated_at').first()
+        )
+        return Response({
+            'skill_id': skill.id,
+            'name': skill.name,
+            'description': skill.description or '',
+            'coach_name': f"{coach.first_name} {coach.last_name}".strip() or coach.username,
+            'intake': {
+                'title': tmpl.title if tmpl else 'Tell us a little about you',
+                'description': tmpl.description if tmpl else '',
+                'questions': tmpl.questions if tmpl else [],
+            },
+        })
+
+
 class ConfirmFreeBookingView(APIView):
     """
     Book a free ($0) session — no Stripe involved.
@@ -1572,6 +1607,148 @@ class ConfirmFreeBookingView(APIView):
             return Response({'error': 'Selected slot no longer exists.'}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ChemistryBookView(APIView):
+    """Public: book the free Chemistry Session after the intake (F5/F6).
+
+    Body: { name, email, answers: {qid: value}, slot_id }. Finds or creates a
+    client account from the email (new accounts get an activation link), books
+    the free session, and stores the intake answers as a completed form the coach
+    can read. AllowAny."""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        from django.conf import settings
+        from django.core.validators import validate_email
+        from django.core.exceptions import ValidationError as DjValidationError
+        from django.utils.http import urlsafe_base64_encode
+        from django.utils.encoding import force_bytes
+        from django.contrib.auth.tokens import default_token_generator
+        from skills.models import Skill
+        from formbuilder.models import FormTemplate, FormAssignment
+        from notifications.services import send_email
+
+        name = (request.data.get('name') or '').strip()
+        email = (request.data.get('email') or '').strip().lower()
+        answers = request.data.get('answers') or {}
+        slot_id = request.data.get('slot_id')
+
+        if not email:
+            return Response({'detail': 'Your email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            validate_email(email)
+        except DjValidationError:
+            return Response({'detail': 'Please enter a valid email address.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not slot_id:
+            return Response({'detail': 'Please choose a time.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(answers, dict):
+            answers = {}
+
+        skill = (
+            Skill.objects.filter(is_chemistry=True, active=True)
+            .select_related('profile__user').first()
+        )
+        if not skill:
+            return Response({'detail': 'No chemistry session is available right now.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        if float(skill.price) != 0:
+            return Response({'detail': 'This session is not free.'}, status=status.HTTP_400_BAD_REQUEST)
+        coach = skill.profile
+
+        # Required intake questions must be answered.
+        tmpl = (
+            FormTemplate.objects.filter(skill=skill, kind='intake', active=True)
+            .order_by('-updated_at').first()
+        )
+        questions = tmpl.questions if tmpl else []
+        for q in questions:
+            if q.get('required') and answers.get(q.get('id')) in (None, '', []):
+                return Response({'detail': f"Please answer: {q.get('label')}"},
+                                status=status.HTTP_400_BAD_REQUEST)
+
+        # Find or provision the client account.
+        account_created = False
+        parts = name.split()
+        first = parts[0] if parts else ''
+        last = ' '.join(parts[1:]) if len(parts) > 1 else ''
+        user = CustomUser.objects.filter(Q(email__iexact=email) | Q(username__iexact=email)).first()
+        if not user:
+            try:
+                with transaction.atomic():
+                    user = CustomUser.objects.create(
+                        username=email, email=email, first_name=first, last_name=last, is_active=True,
+                    )
+                    user.set_unusable_password()
+                    user.save(update_fields=['password'])
+                    prof = user.profile
+                    prof.role = 'client'
+                    prof.save(update_fields=['role'])
+                account_created = True
+            except Exception as exc:  # noqa: BLE001
+                return Response({'detail': f'Could not create your account: {exc}'},
+                                status=status.HTTP_400_BAD_REQUEST)
+
+        # Book the slot.
+        try:
+            with transaction.atomic():
+                slot = TimeSlot.objects.select_for_update().get(id=slot_id)
+                if slot.coach_id != coach.id or (slot.skill_id and slot.skill_id != skill.id):
+                    return Response({'detail': 'That time is not available.'}, status=status.HTTP_400_BAD_REQUEST)
+                if slot.status == 'booked':
+                    return Response({'detail': 'That time was just booked. Please pick another.'}, status=status.HTTP_409_CONFLICT)
+                if slot.status == 'held' and slot.held_by_id and slot.held_by_id != user.id:
+                    return Response({'detail': 'That time is reserved. Please pick another.'}, status=status.HTTP_409_CONFLICT)
+                booking = SessionBooking.objects.create(
+                    learner=user, mentor=coach, skill=skill,
+                    session_date=slot.start_datetime.date(),
+                    session_time=slot.start_datetime.time(),
+                    duration=slot.duration_minutes,
+                    status='accepted', payment_status='paid', amount_paid=0, slot=slot,
+                    message='Chemistry session (booked via public intake).',
+                )
+                slot.status = 'booked'
+                slot.held_until = None
+                slot.held_by = None
+                slot.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
+                if questions or answers:
+                    FormAssignment.objects.create(
+                        template=tmpl, coach=coach, client=user, booking=booking,
+                        title=(tmpl.title if tmpl else 'Chemistry Session Intake'),
+                        description=(tmpl.description if tmpl else ''),
+                        kind='intake', questions_snapshot=questions, answers=answers,
+                        status='completed', completed_at=dj_tz.now(),
+                    )
+        except TimeSlot.DoesNotExist:
+            return Response({'detail': 'That time no longer exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from .notifications import schedule_booking_notifications
+            schedule_booking_notifications(booking)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from integrations.sync import sync_booking_created
+            sync_booking_created(booking)
+        except Exception:  # noqa: BLE001
+            pass
+
+        if account_created:
+            try:
+                uid = urlsafe_base64_encode(force_bytes(user.pk))
+                token = default_token_generator.make_token(user)
+                link = f"{settings.SITE_URL}/reset-password/{uid}/{token}"
+                send_email(
+                    to=email, subject="Activate your Dr. Nath account",
+                    template='client_activation',
+                    context={'recipient_name': (name or email), 'program_name': skill.name,
+                             'email': email, 'link': link},
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        return Response({'booking_id': booking.id, 'account_created': account_created},
+                        status=status.HTTP_201_CREATED)
 
 
 class CreateGroupPaymentIntentView(APIView):

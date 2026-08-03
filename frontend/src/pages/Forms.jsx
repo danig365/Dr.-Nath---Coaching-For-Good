@@ -45,10 +45,16 @@ function TemplateModal({ template, onClose, onSaved }) {
   const [title, setTitle] = useState(template?.title || "");
   const [kind, setKind] = useState(template?.kind || "intake");
   const [description, setDescription] = useState(template?.description || "");
+  const [skillId, setSkillId] = useState(template?.skill || "");
+  const [skills, setSkills] = useState([]);
   const [questions, setQuestions] = useState(
     (template?.questions || []).map((q) => ({ ...q, options: q.options || [] }))
   );
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.get("/skills/").then((r) => setSkills(Array.isArray(r.data) ? r.data : (r.data.results || []))).catch(() => {});
+  }, []);
 
   const addQ = () => setQuestions((qs) => [...qs, { label: "", type: "short_text", required: false, options: [] }]);
   const updateQ = (i, patch) => setQuestions((qs) => qs.map((q, idx) => (idx === i ? { ...q, ...patch } : q)));
@@ -70,6 +76,7 @@ function TemplateModal({ template, onClose, onSaved }) {
     }
     const payload = {
       title: title.trim(), kind, description: description.trim(),
+      skill: kind === "intake" ? (skillId || null) : null,
       questions: questions.map((q) => ({
         ...(q.id ? { id: q.id } : {}),
         label: q.label.trim(), type: q.type, required: !!q.required,
@@ -113,6 +120,22 @@ function TemplateModal({ template, onClose, onSaved }) {
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2}
             placeholder="Intro shown to the client (optional)…"
             className="w-full px-4 py-2.5 rounded-xl text-sm resize-none focus:outline-none" style={input} />
+
+          {kind === "intake" && (
+            <div>
+              <label className="block text-xs font-semibold mb-1.5" style={{ color: BROWN }}>
+                Use as the intake form for a programme (optional)
+              </label>
+              <select value={skillId} onChange={(e) => setSkillId(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl text-sm focus:outline-none" style={input}>
+                <option value="">Not linked to a programme</option>
+                {skills.map((s) => <option key={s.id} value={s.id}>{s.name}{s.is_chemistry ? " (Chemistry Session)" : ""}</option>)}
+              </select>
+              <p className="text-xs mt-1" style={{ color: "rgba(74,85,104,0.6)" }}>
+                If this programme is a public Chemistry Session, visitors complete this form before booking.
+              </p>
+            </div>
+          )}
 
           <div className="space-y-3">
             {questions.map((q, i) => (

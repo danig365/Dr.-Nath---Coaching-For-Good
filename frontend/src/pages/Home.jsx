@@ -376,11 +376,11 @@ const Home = () => {
               className="flex flex-col sm:flex-row gap-4"
             >
               <Link
-                to="/register"
+                to="/chemistry"
                 className="px-8 py-4 rounded-full text-center font-semibold text-base inline-flex items-center justify-center gap-2 transition-all duration-300 hover:-translate-y-0.5"
                 style={{ background: "#F5EEC9", color: NAVY }}
               >
-                Book a Session <ArrowRightIcon className="w-5 h-5" />
+                Book a Free Chemistry Session <ArrowRightIcon className="w-5 h-5" />
               </Link>
               <a
                 href="#offerings"

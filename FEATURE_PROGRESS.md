@@ -9,7 +9,7 @@ in phases; when a feature is **done** we add non-technical testing instructions 
 | # | Feature | Size | Status |
 |---|---|---|---|
 | F2 | Weekly AI insights for the coach | S | ✅ Done |
-| F5+F6 | Chemistry Session + intake-gated flow | M | ⬜ Not started |
+| F5+F6 | Chemistry Session + intake-gated flow | M | ✅ Done |
 | F3 | AI habit-coaching | M | ✅ Done |
 | F4 | Canvas-style learning space | L | ✅ Done |
 | F1 | Zoom-style meeting analytics | XL | ⬜ Not started (needs STT key) |
@@ -118,3 +118,37 @@ and resource upload; add only what's missing (announcements + programme scoping)
 ### UI polish (post-F4)
 - My Skills cards: content full-width + compact bottom action toolbar (no wasted space).
 - Programme Space: hero + stats strip, tabbed layout (Announcements/Resources/Sessions/Messages), collapsible coach composers, **Sessions month-calendar** (`components/MonthCalendar.jsx`) with list toggle, resource card grid, empty states.
+
+---
+
+## F5 + F6 — Free Chemistry Session + intake-gated booking
+
+**Goal (feedback point 5):** a public **"Book a Chemistry Session with Dr Nath"** —
+a free discovery call where the visitor completes an **intake form first**, and only
+then the calendar unlocks to book.
+
+**Decisions (from Danish):**
+- **Auto-provision (recommended):** the visitor doesn't register manually — an
+  account is created behind the scenes from their intake email + a welcome/
+  set-password link (reuses the E2 onboard pattern). Low friction for "web surfers".
+- **Intake NOT hardcoded:** the coach/admin builds/edits an intake form **per skill**
+  in the form builder. The chemistry flow uses that skill's intake form.
+
+**Approach:** single-step (intake answers submitted together with the chosen slot →
+provision user → book → attach answers as a completed FormAssignment). No guest
+schema surgery; core booking model untouched.
+
+### Phases
+- [x] **Phase 1 — Backend model + public read** ✅
+  - `Skill.is_chemistry` + `FormTemplate.skill` FK + migrations.
+  - `GET /api/bookings/chemistry/` (AllowAny) → chemistry skill + coach + per-skill intake questions; public slots confirmed AllowAny.
+  - *Tested:* public read returns skill+questions; 48 slots for the test chemistry skill.
+- [x] **Phase 2 — Backend public booking** ✅
+  - `POST /api/bookings/chemistry/book/` (AllowAny) — validates required intake → finds/creates client from email (activation link for new) → books free session → stores answers as a completed FormAssignment on the booking → booking + activation emails.
+  - *Tested (locmem+rollback):* 201, account created, slot booked, intake stored, 3 emails; missing required → 400.
+- [x] **Phase 3 — Frontend public flow** ✅
+  - `ChemistryBooking.jsx` at public `/chemistry`: 3-step (details+dynamic intake → gated calendar via MonthCalendar → confirmation). Home CTA now "Book a Free Chemistry Session". Deployed, route 200.
+- [x] **Phase 4 — Coach/admin builder + view answers + test + guide + commit** ✅
+  - Forms template gets a **skill link** (per-skill intake); `is_chemistry` toggle on Add/Edit Skill; coach reads intake answers in Forms → responses (completed FormAssignment on the booking). Verification guide item 4.
+
+**Testing accounts:** testcoach / testclient (password Test@1234).

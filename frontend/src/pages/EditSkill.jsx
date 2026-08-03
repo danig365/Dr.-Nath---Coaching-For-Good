@@ -59,7 +59,7 @@ const EditSkill = () => {
 
   const [form, setForm] = useState({
     name: "", description: "", level: "intermediate",
-    category: "", price: "", tags: [], currentTag: "",
+    category: "", price: "", tags: [], currentTag: "", is_chemistry: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -78,6 +78,7 @@ const EditSkill = () => {
           price: s.price || "",
           tags: Array.isArray(s.tags) ? s.tags : [],
           currentTag: "",
+          is_chemistry: !!s.is_chemistry,
         });
       } catch (err) {
         toast.error("Failed to load skill.");
@@ -110,6 +111,7 @@ const EditSkill = () => {
         category: form.category,
         price: Number(form.price),
         tags: form.tags,
+        is_chemistry: form.is_chemistry,
       });
       toast.success("Skill updated successfully!");
       navigate("/my-skills");
@@ -294,6 +296,17 @@ const EditSkill = () => {
                 onBlur={e => e.target.style.borderColor = "rgba(200,169,81,0.3)"}
               />
             </div>
+
+            {/* Chemistry session toggle */}
+            <label className="flex items-start gap-3 p-4 rounded-xl cursor-pointer" style={{ background: "rgba(200,169,81,0.06)", border: "1px solid rgba(200,169,81,0.2)" }}>
+              <input type="checkbox" checked={form.is_chemistry} onChange={e => setForm(f => ({ ...f, is_chemistry: e.target.checked }))} className="mt-0.5" />
+              <span>
+                <span className="block text-sm font-semibold" style={{ color: "#1B2B4A" }}>Offer as a free Chemistry Session</span>
+                <span className="block text-xs mt-0.5" style={{ color: "rgba(74,85,104,0.7)" }}>
+                  Shows a public "Book a Chemistry Session" button on the home page. Visitors complete this programme's intake form (build it in Forms) before the calendar unlocks. Set the price to 0.
+                </span>
+              </span>
+            </label>
 
             {/* Actions */}
             <div className="flex gap-3 pt-2">

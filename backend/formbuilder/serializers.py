@@ -53,14 +53,15 @@ def clean_questions(raw):
 
 class FormTemplateSerializer(serializers.ModelSerializer):
     assignment_count = serializers.SerializerMethodField(read_only=True)
+    skill_name = serializers.CharField(source='skill.name', read_only=True)
 
     class Meta:
         model = FormTemplate
         fields = [
-            'id', 'title', 'description', 'kind', 'questions',
+            'id', 'title', 'description', 'kind', 'questions', 'skill', 'skill_name',
             'active', 'assignment_count', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'active', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'active', 'skill_name', 'created_at', 'updated_at']
 
     def get_assignment_count(self, obj):
         return obj.assignments.count()

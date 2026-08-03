@@ -8,7 +8,7 @@ class SkillSerializer(serializers.ModelSerializer):
         model = Skill
         fields = [
             'id', 'name', 'price',
-            'category', 'level', 'description', 'tags', 'active',
+            'category', 'level', 'description', 'tags', 'active', 'is_chemistry',
             'sessions_completed', 'avg_rating'
         ]
         # 'profile' is set by the view's perform_create/update

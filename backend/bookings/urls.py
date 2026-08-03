@@ -6,7 +6,7 @@ from .views import (
     GroupSessionViewSet, CreateGroupPaymentIntentView, ConfirmGroupPaymentView, SlotInviteViewSet,
     HabitView, HabitDetailView, HabitCheckInView, HabitSuggestView,
     BookingInvoiceView, GroupEnrollmentInvoiceView, MagicJoinView, SessionReflectionView,
-    SessionAISummaryView, RebookReminderOptInView,
+    SessionAISummaryView, RebookReminderOptInView, ChemistryInfoView, ChemistryBookView,
 )
 from .livekit_views import (
     BookingCallTokenView, GroupCallTokenView,
@@ -44,6 +44,8 @@ urlpatterns = [
     path('magic-join/<str:token>/', MagicJoinView.as_view(), name='magic-join'),
     path('<int:booking_id>/reflection/', SessionReflectionView.as_view(), name='session-reflection'),
     path('<int:booking_id>/ai-summary/', SessionAISummaryView.as_view(), name='session-ai-summary'),
+    path('chemistry/', ChemistryInfoView.as_view(), name='chemistry-info'),
+    path('chemistry/book/', ChemistryBookView.as_view(), name='chemistry-book'),
     path('<int:booking_id>/rebook-reminders/opt-in/', RebookReminderOptInView.as_view(), name='rebook-optin'),
     path('', include(router.urls)),
 ]

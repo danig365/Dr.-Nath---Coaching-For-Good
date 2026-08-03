@@ -76,6 +76,7 @@ const AddSkill = () => {
     price: "",
     tags: [],
     currentTag: "",
+    is_chemistry: false,
   });
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -107,6 +108,7 @@ const AddSkill = () => {
         category: form.category,
         price: Number(form.price),
         tags: form.tags,
+        is_chemistry: form.is_chemistry,
       });
       toast.success("Skill added successfully!");
       navigate("/my-skills");
@@ -297,6 +299,17 @@ const AddSkill = () => {
                 Visible to all learners browsing the directory.
               </p>
             </div>
+
+            {/* Chemistry session toggle */}
+            <label className="flex items-start gap-3 p-4 rounded-xl cursor-pointer" style={{ background: "rgba(200,169,81,0.06)", border: "1px solid rgba(200,169,81,0.2)" }}>
+              <input type="checkbox" checked={form.is_chemistry} onChange={e => setForm(f => ({ ...f, is_chemistry: e.target.checked }))} className="mt-0.5" />
+              <span>
+                <span className="block text-sm font-semibold" style={{ color: "#1B2B4A" }}>Offer as a free Chemistry Session</span>
+                <span className="block text-xs mt-0.5" style={{ color: "rgba(74,85,104,0.7)" }}>
+                  Shows a public "Book a Chemistry Session" button on the home page. Visitors complete this programme's intake form (build it in Forms) before the calendar unlocks. Set the price to 0.
+                </span>
+              </span>
+            </label>
 
             {/* Actions */}
             <div className="flex gap-3 pt-2">

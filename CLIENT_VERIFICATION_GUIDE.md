@@ -42,6 +42,23 @@ Each programme now has its own **space** — one clean page with a header, a qui
 - A client opens **My Learning** and clicks **Programme** on any session.
 - They see the same clean space — your announcements, the resources you shared, the sessions calendar, and chat — plus a **Book next** button. (Clients don't see the coach's posting controls.)
 
+### 4. Free "Chemistry Session" with an intake form ✅ *(new)*
+Lets a new visitor book a **free discovery call** — but only after completing an **intake form** you design.
+
+**Set it up (one time, as the coach):**
+1. **Forms** → create a template, set its type to **Intake form**, add your questions, and under *"Use as the intake form for a programme"* pick the programme. Save.
+2. **My Skills** → **Edit** (or add) the programme you want to offer as the discovery call → tick **"Offer as a free Chemistry Session"**, set the **price to 0**, save.
+3. Make sure that programme has some **available times** (your availability/calendar).
+
+**How a visitor uses it:**
+- On the **home page** they click **"Book a Free Chemistry Session"**.
+- They fill your **intake form** (name, email + your questions) — the calendar stays locked until it's complete.
+- Then they pick a time and book. An account is created for them automatically and they're emailed a link to set their password.
+
+**How to check:**
+- Their booking appears in your **My Sessions** like any other, and you can read their **intake answers** in **Forms → responses**.
+- *(You can test end-to-end with the home-page button using any spare email address.)*
+
 ---
 
 *If anything doesn't behave as described, just note the item number and what you saw, and it'll be sorted.*
