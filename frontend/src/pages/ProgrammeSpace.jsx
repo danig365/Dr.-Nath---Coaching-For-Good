@@ -174,7 +174,7 @@ export default function ProgrammeSpace() {
   return (
     <div className="min-h-screen pt-36 pb-16 px-4 sm:px-6" style={{ background: CREAM }}>
       <div className="max-w-3xl mx-auto">
-        <button onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-sm font-semibold mb-3" style={{ color: BROWN }}>
+        <button onClick={() => navigate(-1)} className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-full border transition-all mb-4" style={{ borderColor: "rgba(200,169,81,0.3)", color: "#A9863A", background: "white" }}>
           <FiArrowLeft size={14} /> Back
         </button>
 
