@@ -288,7 +288,7 @@ export default function AdminPanel() {
     setSending(true);
     try {
       const res = await api.post(`/newsletter/admin/newsletters/${n.id}/send/`, { audience: sendAudience });
-      toast.success(`Queued to ${res.data.sent_count} recipient${res.data.sent_count === 1 ? "" : "s"}.`);
+      toast.success(`Sent to ${res.data.sent_count} recipient${res.data.sent_count === 1 ? "" : "s"} — a confirmation copy has been emailed to you.`);
       if (compose.id === n.id) resetCompose();
       setSendModal({ open: false, newsletter: null });
       setSendAudience("subscribers");

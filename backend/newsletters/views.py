@@ -132,6 +132,37 @@ class NewsletterViewSet(viewsets.ModelViewSet):
         newsletter.sent_at = now
         newsletter.sent_count = count
         newsletter.save(update_fields=['status', 'sent_at', 'sent_count', 'updated_at'])
+
+        # Confirmation copy so the coach knows it actually went out — to whoever
+        # sent it plus every coach account (e.g. Dr Nath's coaching inbox).
+        audience_label = {
+            'subscribers': 'newsletter subscribers',
+            'clients': 'registered clients',
+            'both': 'subscribers and clients',
+        }.get(audience, 'recipients')
+        confirm_emails = set()
+        if request.user.email:
+            confirm_emails.add(request.user.email)
+        for prof in UserProfile.objects.filter(role='coach').select_related('user'):
+            if prof.user.email:
+                confirm_emails.add(prof.user.email)
+        for em in confirm_emails:
+            ScheduledNotification.queue(
+                kind='newsletter_sent',
+                recipient_email=em,
+                subject=f"✓ Sent: {newsletter.subject}",
+                template='newsletter_sent',
+                context={
+                    'subject': newsletter.subject,
+                    'body_html': newsletter.body_html,
+                    'recipient_count': count,
+                    'audience_label': audience_label,
+                    'sent_when': now.strftime('%d %b %Y, %H:%M UTC'),
+                },
+                scheduled_for=now,
+                dedupe_key=f'newsletter-{newsletter.id}-sent-{em}',
+            )
+
         return Response(self.get_serializer(newsletter).data)
 
 

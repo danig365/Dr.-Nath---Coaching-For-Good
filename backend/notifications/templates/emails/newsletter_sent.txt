@@ -1,0 +1,9 @@
+{% extends "emails/base.txt" %}
+{% block content %}NEWSLETTER SENT ✓
+
+"{{ subject }}" was delivered to {{ recipient_count }} {{ audience_label }} on {{ sent_when }}.
+
+This is your confirmation copy. You can view the full newsletter on the platform.
+
+Warm regards,
+Dr. Nath — Coaching for Impact{% endblock %}
