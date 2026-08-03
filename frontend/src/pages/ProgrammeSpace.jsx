@@ -30,6 +30,20 @@ const TABS = [
   { key: "messages", label: "Messages", icon: FiMessageSquare },
 ];
 
+function SessionRow({ s, isCoach, onChat }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl p-3" style={{ background: CREAM, border: "1px solid rgba(200,169,81,0.15)" }}>
+      <div className="min-w-0">
+        <p className="text-sm font-semibold" style={{ color: DARK }}>{fmtDate(s.date)}{s.time ? ` · ${s.time}` : ""}</p>
+        <p className="text-xs" style={{ color: BROWN }}>{isCoach ? `with ${s.with}` : STATUS_LABEL[s.status] || s.status}</p>
+      </div>
+      <button onClick={onChat} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0" style={{ background: "rgba(27,43,74,0.06)", color: DARK }}>
+        <FiMessageSquare size={12} /> Chat
+      </button>
+    </div>
+  );
+}
+
 function EmptyState({ icon: Icon, text }) {
   return (
     <div className="text-center py-12">
@@ -317,30 +331,33 @@ export default function ProgrammeSpace() {
 
               {sessions.length === 0 ? (
                 <EmptyState icon={FiCalendar} text="No sessions yet." />
+              ) : sessionView === "calendar" ? (
+                <>
+                  <div className="mb-4 rounded-xl p-3 max-w-[340px] mx-auto" style={{ background: CREAM, border: "1px solid rgba(200,169,81,0.15)" }}>
+                    <MonthCalendar events={dayEvents} selected={selDate} onSelect={setSelDate}
+                      initialMonth={dayEvents[0]?.date?.slice(0, 7)} />
+                  </div>
+                  {selDate ? (
+                    <>
+                      <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "rgba(74,85,104,0.55)" }}>{fmtLong(selDate)}</p>
+                      <div className="space-y-2">
+                        {shownSessions.length === 0 ? (
+                          <p className="text-sm py-3 text-center" style={{ color: BROWN }}>No sessions on this day.</p>
+                        ) : shownSessions.map((s) => (
+                          <SessionRow key={s.id} s={s} isCoach={isCoach} onChat={() => navigate(`/chat/${s.id}`)} />
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-center py-3" style={{ color: BROWN }}>Tap a highlighted date (•) to see its sessions.</p>
+                  )}
+                </>
               ) : (
                 <>
-                  {sessionView === "calendar" && (
-                    <div className="mb-4 rounded-xl p-4" style={{ background: CREAM, border: "1px solid rgba(200,169,81,0.15)" }}>
-                      <MonthCalendar events={dayEvents} selected={selDate} onSelect={setSelDate}
-                        initialMonth={dayEvents[0]?.date?.slice(0, 7)} />
-                    </div>
-                  )}
-                  <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "rgba(74,85,104,0.55)" }}>
-                    {selDate ? fmtLong(selDate) : sessionView === "calendar" ? "All sessions" : `${sessions.length} session${sessions.length === 1 ? "" : "s"}`}
-                  </p>
+                  <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "rgba(74,85,104,0.55)" }}>{sessions.length} session{sessions.length === 1 ? "" : "s"}</p>
                   <div className="space-y-2">
-                    {shownSessions.length === 0 ? (
-                      <p className="text-sm py-4 text-center" style={{ color: BROWN }}>No sessions on this day.</p>
-                    ) : shownSessions.map((s) => (
-                      <div key={s.id} className="flex items-center justify-between gap-3 rounded-xl p-3" style={{ background: CREAM, border: "1px solid rgba(200,169,81,0.15)" }}>
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold" style={{ color: DARK }}>{fmtDate(s.date)}{s.time ? ` · ${s.time}` : ""}</p>
-                          <p className="text-xs" style={{ color: BROWN }}>{isCoach ? `with ${s.with}` : STATUS_LABEL[s.status] || s.status}</p>
-                        </div>
-                        <button onClick={() => navigate(`/chat/${s.id}`)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0" style={{ background: "rgba(27,43,74,0.06)", color: DARK }}>
-                          <FiMessageSquare size={12} /> Chat
-                        </button>
-                      </div>
+                    {sessions.map((s) => (
+                      <SessionRow key={s.id} s={s} isCoach={isCoach} onChat={() => navigate(`/chat/${s.id}`)} />
                     ))}
                   </div>
                 </>
