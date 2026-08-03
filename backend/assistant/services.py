@@ -389,6 +389,84 @@ TOPICS_SYSTEM_PROMPT = (
 )
 
 
+ANALYSIS_SYSTEM_PROMPT = (
+    "You are producing Zoom-style meeting analytics for a coach from a coaching "
+    "session transcript. Estimate reasonable values from the conversation. Return "
+    "ONLY a JSON object: {"
+    '"meeting_score": integer 0-100 (overall quality of the session), '
+    '"engagement": integer 0-100 (how engaged the client was), '
+    '"sentiment": one of "Positive","Neutral","Mixed","Negative", '
+    '"sentiment_score": integer 0-100 (0 negative, 100 positive), '
+    '"topics": array of up to 6 short topic phrases, '
+    '"deep_dive": array of objects {"indicator": string, "score": integer 0-100, "explanation": one-sentence plain English}'
+    "}. For deep_dive include these indicators: Participant engagement, Emotional "
+    "tone, Coach presence, Balance of conversation, Clarity of outcomes. These are "
+    "supportive estimates from the transcript, not clinical measurements."
+)
+
+
+def _clamp_int(value, lo=0, hi=100):
+    try:
+        return max(lo, min(hi, int(round(float(value)))))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def analyze_session(transcript):
+    """Zoom-style analytics from a session transcript. Returns a dict or None.
+
+    None means: not enough content, no provider, or an error. Values are AI
+    estimates from the transcript text (works on any transcript source)."""
+    transcript = (transcript or "").strip()
+    if len(transcript) < MIN_TRANSCRIPT_CHARS:
+        return None
+
+    user_msg = (
+        "Transcript of a coaching session (speaker labels may be approximate):\n\n"
+        f"{transcript[:SUMMARY_TRANSCRIPT_LIMIT]}\n\n"
+        "Return only the JSON analytics object."
+    )
+    text = complete_text(ANALYSIS_SYSTEM_PROMPT, user_msg, max_tokens=800)
+    if not text:
+        return None
+
+    import json
+    import re
+    raw = text.strip()
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if match:
+        raw = match.group(0)
+    try:
+        data = json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return None
+
+    out = {
+        "meeting_score": _clamp_int(data.get("meeting_score")),
+        "engagement": _clamp_int(data.get("engagement")),
+        "sentiment": str(data.get("sentiment") or "").strip()[:20],
+        "sentiment_score": _clamp_int(data.get("sentiment_score")),
+        "topics": [str(t).strip()[:120] for t in (data.get("topics") or []) if str(t).strip()][:6],
+        "deep_dive": [],
+    }
+    for d in (data.get("deep_dive") or []):
+        if not isinstance(d, dict):
+            continue
+        indicator = str(d.get("indicator", "")).strip()[:60]
+        if not indicator:
+            continue
+        out["deep_dive"].append({
+            "indicator": indicator,
+            "score": _clamp_int(d.get("score")),
+            "explanation": str(d.get("explanation", "")).strip()[:300],
+        })
+    out["deep_dive"] = out["deep_dive"][:8]
+    # Require at least a score or some deep-dive content to be useful.
+    if out["meeting_score"] is None and not out["deep_dive"]:
+        return None
+    return out
+
+
 def summarize_topics(texts):
     """Given an iterable of short text blocks (recent session summaries / key
     points), return a ranked list of the most-discussed topic phrases.

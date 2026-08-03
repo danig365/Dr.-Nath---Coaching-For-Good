@@ -562,6 +562,12 @@ class SessionSummary(models.Model):
     action_items = models.JSONField(default=list, blank=True)  # list of short strings
     reflection_points = models.JSONField(default=list, blank=True)  # prompts to reflect on
     transcript_chars = models.PositiveIntegerField(default=0)
+    # Full transcript, stored so it can be downloaded and re-analysed. Source-
+    # agnostic: browser transcription now, server-side STT (Deepgram) later.
+    transcript_text = models.TextField(blank=True, default='')
+    # Zoom-style meeting analytics (F1), AI-estimated from the transcript:
+    # {meeting_score, engagement, sentiment, sentiment_score, topics, deep_dive:[{indicator, score, explanation}]}
+    analytics = models.JSONField(default=dict, blank=True)
     # Set once the post-session summary email has gone out, so both participants
     # POSTing the transcript at session end don't each trigger an email.
     summary_email_sent = models.BooleanField(default=False)

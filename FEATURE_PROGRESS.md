@@ -12,7 +12,7 @@ in phases; when a feature is **done** we add non-technical testing instructions 
 | F5+F6 | Chemistry Session + intake-gated flow | M | ✅ Done |
 | F3 | AI habit-coaching | M | ✅ Done |
 | F4 | Canvas-style learning space | L | ✅ Done |
-| F1 | Zoom-style meeting analytics | XL | ⬜ Not started (needs STT key) |
+| F1 | Zoom-style meeting analytics | XL | ✅ Done (Path A: Anthropic-only) |
 
 ---
 
@@ -152,3 +152,28 @@ schema surgery; core booking model untouched.
   - Forms template gets a **skill link** (per-skill intake); `is_chemistry` toggle on Add/Edit Skill; coach reads intake answers in Forms → responses (completed FormAssignment on the booking). Verification guide item 4.
 
 **Testing accounts:** testcoach / testclient (password Test@1234).
+
+---
+
+## F1 — Zoom-style meeting analytics (Path A: Anthropic-only, Deepgram-ready)
+
+**Goal (feedback point 2):** Meeting Score, Engagement, Sentiment, downloadable
+transcript, and a deep-dive of indicators with explanations.
+
+**Approach:** transcript-source-agnostic. Store the transcript; Claude estimates the
+analytics from it. Swapping the source (browser now → Deepgram later, via
+`TRANSCRIPTION_ENABLED` + key) upgrades quality with **no analytics code change**.
+
+### Phases
+- [x] **Phase 1 — Backend: store transcript + analytics** ✅
+  - `SessionSummary.transcript_text` + `analytics` (JSON) + migration 0028.
+  - `assistant/services.py: analyze_session(transcript)` → {meeting_score, engagement, sentiment, sentiment_score, topics, deep_dive:[{indicator, score, explanation}]} (Claude; clamped/sanitised; None-safe).
+  - `generate_and_store_summary` now stores the transcript and generates analytics once (cost-guarded).
+  - *Tested:* analytics generated end-to-end (score 78, 5 deep-dive indicators); transcript stored.
+- [x] **Phase 2 — Transcript download + analytics API** ✅
+  - `analytics` + `has_transcript` in SessionSummarySerializer; `GET /api/bookings/<id>/transcript/` (coach+client only) → .txt download.
+  - *Tested:* analytics in summary endpoint (score 80), transcript 200 text/plain, non-participant 403.
+- [x] **Phase 3 — Frontend deep-dive UI** ✅
+  - SessionSummaryModal: Meeting analytics (score/engagement/sentiment tiles + deep-dive bars with explanations + topic chips + Download transcript). Deployed.
+- [x] **Phase 4 — Test, guide, commit** ✅
+  - Verification guide item 5. Deepgram-ready: add a key + `TRANSCRIPTION_ENABLED=true` later to auto-upgrade transcript quality (no code change).

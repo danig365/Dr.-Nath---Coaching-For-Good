@@ -59,6 +59,16 @@ Lets a new visitor book a **free discovery call** — but only after completing 
 - Their booking appears in your **My Sessions** like any other, and you can read their **intake answers** in **Forms → responses**.
 - *(You can test end-to-end with the home-page button using any spare email address.)*
 
+### 5. Meeting analytics (Zoom-style) ✅ *(new)*
+Every AI session summary now also includes **meeting analytics** and a **downloadable transcript**.
+
+**How to check:**
+- Open a completed session's **AI Summary** (from **My Sessions** or **My Learning**).
+- At the top you'll see **Meeting score**, **Engagement** and **Sentiment**, then a **deep-dive** — indicators like *Participant engagement, Emotional tone, Coach presence, Balance of conversation, Clarity of outcomes* — each with a short plain-English explanation, plus the session's main topics.
+- Click **Download transcript** to save the full conversation as a text file.
+
+*Please note:* the scores are **AI estimates** from the session transcript — a helpful guide, not exact measurements. They'll get sharper if we later switch on higher-quality transcription.
+
 ---
 
 *If anything doesn't behave as described, just note the item number and what you saw, and it'll be sorted.*

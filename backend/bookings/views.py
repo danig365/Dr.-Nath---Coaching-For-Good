@@ -2349,6 +2349,30 @@ def _optin_result_page(heading, message, ok=True):
 </body></html>"""
 
 
+class SessionTranscriptView(APIView):
+    """Download a session's transcript as a text file (F1). Coach or client only."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, booking_id):
+        booking = get_object_or_404(
+            SessionBooking.objects.select_related('mentor__user', 'learner', 'ai_summary', 'skill'),
+            id=booking_id,
+        )
+        if request.user != booking.learner and booking.mentor.user_id != request.user.id:
+            return Response({'detail': 'You do not have access to this transcript.'},
+                            status=HTTP_403_FORBIDDEN)
+        summ = getattr(booking, 'ai_summary', None)
+        if not summ or not summ.transcript_text:
+            return Response({'detail': 'No transcript available for this session.'},
+                            status=HTTP_404_NOT_FOUND)
+        from django.http import HttpResponse
+        programme = booking.skill.name if booking.skill else ''
+        header = f"Session transcript\nProgramme: {programme}\nDate: {booking.session_date}\n\n"
+        resp = HttpResponse(header + summ.transcript_text, content_type='text/plain; charset=utf-8')
+        resp['Content-Disposition'] = f'attachment; filename="transcript-session-{booking.id}.txt"'
+        return resp
+
+
 class RebookReminderOptInView(APIView):
     """A client clicks 'remind me to book my next session' in their summary email.
     Public (they aren't signed in when reading email) — gated by the signed link

@@ -100,11 +100,19 @@ class SessionReflectionSerializer(serializers.ModelSerializer):
 
 
 class SessionSummarySerializer(serializers.ModelSerializer):
+    has_transcript = serializers.SerializerMethodField()
+
     class Meta:
         model = SessionSummary
         fields = ['id', 'booking', 'summary', 'key_points', 'action_items',
-                  'reflection_points', 'transcript_chars', 'created_at', 'updated_at']
-        read_only_fields = fields
+                  'reflection_points', 'analytics', 'transcript_chars',
+                  'has_transcript', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'booking', 'summary', 'key_points', 'action_items',
+                            'reflection_points', 'analytics', 'transcript_chars',
+                            'created_at', 'updated_at']
+
+    def get_has_transcript(self, obj):
+        return bool(obj.transcript_text)
 
 
 class SessionBookingSerializer(serializers.ModelSerializer):

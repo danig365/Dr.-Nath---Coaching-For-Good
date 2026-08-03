@@ -1,11 +1,21 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { FiX, FiFileText, FiCheckCircle } from "react-icons/fi";
+import { FiX, FiFileText, FiCheckCircle, FiDownload } from "react-icons/fi";
 import { api } from "../utils/auth";
+import { downloadFile } from "../utils/downloadFile";
 
 const GOLD = "#C8A951";
 const DARK = "#1B2B4A";
 const BROWN = "#4A5568";
+
+function StatTile({ label, value }) {
+  return (
+    <div className="rounded-xl p-3 text-center" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.2)" }}>
+      <div className="text-lg font-bold" style={{ color: DARK }}>{value != null && value !== "" ? value : "—"}</div>
+      <div className="text-[10px] uppercase tracking-wider mt-0.5" style={{ color: "rgba(74,85,104,0.6)" }}>{label}</div>
+    </div>
+  );
+}
 
 // Read-only view of the AI-generated session summary (E7). Opened from the
 // completed-session cards on My Learning (client) and My Sessions (coach).
@@ -56,6 +66,41 @@ export default function SessionSummaryModal({ session, onClose }) {
                 <p className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: DARK }}>{data.summary}</p>
               </div>
             )}
+            {data.analytics && (data.analytics.meeting_score != null || (data.analytics.deep_dive || []).length > 0) && (
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "#A9863A" }}>Meeting analytics</label>
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  <StatTile label="Meeting score" value={data.analytics.meeting_score != null ? `${data.analytics.meeting_score}` : null} />
+                  <StatTile label="Engagement" value={data.analytics.engagement != null ? `${data.analytics.engagement}` : null} />
+                  <StatTile label="Sentiment" value={data.analytics.sentiment} />
+                </div>
+                {(data.analytics.deep_dive || []).length > 0 && (
+                  <div className="space-y-2.5">
+                    {data.analytics.deep_dive.map((d, i) => (
+                      <div key={i}>
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="font-semibold" style={{ color: DARK }}>{d.indicator}</span>
+                          {d.score != null && <span className="font-bold" style={{ color: "#A9863A" }}>{d.score}</span>}
+                        </div>
+                        {d.score != null && (
+                          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(200,169,81,0.15)" }}>
+                            <div className="h-full rounded-full" style={{ width: `${d.score}%`, background: "linear-gradient(90deg,#C8A951,#F0D98C)" }} />
+                          </div>
+                        )}
+                        {d.explanation && <p className="text-xs mt-1 leading-relaxed" style={{ color: BROWN }}>{d.explanation}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {(data.analytics.topics || []).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {data.analytics.topics.map((t, i) => (
+                      <span key={i} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: "rgba(91,117,102,0.12)", color: "#5B7566" }}>{t}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {(data.key_points || []).length > 0 && (
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#A9863A" }}>Key points</label>
@@ -95,8 +140,14 @@ export default function SessionSummaryModal({ session, onClose }) {
                 </ul>
               </div>
             )}
+            {data.has_transcript && (
+              <button onClick={() => downloadFile(`/bookings/${session.id}/transcript/`, `transcript-session-${session.id}.txt`)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold" style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A" }}>
+                <FiDownload size={13} /> Download transcript
+              </button>
+            )}
             <p className="text-[11px] leading-relaxed pt-1" style={{ color: "rgba(74,85,104,0.6)" }}>
-              Generated automatically from the session transcript. It may not be perfectly accurate — please treat it as a helpful aid.
+              Generated automatically from the session transcript. Scores are AI estimates and may not be perfectly accurate — please treat them as a helpful aid.
             </p>
           </div>
         )}
