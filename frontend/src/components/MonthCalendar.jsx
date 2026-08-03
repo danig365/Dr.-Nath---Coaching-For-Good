@@ -37,7 +37,7 @@ export default function MonthCalendar({ events = [], selected, onSelect, initial
     <div>
       <div className="flex items-center justify-between mb-3">
         <button onClick={prev} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(27,43,74,0.06)", color: DARK }}><FiChevronLeft size={16} /></button>
-        <span className="text-sm font-bold" style={{ color: DARK }}>{MONTHS[cursor.m]} {cursor.y}</span>
+        <span className="text-sm font-bold" style={{ color: DARK, fontFamily: "'Playfair Display', serif" }}>{MONTHS[cursor.m]} {cursor.y}</span>
         <button onClick={next} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(27,43,74,0.06)", color: DARK }}><FiChevronRight size={16} /></button>
       </div>
       <div className="grid grid-cols-7 gap-1 mb-1">

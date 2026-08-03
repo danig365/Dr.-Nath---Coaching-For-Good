@@ -29,17 +29,18 @@ Helps you **build** habits for a client and helps clients **sustain** them.
 *(To see a sample of either right away, just ask and we'll trigger one.)*
 
 ### 3. Programme space (Canvas-style) ✅ *(new)*
-Each programme now has its own **space** — one place that brings together everything for that programme: an overview, announcements, resources (documents & videos), its sessions, and chat.
+Each programme now has its own **space** — one clean page with a header, a quick count of announcements/resources/sessions, and four tabs: **Announcements · Resources · Sessions · Messages**.
 
 **How to check (you, the coach):**
 - Go to **My Skills**, and on any programme click **Space**.
-- **Post an announcement** (title + message) — everyone on that programme will see it in their space.
-- **Add a resource** — upload a document/video or paste a link; it appears under that programme only.
-- You'll also see the programme's **sessions** and can open **chat**.
+- **Announcements tab** → **New announcement** (title + message); everyone on that programme sees it.
+- **Resources tab** → **Add resource** (upload a document/video or paste a link); it appears under that programme only.
+- **Sessions tab** → a **calendar** — the dates with a small dot have sessions; **tap a date** to see that day's sessions (or switch to a full list with the list icon).
+- **Messages tab** → open the chat.
 
 **How to check (a client's view):**
 - A client opens **My Learning** and clicks **Programme** on any session.
-- They see the overview, your announcements, the resources you shared, their sessions (with a **Book next** button), and chat — all in one place.
+- They see the same clean space — your announcements, the resources you shared, the sessions calendar, and chat — plus a **Book next** button. (Clients don't see the coach's posting controls.)
 
 ---
 

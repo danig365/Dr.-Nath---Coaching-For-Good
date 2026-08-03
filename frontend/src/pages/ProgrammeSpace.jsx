@@ -172,7 +172,7 @@ export default function ProgrammeSpace() {
   ];
 
   return (
-    <div className="min-h-screen pt-32 pb-16 px-6" style={{ background: CREAM }}>
+    <div className="min-h-screen pt-36 pb-16 px-4 sm:px-6" style={{ background: CREAM }}>
       <div className="max-w-3xl mx-auto">
         <button onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-sm font-semibold mb-3" style={{ color: BROWN }}>
           <FiArrowLeft size={14} /> Back
@@ -319,7 +319,7 @@ export default function ProgrammeSpace() {
           {tab === "sessions" && (
             <div>
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-base font-bold flex items-center gap-2" style={{ color: DARK }}><FiCalendar size={16} style={{ color: GOLD }} /> Sessions</h2>
+                <h2 className="text-lg font-normal flex items-center gap-2" style={{ color: DARK, fontFamily: "'Playfair Display', serif" }}><FiCalendar size={16} style={{ color: GOLD }} /> Sessions</h2>
                 <div className="flex items-center gap-2">
                   {!isCoach && <button onClick={() => navigate(`/book/${skillId}`)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold" style={{ background: GOLD, color: "#14213D" }}><FiPlus size={12} /> Book next</button>}
                   <div className="flex rounded-full p-0.5" style={{ background: "rgba(27,43,74,0.06)" }}>
