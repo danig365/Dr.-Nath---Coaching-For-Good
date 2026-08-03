@@ -28,6 +28,7 @@ import SessionCallLiveKit from "./pages/SessionCallLiveKit";
 import GuestCall from "./pages/GuestCall";
 import Milestones from "./pages/Milestones";
 import HabitTracker from "./pages/HabitTracker";
+import ProgrammeSpace from "./pages/ProgrammeSpace";
 import Agreements from "./pages/Agreements";
 import Forms from "./pages/Forms";
 import MyAvailability from "./pages/MyAvailability";
@@ -104,6 +105,7 @@ export default function App() {
             <Route path="/add-skill" element={<AddSkill />} />
             <Route path="/skills/edit/:id" element={<EditSkill />} />
             <Route path="/my-learning" element={<MyLearning />} />
+            <Route path="/programme/:skillId" element={<ProgrammeSpace />} />
             <Route path="/my-sessions" element={<MySessions />} />
             <Route path="/my-skills" element={<MySkills />} />
             <Route path="/chat/:bookingId" element={<SessionChatPage />} />

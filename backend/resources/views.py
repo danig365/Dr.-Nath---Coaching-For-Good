@@ -90,6 +90,9 @@ class ResourceViewSet(viewsets.ModelViewSet):
         group = serializer.validated_data.get('group_session')
         if group and group.coach_id != profile.id:
             raise DRFValidationError({'group_session': "That group session isn't yours."})
+        skill = serializer.validated_data.get('skill')
+        if skill and skill.profile_id != profile.id:
+            raise DRFValidationError({'skill': "That programme isn't yours."})
 
     def _private_folder_overrides(self, serializer, instance=None):
         """A resource in a private (client-scoped) folder is forced to

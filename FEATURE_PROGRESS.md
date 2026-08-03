@@ -11,7 +11,7 @@ in phases; when a feature is **done** we add non-technical testing instructions 
 | F2 | Weekly AI insights for the coach | S | ✅ Done |
 | F5+F6 | Chemistry Session + intake-gated flow | M | ⬜ Not started |
 | F3 | AI habit-coaching | M | ✅ Done |
-| F4 | Canvas-style learning space | L | ⬜ Not started |
+| F4 | Canvas-style learning space | L | ✅ Done |
 | F1 | Zoom-style meeting analytics | XL | ⬜ Not started (needs STT key) |
 
 ---
@@ -84,3 +84,33 @@ burnout and work-life balance. Builds on the existing manual Habit tracker.
 **Commit:** see below.
 
 **Schedule:** habit nudges Thu 09:00 UTC (`habit-nudges.timer`); AI suggestions on-demand via Habit Tracker.
+
+---
+
+## F4 — Canvas-style Programme Space
+
+**Goal (feedback point 5):** a per-programme "space" like Canvas, bringing together
+exactly what the client listed: **landing page per programme, supporting resources,
+calendar, announcements, a shared space for documents/video uploads, and email
+exchanges (chat)**. Only these — no extras (no announcement-email, etc.).
+
+**Approach:** new isolated `programmes` app; reuse existing sessions/calendar, chat
+and resource upload; add only what's missing (announcements + programme scoping).
+
+### Phases
+- [x] **Phase 1 — Backend** ✅
+  - `programmes` app + `Announcement` model; `Resource.skill` FK (programme-scoped) + serializer/ownership validation; migrations applied.
+  - APIs: `GET /programmes/<id>/space/` (aggregate), `POST /programmes/<id>/announcements/`, `DELETE /programmes/announcements/<id>/`; `programme_role()` enrolled-check.
+  - *Tested:* coach/client space 200 (role-aware), announcement post→visible to both, non-enrolled 403.
+- [x] **Phase 2 — Programme Space page** ✅
+  - `ProgrammeSpace.jsx` at `/programme/:skillId` — Overview, Announcements (coach post/delete), Resources (coach add file/link + download/open), Sessions (+ per-session Chat, client "Book next"), Messages shortcut. 403 handled.
+  - *Tested:* resource create with skill → 201, appears in space; deployed, route 200.
+- [x] **Phase 3 — Entry points** ✅
+  - Client: "Programme" button on each My Learning session. Coach: "Space" button on each My Skills programme.
+- [x] **Phase 4 — Test, guide, commit** ✅
+  - Verification guide item 3 (Programme space).
+
+**Testing instructions (client):** `CLIENT_VERIFICATION_GUIDE.md` item 3.
+**Commit:** see below.
+
+**Reused (not rebuilt):** sessions/calendar, chat, resource upload. **New:** announcements + programme-scoped resources + the space page.

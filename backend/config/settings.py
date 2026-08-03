@@ -77,6 +77,7 @@ INSTALLED_APPS = [
     'contact',
     'newsletters',
     'assistant',
+    'programmes',
     'signatures',
     'formbuilder',
     'integrations',

@@ -187,6 +187,7 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, onR
                       badge={<UnreadBadge count={session.unread_messages} />} />
                   )}
                   {session.status === "accepted" && !expired && <AddToCalendar session={session} />}
+                  {session.skill && <ActionBtn onClick={() => navigate(`/programme/${session.skill}`)} icon={FiBookOpen} label="Programme" />}
                   {!expired && <ActionBtn onClick={() => onCancel(session.id)} icon={FiXCircle} label="Cancel" variant="danger" />}
                   {session.notes_file && <ActionBtn onClick={() => onDownload(session)} icon={FiDownload} label="Notes" />}
                   {session.payment_status === "paid" && Number(session.amount_paid) > 0 && (
@@ -207,6 +208,7 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, onR
                   {session.has_summary && (
                     <ActionBtn onClick={() => onSummary(session)} icon={FiFileText} label="AI Summary" />
                   )}
+                  {session.skill && <ActionBtn onClick={() => navigate(`/programme/${session.skill}`)} icon={FiBookOpen} label="Programme" />}
                   {session.payment_status === "paid" && Number(session.amount_paid) > 0 && (
                     <ActionBtn onClick={() => downloadFile(`/bookings/${session.id}/invoice/`, "receipt.pdf")} icon={FiFileText} label="Receipt" />
                   )}

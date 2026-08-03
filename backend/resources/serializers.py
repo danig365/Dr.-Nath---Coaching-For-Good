@@ -49,6 +49,7 @@ class ResourceSerializer(serializers.ModelSerializer):
     is_link = serializers.BooleanField(read_only=True)
     coach_username = serializers.CharField(source='coach.user.username', read_only=True)
     folder_name = serializers.CharField(source='folder.name', read_only=True)
+    skill_name = serializers.CharField(source='skill.name', read_only=True)
     shared_clients = serializers.PrimaryKeyRelatedField(
         many=True, queryset=CustomUser.objects.all(), required=False
     )
@@ -58,13 +59,14 @@ class ResourceSerializer(serializers.ModelSerializer):
         model = Resource
         fields = [
             'id', 'coach', 'coach_username', 'folder', 'folder_name',
+            'skill', 'skill_name',
             'title', 'description', 'file', 'download_url', 'file_size', 'content_type',
             'link_url', 'is_link',
             'visibility', 'shared_clients', 'shared_client_usernames', 'group_session',
             'created_at',
         ]
         read_only_fields = [
-            'id', 'coach', 'coach_username', 'folder_name', 'download_url', 'is_link',
+            'id', 'coach', 'coach_username', 'folder_name', 'skill_name', 'download_url', 'is_link',
             'file_size', 'content_type', 'shared_client_usernames', 'created_at',
         ]
 

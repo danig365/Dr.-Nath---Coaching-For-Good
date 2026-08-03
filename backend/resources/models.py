@@ -71,6 +71,14 @@ class Resource(models.Model):
         related_name='resources',
         null=True, blank=True,
     )
+    # Optional: attach this resource to a specific programme (Skill) so it appears
+    # in that programme's space. Null = a general resource (current behaviour).
+    skill = models.ForeignKey(
+        'skills.Skill',
+        on_delete=models.SET_NULL,
+        related_name='resources',
+        null=True, blank=True,
+    )
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     # A resource is EITHER an uploaded file OR an external link (e.g. a link to an

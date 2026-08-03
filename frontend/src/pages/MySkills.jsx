@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { FiPlus, FiEdit2, FiTrash2, FiStar, FiDollarSign, FiUsers, FiToggleLeft, FiToggleRight, FiLink } from "react-icons/fi";
+import { FiPlus, FiEdit2, FiTrash2, FiStar, FiDollarSign, FiUsers, FiToggleLeft, FiToggleRight, FiLink, FiBookOpen } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 import { api } from "../utils/auth";
@@ -34,7 +34,7 @@ const copyBookingLink = async (skill) => {
   }
 };
 
-const SkillCard = ({ skill, onEdit, onDelete, onToggleActive, index }) => (
+const SkillCard = ({ skill, onEdit, onDelete, onToggleActive, onSpace, index }) => (
   <motion.div
     initial={{ opacity: 0, y: 16 }}
     animate={{ opacity: 1, y: 0 }}
@@ -117,6 +117,15 @@ const SkillCard = ({ skill, onEdit, onDelete, onToggleActive, index }) => (
           style={{ background: "rgba(27,43,74,0.06)", color: "#1B2B4A", border: "1px solid rgba(27,43,74,0.15)" }}
         >
           <FiLink size={13} /> Booking link
+        </button>
+
+        <button
+          onClick={onSpace}
+          title="Open this programme's space — announcements, resources and sessions"
+          className="flex-1 md:flex-none flex items-center justify-center gap-2 px-3 py-2.5 rounded-full text-sm font-semibold transition-all duration-200"
+          style={{ background: "rgba(200,169,81,0.1)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.25)" }}
+        >
+          <FiBookOpen size={13} /> Space
         </button>
 
         <button
@@ -297,6 +306,7 @@ const MySkills = () => {
                   onEdit={() => navigate(`/skills/edit/${skill.id}`)}
                   onDelete={() => setDeleteTarget(skill)}
                   onToggleActive={() => handleToggleActive(skill.id)}
+                  onSpace={() => navigate(`/programme/${skill.id}`)}
                 />
               ))}
             </motion.div>
