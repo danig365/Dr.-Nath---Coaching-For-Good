@@ -46,106 +46,84 @@ const SkillCard = ({ skill, onEdit, onDelete, onToggleActive, onSpace, index }) 
     {/* Gold accent top bar */}
     <div className="h-1" style={{ background: skill.active ? "linear-gradient(90deg,#C8A951,#F0D98C)" : "rgba(200,169,81,0.2)" }} />
 
-    <div className="p-6 flex flex-col md:flex-row gap-6">
-      {/* Left: info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex flex-wrap items-start gap-3 mb-3">
-          <h3 className="text-lg font-normal text-[#1B2B4A]" style={{ fontFamily: "'Playfair Display', serif" }}>
-            {skill.name}
-          </h3>
-          {skill.active ? (
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(52,168,83,0.1)", color: "#2E7D32", border: "1px solid rgba(52,168,83,0.2)" }}>
-              ✓ Active
-            </span>
-          ) : (
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(200,169,81,0.08)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
-              Inactive
-            </span>
-          )}
-          {skill.avg_rating !== null && skill.avg_rating !== undefined && (
-            <span className="flex items-center gap-1 text-xs font-semibold" style={{ color: "#C8A951" }}>
-              <FiStar className="fill-current" /> {parseFloat(skill.avg_rating).toFixed(1)}
-            </span>
-          )}
-        </div>
-
-        <div className="flex flex-wrap gap-2 mb-3">
-          {skill.category && (
-            <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: "rgba(200,169,81,0.1)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
-              {skill.category}
-            </span>
-          )}
-          {skill.level && (
-            <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: "#F3ECD9", color: "#4A5568", border: "1px solid rgba(200,169,81,0.15)" }}>
-              {skill.level}
-            </span>
-          )}
-          <span className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-semibold" style={{ background: "#F3ECD9", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
-            <FiDollarSign size={11} />{skill.price}/hr
+    <div className="p-6">
+      <div className="flex flex-wrap items-center gap-3 mb-3">
+        <h3 className="text-lg font-normal text-[#1B2B4A] mr-auto" style={{ fontFamily: "'Playfair Display', serif" }}>
+          {skill.name}
+        </h3>
+        {skill.avg_rating !== null && skill.avg_rating !== undefined && (
+          <span className="flex items-center gap-1 text-xs font-semibold" style={{ color: "#C8A951" }}>
+            <FiStar className="fill-current" size={12} /> {parseFloat(skill.avg_rating).toFixed(1)}
           </span>
-        </div>
-
-        {skill.description && (
-          <p className="text-sm leading-relaxed mb-3 line-clamp-2" style={{ color: "#4A5568" }}>{skill.description}</p>
         )}
-
-        {skill.tags?.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {skill.tags.map((tag, i) => (
-              <span key={tag + i} className="text-xs px-2 py-0.5 rounded-md" style={{ background: "rgba(200,169,81,0.08)", color: "#A9863A" }}>
-                {tag}
-              </span>
-            ))}
-          </div>
+        {skill.active ? (
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(52,168,83,0.1)", color: "#2E7D32", border: "1px solid rgba(52,168,83,0.2)" }}>
+            ✓ Active
+          </span>
+        ) : (
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(200,169,81,0.08)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
+            Inactive
+          </span>
         )}
       </div>
 
-      {/* Right: actions */}
-      <div className="flex md:flex-col gap-2 md:w-36 shrink-0">
-        <button
-          onClick={onEdit}
-          className="flex-1 md:flex-none flex items-center justify-center gap-2 px-3 py-2.5 rounded-full text-sm font-semibold transition-all duration-200"
-          style={{ background: "rgba(200,169,81,0.1)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.25)" }}
-        >
-          <FiEdit2 size={13} /> Edit
-        </button>
+      <div className="flex flex-wrap gap-2 mb-3">
+        {skill.category && (
+          <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: "rgba(200,169,81,0.1)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
+            {skill.category}
+          </span>
+        )}
+        {skill.level && (
+          <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: "#F3ECD9", color: "#4A5568", border: "1px solid rgba(200,169,81,0.15)" }}>
+            {skill.level}
+          </span>
+        )}
+        <span className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-semibold" style={{ background: "#F3ECD9", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
+          <FiDollarSign size={11} />{Number(skill.price) > 0 ? `${skill.price}/hr` : "Free"}
+        </span>
+      </div>
 
-        <button
-          onClick={() => copyBookingLink(skill)}
-          title="Copy a shareable link that books this exact program"
-          className="flex-1 md:flex-none flex items-center justify-center gap-2 px-3 py-2.5 rounded-full text-sm font-semibold transition-all duration-200"
-          style={{ background: "rgba(27,43,74,0.06)", color: "#1B2B4A", border: "1px solid rgba(27,43,74,0.15)" }}
-        >
-          <FiLink size={13} /> Booking link
-        </button>
+      {skill.description && (
+        <p className="text-sm leading-relaxed mb-3 line-clamp-2" style={{ color: "#4A5568" }}>{skill.description}</p>
+      )}
 
-        <button
-          onClick={onSpace}
-          title="Open this programme's space — announcements, resources and sessions"
-          className="flex-1 md:flex-none flex items-center justify-center gap-2 px-3 py-2.5 rounded-full text-sm font-semibold transition-all duration-200"
-          style={{ background: "rgba(200,169,81,0.1)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.25)" }}
-        >
-          <FiBookOpen size={13} /> Space
-        </button>
+      {skill.tags?.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {skill.tags.map((tag, i) => (
+            <span key={tag + i} className="text-xs px-2 py-0.5 rounded-md" style={{ background: "rgba(200,169,81,0.08)", color: "#A9863A" }}>
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
 
-        <button
-          onClick={onToggleActive}
-          className="flex-1 md:flex-none flex items-center justify-center gap-2 px-3 py-2.5 rounded-full text-sm font-semibold transition-all duration-200"
+    {/* Action toolbar */}
+    <div className="px-5 py-3 flex flex-wrap items-center gap-2" style={{ borderTop: "1px solid rgba(200,169,81,0.15)", background: "rgba(250,246,236,0.6)" }}>
+      <button onClick={onSpace} title="Open this programme's space"
+        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-bold transition-all" style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
+        <FiBookOpen size={13} /> Space
+      </button>
+      <button onClick={onEdit}
+        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm font-semibold transition-all" style={{ background: "white", color: "#A9863A", border: "1px solid rgba(200,169,81,0.35)" }}>
+        <FiEdit2 size={13} /> Edit
+      </button>
+      <button onClick={() => copyBookingLink(skill)} title="Copy a shareable booking link"
+        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm font-semibold transition-all" style={{ background: "white", color: "#1B2B4A", border: "1px solid rgba(27,43,74,0.15)" }}>
+        <FiLink size={13} /> Booking link
+      </button>
+      <div className="ml-auto flex items-center gap-2">
+        <button onClick={onToggleActive} title={skill.active ? "Deactivate" : "Activate"}
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm font-semibold transition-all"
           style={skill.active
-            ? { background: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" }
-            : { background: "rgba(52,168,83,0.08)", color: "#2E7D32", border: "1px solid rgba(52,168,83,0.2)" }
-          }
-        >
-          {skill.active ? <FiToggleRight size={13} /> : <FiToggleLeft size={13} />}
+            ? { background: "white", color: "#A9863A", border: "1px solid rgba(200,169,81,0.3)" }
+            : { background: "rgba(52,168,83,0.08)", color: "#2E7D32", border: "1px solid rgba(52,168,83,0.25)" }}>
+          {skill.active ? <FiToggleRight size={14} /> : <FiToggleLeft size={14} />}
           {skill.active ? "Deactivate" : "Activate"}
         </button>
-
-        <button
-          onClick={onDelete}
-          className="flex-1 md:flex-none flex items-center justify-center gap-2 px-3 py-2.5 rounded-full text-sm font-semibold transition-all duration-200"
-          style={{ background: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" }}
-        >
-          <FiTrash2 size={13} /> Delete
+        <button onClick={onDelete} title="Delete programme"
+          className="inline-flex items-center justify-center w-9 h-9 rounded-full transition-all" style={{ background: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" }}>
+          <FiTrash2 size={14} />
         </button>
       </div>
     </div>

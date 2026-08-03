@@ -114,3 +114,7 @@ and resource upload; add only what's missing (announcements + programme scoping)
 **Commit:** see below.
 
 **Reused (not rebuilt):** sessions/calendar, chat, resource upload. **New:** announcements + programme-scoped resources + the space page.
+
+### UI polish (post-F4)
+- My Skills cards: content full-width + compact bottom action toolbar (no wasted space).
+- Programme Space: hero + stats strip, tabbed layout (Announcements/Resources/Sessions/Messages), collapsible coach composers, **Sessions month-calendar** (`components/MonthCalendar.jsx`) with list toggle, resource card grid, empty states.
