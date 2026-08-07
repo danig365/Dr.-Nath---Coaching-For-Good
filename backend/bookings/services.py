@@ -23,6 +23,57 @@ PROTECTED_STATUSES = ('booked', 'held', 'blocked')
 HOLD_MINUTES = 10
 
 
+def booking_slots(coach, start_slot, duration_minutes):
+    """The contiguous base slots, starting at `start_slot`, that together cover
+    `duration_minutes`. Returns a list (including start_slot) or None if the
+    window has a gap or isn't fully covered by slots.
+
+    This lets a longer session (e.g. a 60-min programme) consume several base
+    slots, and a short one (e.g. a 30-min chemistry call) consume just one — so a
+    booking blocks exactly its own length across every skill on the shared grid.
+    """
+    duration_minutes = duration_minutes or start_slot.duration_minutes
+    end_needed = start_slot.start_datetime + timedelta(minutes=duration_minutes)
+    slots = list(
+        TimeSlot.objects.filter(
+            coach=coach,
+            start_datetime__gte=start_slot.start_datetime,
+            start_datetime__lt=end_needed,
+        ).order_by('start_datetime')
+    )
+    covering = []
+    cursor = start_slot.start_datetime
+    for s in slots:
+        if s.start_datetime != cursor:
+            return None  # gap in the grid
+        covering.append(s)
+        cursor = s.end_datetime
+        if cursor >= end_needed:
+            break
+    return covering if cursor >= end_needed else None
+
+
+def open_start_slots(open_slots, duration_minutes):
+    """Given a list of a coach's OPEN slots (any order) and a session length,
+    return only those that can serve as a valid START — i.e. contiguous open
+    slots cover the full duration. In-memory (no per-slot query)."""
+    by_start = {s.start_datetime: s for s in open_slots}
+    valid = []
+    for s in open_slots:
+        end_needed = s.start_datetime + timedelta(minutes=duration_minutes or s.duration_minutes)
+        cursor = s.start_datetime
+        ok = True
+        while cursor < end_needed:
+            nxt = by_start.get(cursor)
+            if not nxt:
+                ok = False
+                break
+            cursor = nxt.end_datetime
+        if ok:
+            valid.append(s)
+    return valid
+
+
 def min_notice_cutoff(coach):
     """Earliest start time a client is allowed to book for this coach — i.e.
     `now + coach.min_notice_hours`. Used to hide and to reject slots that are

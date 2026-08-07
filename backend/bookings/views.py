@@ -39,14 +39,17 @@ def cancel_booking(booking, new_status='declined', refund=True, cancelled_by=Non
     start_utc = session_start_utc(booking)
 
     with transaction.atomic():
-        # Release the linked slot so it becomes bookable again.
+        # Release the linked slot AND any other slots this booking consumed for
+        # its full length (a session may span several base slots) so the whole
+        # window becomes bookable again.
         slot = booking.slot
         if slot:
-            if slot.status in ('booked', 'held'):
-                slot.status = 'open'
-                slot.held_until = None
-                slot.held_by = None
-                slot.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
+            window_end = slot.start_datetime + timedelta(minutes=booking.duration or slot.duration_minutes)
+            TimeSlot.objects.filter(
+                coach_id=slot.coach_id, status__in=('booked', 'held'),
+                start_datetime__gte=slot.start_datetime,
+                start_datetime__lt=window_end,
+            ).update(status='open', held_until=None, held_by=None)
             # Release the OneToOne link so the reopened slot can be re-booked.
             booking.slot = None
 
@@ -828,7 +831,12 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
         # Hide slots that clash with the coach's external Google Calendar
         # (best-effort — no-op if they haven't connected / disabled it).
         from integrations.availability import filter_open_slots
-        slots = filter_open_slots(coach, qs)
+        slots = list(filter_open_slots(coach, qs))
+        # When booking a specific skill, only offer start times where enough
+        # contiguous open slots cover the skill's session length.
+        if skill_id and skill and getattr(skill, 'duration_minutes', None):
+            from .services import open_start_slots
+            slots = open_start_slots(slots, skill.duration_minutes)
         serializer = self.get_serializer(slots, many=True)
         return Response(serializer.data)
 
@@ -1436,7 +1444,13 @@ class ConfirmBookingPaymentView(APIView):
                                     status=status.HTTP_400_BAD_REQUEST)
                 session_date = slot.start_datetime.date()
                 session_time = slot.start_datetime.time()
-                duration = slot.duration_minutes
+                duration = skill.duration_minutes or slot.duration_minutes
+
+                # Reserve the full session length across the shared grid.
+                try:
+                    _consume_covering_slots(mentor_profile, slot, duration, request.user)
+                except ValueError as ve:
+                    return Response({'error': str(ve)}, status=status.HTTP_409_CONFLICT)
 
                 booking = SessionBooking.objects.create(
                     learner=request.user,
@@ -1453,12 +1467,6 @@ class ConfirmBookingPaymentView(APIView):
                     amount_paid=intent.amount / 100,
                     slot=slot,
                 )
-
-                if slot:
-                    slot.status = 'booked'
-                    slot.held_until = None
-                    slot.held_by = None
-                    slot.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
 
             # Notify both parties (confirmation now + reminders later). Best-effort:
             # email scheduling must never fail a paid booking.
@@ -1480,6 +1488,31 @@ class ConfirmBookingPaymentView(APIView):
             return Response({'error': 'Selected slot no longer exists.'}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _consume_covering_slots(coach, start_slot, duration_minutes, user):
+    """Lock and mark as booked the contiguous slots that cover `duration_minutes`
+    from `start_slot`. Returns the list. Raises ValueError (with a friendly
+    message) if the window isn't fully open. Blocks the exact length across all
+    skills on the shared grid."""
+    from .services import booking_slots
+    covering = booking_slots(coach, start_slot, duration_minutes)
+    if not covering:
+        raise ValueError('This time is no longer fully available — please pick another.')
+    ids = [s.id for s in covering]
+    locked = list(TimeSlot.objects.select_for_update().filter(id__in=ids).order_by('start_datetime'))
+    uid = user.id if user else None
+    for s in locked:
+        if s.status == 'booked':
+            raise ValueError('This time was just booked by someone else — please pick another.')
+        if s.status == 'held' and s.held_by_id and s.held_by_id != uid:
+            raise ValueError('This time is reserved by someone else — please pick another.')
+    for s in locked:
+        s.status = 'booked'
+        s.held_until = None
+        s.held_by = None
+        s.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
+    return locked
 
 
 class ChemistryInfoView(APIView):
@@ -1570,13 +1603,18 @@ class ConfirmFreeBookingView(APIView):
                     return Response({'error': f'This time is too soon — sessions must be booked at least {hrs} hours in advance.'},
                                     status=status.HTTP_400_BAD_REQUEST)
 
+                duration = skill.duration_minutes or slot.duration_minutes
+                try:
+                    _consume_covering_slots(mentor_profile, slot, duration, request.user)
+                except ValueError as ve:
+                    return Response({'error': str(ve)}, status=status.HTTP_409_CONFLICT)
                 booking = SessionBooking.objects.create(
                     learner=request.user,
                     mentor=mentor_profile,
                     skill=skill,
                     session_date=slot.start_datetime.date(),
                     session_time=slot.start_datetime.time(),
-                    duration=slot.duration_minutes,
+                    duration=duration,
                     skill_level=booking_data.get('skill_level', 'Beginner'),
                     message=booking_data.get('message', ''),
                     status='accepted',
@@ -1584,10 +1622,6 @@ class ConfirmFreeBookingView(APIView):
                     amount_paid=0,
                     slot=slot,
                 )
-                slot.status = 'booked'
-                slot.held_until = None
-                slot.held_by = None
-                slot.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
 
             try:
                 from .notifications import schedule_booking_notifications
@@ -1699,18 +1733,19 @@ class ChemistryBookView(APIView):
                     return Response({'detail': 'That time was just booked. Please pick another.'}, status=status.HTTP_409_CONFLICT)
                 if slot.status == 'held' and slot.held_by_id and slot.held_by_id != user.id:
                     return Response({'detail': 'That time is reserved. Please pick another.'}, status=status.HTTP_409_CONFLICT)
+                duration = skill.duration_minutes or slot.duration_minutes
+                try:
+                    _consume_covering_slots(coach, slot, duration, user)
+                except ValueError as ve:
+                    return Response({'detail': str(ve)}, status=status.HTTP_409_CONFLICT)
                 booking = SessionBooking.objects.create(
                     learner=user, mentor=coach, skill=skill,
                     session_date=slot.start_datetime.date(),
                     session_time=slot.start_datetime.time(),
-                    duration=skill.duration_minutes or slot.duration_minutes,
+                    duration=duration,
                     status='accepted', payment_status='paid', amount_paid=0, slot=slot,
                     message='Chemistry session (booked via public intake).',
                 )
-                slot.status = 'booked'
-                slot.held_until = None
-                slot.held_by = None
-                slot.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
                 if questions or answers:
                     FormAssignment.objects.create(
                         template=tmpl, coach=coach, client=user, booking=booking,
