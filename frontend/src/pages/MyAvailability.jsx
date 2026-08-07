@@ -358,6 +358,9 @@ const CoachCalendar = ({ slots, tz, coachSkills = [], onBlockSlot, onUnblockSlot
                 <button onClick={addOnDay} disabled={busy}
                   className="px-4 py-2 rounded-full text-sm font-bold gold-btn disabled:opacity-50 whitespace-nowrap">Add</button>
               </div>
+              <p className="text-[11px] mt-2 leading-relaxed" style={{ color: "rgba(74,85,104,0.7)" }}>
+                Tip: a booking only reserves the length of the session booked — a 30-minute call on a 1-hour slot leaves the other 30 minutes open. To offer two short sessions in the same hour up front, add them as separate 30-minute slots.
+              </p>
             </div>
           </>
         )}

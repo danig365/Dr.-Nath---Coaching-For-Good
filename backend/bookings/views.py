@@ -1507,12 +1507,27 @@ def _consume_covering_slots(coach, start_slot, duration_minutes, user):
             raise ValueError('This time was just booked by someone else — please pick another.')
         if s.status == 'held' and s.held_by_id and s.held_by_id != uid:
             raise ValueError('This time is reserved by someone else — please pick another.')
+
+    duration = duration_minutes or start_slot.duration_minutes
+    end_needed = start_slot.start_datetime + timedelta(minutes=duration)
+    booked = []
     for s in locked:
+        # If a slot runs past what this session needs, split the tail off as a
+        # fresh open slot so the leftover time stays bookable (e.g. a 30-min call
+        # on a 60-min slot books 2:00–2:30 and leaves 2:30–3:00 open).
+        if s.end_datetime > end_needed:
+            TimeSlot.objects.create(
+                coach=s.coach, skill=s.skill,
+                start_datetime=end_needed, end_datetime=s.end_datetime,
+                status='open', source=s.source,
+            )
+            s.end_datetime = end_needed
         s.status = 'booked'
         s.held_until = None
         s.held_by = None
-        s.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
-    return locked
+        s.save(update_fields=['status', 'held_until', 'held_by', 'end_datetime', 'updated_at'])
+        booked.append(s)
+    return booked
 
 
 class ChemistryInfoView(APIView):
