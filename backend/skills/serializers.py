@@ -9,7 +9,7 @@ class SkillSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'price',
             'category', 'level', 'description', 'tags', 'active', 'is_chemistry',
-            'sessions_completed', 'avg_rating'
+            'duration_minutes', 'sessions_completed', 'avg_rating'
         ]
         # 'profile' is set by the view's perform_create/update
         # 'sessions_completed' and 'avg_rating' are typically calculated/aggregated, not directly set by mentor

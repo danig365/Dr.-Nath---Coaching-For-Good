@@ -17,6 +17,9 @@ class Skill(models.Model):
     # When true, this skill is offered publicly as a free "Chemistry Session"
     # (discovery call) that web visitors book via an intake-gated public flow.
     is_chemistry = models.BooleanField(default=False)
+    # How long one session of this skill runs, in minutes. Lets the coach offer a
+    # short (e.g. 30-min) chemistry call alongside longer programmes.
+    duration_minutes = models.PositiveIntegerField(default=60)
     # sessions_completed and avg_rating are often calculated, but can be stored if you need to manually set them
     sessions_completed = models.PositiveIntegerField(default=0)        # Total sessions mentored for this skill
     avg_rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True) # Average rating for this skill

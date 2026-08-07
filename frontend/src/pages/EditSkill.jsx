@@ -59,7 +59,7 @@ const EditSkill = () => {
 
   const [form, setForm] = useState({
     name: "", description: "", level: "intermediate",
-    category: "", price: "", tags: [], currentTag: "", is_chemistry: false,
+    category: "", price: "", tags: [], currentTag: "", is_chemistry: false, duration_minutes: 60,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -79,6 +79,7 @@ const EditSkill = () => {
           tags: Array.isArray(s.tags) ? s.tags : [],
           currentTag: "",
           is_chemistry: !!s.is_chemistry,
+          duration_minutes: s.duration_minutes || 60,
         });
       } catch (err) {
         toast.error("Failed to load skill.");
@@ -112,6 +113,7 @@ const EditSkill = () => {
         price: Number(form.price),
         tags: form.tags,
         is_chemistry: form.is_chemistry,
+        duration_minutes: Number(form.duration_minutes) || 60,
       });
       toast.success("Skill updated successfully!");
       navigate("/my-skills");
@@ -295,6 +297,16 @@ const EditSkill = () => {
                 onFocus={e => e.target.style.borderColor = "#C8A951"}
                 onBlur={e => e.target.style.borderColor = "rgba(200,169,81,0.3)"}
               />
+            </div>
+
+            {/* Session duration */}
+            <div>
+              <FieldLabel icon={FiLayers}>Session duration (minutes)</FieldLabel>
+              <input type="number" min="5" step="5" name="duration_minutes" value={form.duration_minutes}
+                onChange={handleChange}
+                className="w-full sm:w-40 px-4 py-3 rounded-xl text-sm focus:outline-none"
+                style={{ background: "white", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }} />
+              <p className="text-xs mt-1.5" style={{ color: "rgba(74,85,104,0.6)" }}>How long one session runs (e.g. 30 for a chemistry call, 60 for a full session).</p>
             </div>
 
             {/* Chemistry session toggle */}

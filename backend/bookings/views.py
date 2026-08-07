@@ -1703,7 +1703,7 @@ class ChemistryBookView(APIView):
                     learner=user, mentor=coach, skill=skill,
                     session_date=slot.start_datetime.date(),
                     session_time=slot.start_datetime.time(),
-                    duration=slot.duration_minutes,
+                    duration=skill.duration_minutes or slot.duration_minutes,
                     status='accepted', payment_status='paid', amount_paid=0, slot=slot,
                     message='Chemistry session (booked via public intake).',
                 )
