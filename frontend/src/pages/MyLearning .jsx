@@ -188,7 +188,7 @@ const SessionCard = ({ session, activeTab, onCancel, onFeedback, onDownload, onR
                   )}
                   {session.status === "accepted" && !expired && <AddToCalendar session={session} />}
                   {session.skill && <ActionBtn onClick={() => navigate(`/programme/${session.skill}`)} icon={FiBookOpen} label="Programme" />}
-                  {!expired && <ActionBtn onClick={() => onCancel(session.id)} icon={FiXCircle} label="Cancel" variant="danger" />}
+                  {!expired && <ActionBtn onClick={() => onCancel(session)} icon={FiXCircle} label="Cancel" variant="danger" />}
                   {session.notes_file && <ActionBtn onClick={() => onDownload(session)} icon={FiDownload} label="Notes" />}
                   {session.payment_status === "paid" && Number(session.amount_paid) > 0 && (
                     <ActionBtn onClick={() => downloadFile(`/bookings/${session.id}/invoice/`, "receipt.pdf")} icon={FiFileText} label="Receipt" />
@@ -375,6 +375,7 @@ const MyLearning = () => {
 
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [sessionToCancelId, setSessionToCancelId] = useState(null);
+  const [cancelSession, setCancelSession] = useState(null); // full session (for late-cancel warning)
   const [cancelKind, setCancelKind] = useState("session"); // "session" | "group"
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackSession, setFeedbackSession] = useState(null);
@@ -422,8 +423,8 @@ const MyLearning = () => {
   );
   const noShowSessions = sessions.filter(s => s.status === "no_show" || s.status === "not_held");
 
-  const handleCancelSession = (id) => { setCancelKind("session"); setSessionToCancelId(id); setShowCancelModal(true); };
-  const handleCancelGroup = (id) => { setCancelKind("group"); setSessionToCancelId(id); setShowCancelModal(true); };
+  const handleCancelSession = (session) => { setCancelKind("session"); setSessionToCancelId(session.id); setCancelSession(session); setShowCancelModal(true); };
+  const handleCancelGroup = (id) => { setCancelKind("group"); setSessionToCancelId(id); setCancelSession(null); setShowCancelModal(true); };
 
   const confirmCancel = async () => {
     try {
@@ -431,14 +432,15 @@ const MyLearning = () => {
         await api.patch(`/bookings/group-sessions/${sessionToCancelId}/leave/`, {});
         toast.success("Seat cancelled and refunded.");
       } else {
-        await api.patch(`/bookings/${sessionToCancelId}/cancel/`, {});
-        toast.success("Session cancelled.");
+        const res = await api.patch(`/bookings/${sessionToCancelId}/cancel/`, {});
+        toast.success(res.data?.detail || "Session cancelled.");
       }
       await fetchSessions();
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to cancel.");
     } finally {
       setSessionToCancelId(null);
+      setCancelSession(null);
       setShowCancelModal(false);
     }
   };
@@ -736,7 +738,21 @@ const MyLearning = () => {
             >
               <p className="text-4xl mb-3">⚠️</p>
               <h3 className="text-xl font-normal text-[#1B2B4A] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>Cancel Session?</h3>
-              <p className="text-sm text-[#4A5568] mb-6">This action cannot be undone. Your coach will be notified.</p>
+              <p className="text-sm text-[#4A5568] mb-3">This action cannot be undone. Your coach will be notified.</p>
+              {(() => {
+                const cs = cancelSession;
+                if (cancelKind !== "session" || !cs) return null;
+                const startMs = cs.slot_start ? new Date(cs.slot_start).getTime()
+                  : (cs.session_date && cs.session_time ? new Date(`${cs.session_date}T${cs.session_time}Z`).getTime() : 0);
+                const isPaid = cs.payment_status === "paid" && Number(cs.amount_paid) > 0;
+                const within24 = startMs && (startMs - Date.now()) < 24 * 3600 * 1000;
+                if (!(isPaid && within24)) return null;
+                return (
+                  <p className="text-sm mb-6 rounded-xl p-3" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#B91C1C" }}>
+                    This is <strong>less than 24 hours</strong> before a paid session. Per the cancellation policy, <strong>you will not be refunded</strong>.
+                  </p>
+                );
+              })()}
               <div className="flex gap-3">
                 <button onClick={() => setShowCancelModal(false)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold border" style={{ borderColor: "rgba(200,169,81,0.3)", color: "#4A5568" }}>
                   Keep Session

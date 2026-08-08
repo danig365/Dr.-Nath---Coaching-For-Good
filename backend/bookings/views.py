@@ -543,12 +543,30 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
         if booking.status not in ['pending', 'accepted']:
             return Response({'detail': 'This booking cannot be cancelled.'}, status=HTTP_400_BAD_REQUEST)
 
-        # Release the slot and refund, then mark declined. Both parties are
-        # emailed (the coach must know their client dropped the session).
-        cancel_booking(booking, new_status='declined', cancelled_by=user)
+        # Late-cancellation policy: a PAID session cancelled within the notice
+        # window (default 24h) is NOT refunded — the client is charged for the
+        # late cancellation. Free sessions are always cancellable at no charge,
+        # and a paid session cancelled early is refunded as normal.
+        from django.conf import settings
+        from .notifications import session_start_utc
+        late_hours = getattr(settings, 'LATE_CANCEL_HOURS', 24)
+        is_paid = booking.payment_status == 'paid' and (booking.amount_paid or 0) > 0
+        start = session_start_utc(booking)
+        within_window = bool(start and (start - dj_tz.now()).total_seconds() / 3600 < late_hours)
+        late_charge = is_paid and within_window
 
-        serializer = self.get_serializer(booking)
-        return Response(serializer.data, status=HTTP_200_OK)
+        # Release the slot; refund unless it's a paid late cancellation. Both
+        # parties are emailed (the coach must know their client dropped out).
+        cancel_booking(booking, new_status='declined', refund=not late_charge, cancelled_by=user)
+
+        data = self.get_serializer(booking).data
+        data['late_cancellation'] = late_charge
+        data['detail'] = (
+            f'Your session was cancelled. As it was within {late_hours} hours of a paid session, '
+            'the late-cancellation policy applies and it was not refunded.'
+            if late_charge else 'Your session has been cancelled.'
+        )
+        return Response(data, status=HTTP_200_OK)
 
     @action(detail=True, methods=['patch'], url_path='coach-cancel')
     def coach_cancel(self, request, pk=None):
