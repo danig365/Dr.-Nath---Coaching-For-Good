@@ -37,3 +37,7 @@ Thumbs.db
 
 # VSCode
 .vscode/
+
+# The mobile app lives in its own repository
+# (Dr.-Nath---Coaching-For-Good-Mobile-App)
+mobile/

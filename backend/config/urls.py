@@ -40,7 +40,8 @@ urlpatterns = [
     # CustomTokenRefreshView), which are rate-limited. The stock SimpleJWT views
     # used to be mounted here too — /api/token/ was an unthrottled second door to
     # login that bypassed that rate limit entirely. Don't re-add them.
-    # path('api/notifications/', include('notifications.urls')),
+    # Device-token registration for mobile push notifications.
+    path('api/notifications/', include('notifications.urls')),
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

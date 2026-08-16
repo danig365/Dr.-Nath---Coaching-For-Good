@@ -143,3 +143,40 @@ class ScheduledNotification(models.Model):
             ok = False
         self.save(update_fields=['status', 'attempts', 'sent_at', 'error', 'updated_at'])
         return ok
+
+
+class DeviceToken(models.Model):
+    """
+    A mobile device registered to receive push notifications.
+
+    Holds an Expo push token (the app obtains it from expo-notifications), so
+    the server never needs APNs/FCM credentials. One user may have several —
+    phone, tablet, a reinstall — hence the per-token row rather than a field on
+    the profile.
+
+    Tokens are retired (`active=False`) rather than deleted when Expo reports
+    DeviceNotRegistered, so we keep a record of what was seen.
+    """
+    PLATFORM_IOS = 'ios'
+    PLATFORM_ANDROID = 'android'
+    PLATFORM_CHOICES = [
+        (PLATFORM_IOS, 'iOS'),
+        (PLATFORM_ANDROID, 'Android'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='device_tokens',
+    )
+    token = models.CharField(max_length=255, unique=True, db_index=True)
+    platform = models.CharField(max_length=10, choices=PLATFORM_CHOICES, blank=True, default='')
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-last_seen_at']
+
+    def __str__(self):
+        return f"{self.user} · {self.platform or 'device'} · {'active' if self.active else 'retired'}"
