@@ -1404,7 +1404,12 @@ class ConfirmBookingPaymentView(APIView):
         # offering and the duration into the intent's metadata; without checking
         # them here, a caller could pay for the cheapest offering and confirm a
         # booking for an expensive one, or replay one payment into many bookings.
-        meta = intent.metadata or {}
+        # stripe-python 15 dropped dict as a base class for StripeObject, so
+        # metadata has no .get() — attribute access falls through to __getattr__,
+        # which looks up a key called "get" and raises. to_dict() gives a real
+        # dict on any SDK version that returns a StripeObject here.
+        raw_meta = intent.metadata or {}
+        meta = raw_meta.to_dict() if hasattr(raw_meta, "to_dict") else dict(raw_meta)
         if str(meta.get('user_id') or '') != str(request.user.id):
             return Response({'error': 'This payment does not belong to your account.'},
                             status=status.HTTP_403_FORBIDDEN)
