@@ -1870,9 +1870,40 @@ class ConfirmGroupPaymentView(APIView):
         if intent.status != 'succeeded':
             return Response({'error': 'Payment not completed'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # ── Bind the payment to THIS user and THIS session ────────────────────
+        # Same reasoning as ConfirmPaymentView above: a succeeded PaymentIntent
+        # alone proves only that *someone* paid *some* amount for *something*.
+        # CreateGroupPaymentIntentView stamps the buyer and the session into the
+        # intent's metadata, so check them before granting a seat.
+        raw_meta = intent.metadata or {}
+        meta = raw_meta.to_dict() if hasattr(raw_meta, "to_dict") else dict(raw_meta)
+        if str(meta.get('user_id') or '') != str(request.user.id):
+            return Response({'error': 'This payment does not belong to your account.'},
+                            status=status.HTTP_403_FORBIDDEN)
+        if str(meta.get('group_session_id') or '') != str(session_id or ''):
+            return Response({'error': 'This payment was made for a different session.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        # One payment, one seat.
+        if GroupEnrollment.objects.filter(
+            payment_intent_id=payment_intent_id
+        ).exclude(learner=request.user).exists():
+            return Response({'error': 'This payment has already been used for a booking.'},
+                            status=status.HTTP_409_CONFLICT)
+
         try:
             with transaction.atomic():
                 session = GroupSession.objects.select_for_update().get(id=session_id)
+
+                # And that the amount covers the current price — the seat price
+                # could have changed after the intent was made.
+                expected_cents = int(round(float(session.price_per_seat) * 100))
+                paid_cents = int(getattr(intent, 'amount_received', None) or intent.amount or 0)
+                if paid_cents < expected_cents:
+                    return Response(
+                        {'error': 'The amount paid does not cover this seat.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 enrollment = GroupEnrollment.objects.select_for_update().filter(
                     group_session=session, learner=request.user
                 ).first()
