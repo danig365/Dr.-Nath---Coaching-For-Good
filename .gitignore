@@ -41,3 +41,7 @@ Thumbs.db
 # The mobile app lives in its own repository
 # (Dr.-Nath---Coaching-For-Good-Mobile-App)
 mobile/
+
+# Virtualenvs — kept on the server, rebuilt from requirements.txt elsewhere
+backend/venv/
+backend/Lib/
