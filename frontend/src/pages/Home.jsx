@@ -8,7 +8,6 @@ import {
   ChartBarIcon,
   SparklesIcon,
   UsersIcon,
-  ChevronDownIcon,
   XMarkIcon,
   CheckIcon,
   BriefcaseIcon,
@@ -163,38 +162,6 @@ function TestimonialCarousel() {
   );
 }
 
-/* ── FAQ accordion ────────────────────────────────────────────── */
-const faqs = [
-  { q: "Who is Dr. Nath?", a: "Dr. Nath is a certified executive and life coach who helps professionals find clarity, accelerate their growth and create lasting impact through a deeply personal, client-centered approach to coaching." },
-  { q: "How does coaching work?", a: "You begin with a discovery session to map your goals and what's holding you back, then book focused 1-on-1 sessions. Between sessions you apply tailored frameworks and track real progress on your dashboard." },
-  { q: "What can I expect from a session?", a: "Honest conversation, practical tools and a clear next step. Every session is built around where you are right now and where you want to be — no scripts, no generic advice." },
-  { q: "Who is coaching for?", a: "Professionals navigating change, leaders building presence, and anyone ready to become a better version of themselves. Whether you're starting out or rebuilding after success, there's a path for you." },
-  { q: "How do I get started?", a: "Create a free account, browse the offerings, and book your first session. You can also use the Smart Match tool to be paired with the right coach for your goals." },
-];
-
-function FaqItem({ q, a, isOpen, onToggle }) {
-  return (
-    <div style={{ borderBottom: "1px solid rgba(27,43,74,0.12)" }}>
-      <button onClick={onToggle} className="w-full flex items-center justify-between gap-4 py-5 text-left">
-        <span className="text-base md:text-lg font-semibold" style={{ color: NAVY }}>{q}</span>
-        <motion.span animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.25 }} className="shrink-0">
-          <ChevronDownIcon className="w-5 h-5" style={{ color: GOLD }} />
-        </motion.span>
-      </button>
-      <AnimatePresence initial={false}>
-        {isOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.3 }} className="overflow-hidden"
-          >
-            <p className="pb-5 pr-10 leading-relaxed" style={{ color: SLATE }}>{a}</p>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
 /* ── Main component ───────────────────────────────────────────── */
 const Home = () => {
   const location = useLocation();
@@ -216,7 +183,6 @@ const Home = () => {
       setNewsletterStatus("idle");
     }
   };
-  const [openFaq, setOpenFaq] = useState(0);
 
   // Scroll to the section in the URL hash (e.g. /#who, /#offerings) — used by
   // the navbar "Who is Dr Nath" / "Offerings" links. Offsets for the fixed navbar.
