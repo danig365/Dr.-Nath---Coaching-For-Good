@@ -109,6 +109,15 @@ def _context(booking, recipient, start_utc, *, reminder_label=None):
         'add_to_google': google_calendar_link(booking, start_utc),
         'add_to_outlook': outlook_calendar_link(booking, start_utc),
         'reminder_label': reminder_label or '',
+        # Push copy. ScheduledNotification._push() mirrors the email to the
+        # recipient's phones and skips anything without a body, so this is what
+        # turns push on for booking notifications. The subject becomes the
+        # title, so the body carries the detail rather than repeating it.
+        'push_body': (
+            f"{booking.skill.name if booking.skill else 'Your session'} with "
+            f"{recipient['other_name']} — {_fmt_when(start_utc, recipient['tz'])}"
+        ),
+        'push_url': f"/session/{booking.id}",
     }
 
 
@@ -191,6 +200,20 @@ def send_join_nudge(booking):
         },
         reply_to=[coach_user.email] if coach_user.email else None,
     )
+
+    # This one is worth interrupting for: the coach is sitting in the room now.
+    # Sent directly rather than queued, so it pushes here rather than via
+    # ScheduledNotification._push().
+    try:
+        from notifications.push import send_push
+        send_push(
+            client,
+            title=f"{_display_name(coach_user)} is waiting",
+            body=f"Join {booking.skill.name if booking.skill else 'your session'} now.",
+            data={'url': f"/session/{booking.id}"},
+        )
+    except Exception:  # noqa: BLE001 — never let a push failure break the nudge
+        logger.warning("Join-nudge push failed for booking %s", booking.id, exc_info=True)
 
 
 # ── "Remind me to book my next session" — client opt-in from the summary email ──

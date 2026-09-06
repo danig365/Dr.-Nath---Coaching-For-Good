@@ -13,11 +13,15 @@ Linking: an optional GenericForeignKey ties a notification to the object it's
 about (e.g. a SessionBooking), so we can cancel a booking's pending reminders
 when it's cancelled — without the notifications app depending on bookings.
 """
+import logging
+
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 
 class ScheduledNotification(models.Model):
@@ -109,6 +113,36 @@ class ScheduledNotification(models.Model):
         obj.save()
         return obj
 
+    def _push(self):
+        """
+        Mirror this notification to the recipient's phones.
+
+        Every booking email — the confirmation, the whole reminder ladder,
+        cancellations — is a ScheduledNotification, so pushing from here covers
+        them all and cannot drift out of step with the emails. A push is only
+        useful if it says something on its own, so it is skipped unless the
+        context carries a body.
+
+        Never raises and never affects the email's outcome: the email has
+        already been sent by the time this runs.
+        """
+        if not self.recipient_user_id:
+            return
+        body = (self.context or {}).get('push_body')
+        if not body:
+            return
+        try:
+            from .push import send_push
+            send_push(
+                self.recipient_user,
+                title=self.subject,
+                body=body,
+                # Lets the app open the right screen from the notification.
+                data={'url': (self.context or {}).get('push_url') or ''},
+            )
+        except Exception:  # noqa: BLE001 — a failed push must not mark the email failed
+            logger.warning("Push for notification %s failed", self.pk, exc_info=True)
+
     def send(self, attachments=None):
         """
         Render and send this notification now. Updates status/attempts in place.
@@ -134,6 +168,7 @@ class ScheduledNotification(models.Model):
                 self.status = self.STATUS_SENT
                 self.sent_at = timezone.now()
                 self.error = ''
+                self._push()
             else:
                 self.status = self.STATUS_FAILED
                 self.error = 'Email backend reported failure (see logs).'
