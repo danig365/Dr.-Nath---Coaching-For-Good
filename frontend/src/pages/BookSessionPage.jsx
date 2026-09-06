@@ -604,6 +604,15 @@ const BookSessionPage = () => {
                     </div>
                   )}
 
+                  {/* The button is disabled until a time is picked, and said
+                      nothing about why — a client scrolled past the times and
+                      was left staring at a dead Confirm button. */}
+                  {!selectedSlot && (
+                    <p className="text-center text-xs mb-2" style={{ color: "#A9863A" }}>
+                      Choose a time above to continue.
+                    </p>
+                  )}
+
                   <motion.button
                     type="submit"
                     disabled={isSubmitting || !selectedSlot}

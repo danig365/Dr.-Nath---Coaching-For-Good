@@ -916,6 +916,16 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'You can only share your own slots.'}, status=HTTP_403_FORBIDDEN)
         if slot.status != 'open':
             return Response({'detail': 'Only open slots can be shared.'}, status=HTTP_400_BAD_REQUEST)
+        # A slot that has already begun can never be accepted: the booking page
+        # correctly refuses it, so the recipient just gets a dead link and the
+        # coach hears the platform is broken. Catch it here, where the coach can
+        # still do something about it.
+        if slot.start_datetime <= dj_tz.now():
+            return Response(
+                {'detail': "That time has already started, so an invite to it can't be "
+                           "accepted. Pick a slot in the future."},
+                status=HTTP_400_BAD_REQUEST,
+            )
 
         note = (request.data.get('message') or '').strip()
 
