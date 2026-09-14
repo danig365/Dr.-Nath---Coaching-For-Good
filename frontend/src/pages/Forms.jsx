@@ -36,7 +36,7 @@ function renderAnswer(q, a) {
   if (a === undefined || a === null || a === "" || (Array.isArray(a) && a.length === 0)) return "—";
   if (q.type === "multi_choice") return Array.isArray(a) ? a.join(", ") : String(a);
   if (q.type === "yes_no") return a === true || a === "true" ? "Yes" : "No";
-  if (q.type === "rating") return `${a} / 5`;
+  if (q.type === "rating") return `${a} / ${q.max || 5}`;
   return String(a);
 }
 
@@ -301,6 +301,9 @@ function FillModal({ assignment, onClose, onSubmitted }) {
               <label className="block text-sm font-semibold mb-1.5" style={{ color: DARK }}>
                 {i + 1}. {q.label}{q.required && <span style={{ color: "#B91C1C" }}> *</span>}
               </label>
+              {q.help && (
+                <p className="text-xs mb-1.5" style={{ color: BROWN }}>{q.help}</p>
+              )}
 
               {q.type === "short_text" && (
                 <input value={answers[q.id] || ""} onChange={(e) => set(q.id, e.target.value)}
@@ -330,8 +333,10 @@ function FillModal({ assignment, onClose, onSubmitted }) {
                 </div>
               )}
               {q.type === "rating" && (
-                <div className="flex gap-2">
-                  {[1, 2, 3, 4, 5].map((n) => (
+                // A scale as long as the question asks for. Dr Nath's intake
+                // form uses 1-10; anything without a `max` stays 1-5.
+                <div className="flex gap-2 flex-wrap">
+                  {Array.from({ length: q.max || 5 }, (_, i) => i + 1).map((n) => (
                     <button key={n} onClick={() => set(q.id, n)}
                       className="w-9 h-9 rounded-full text-sm font-bold"
                       style={answers[q.id] === n ? { background: `linear-gradient(135deg,${GOLD},#F0D98C)`, color: "#14213D" } : { background: CREAM, color: BROWN, border: "1px solid rgba(200,169,81,0.3)" }}>

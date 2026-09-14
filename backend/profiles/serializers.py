@@ -168,6 +168,12 @@ class RegisterSerializer(serializers.ModelSerializer):
         for attr, value in profile_fields.items():
             setattr(profile, attr, value)
         profile.save()
+
+        # Hand the client their intake form straight away. Guarded inside, so a
+        # failure here can never cost someone the account they just created.
+        from formbuilder.services import assign_signup_forms
+        assign_signup_forms(user)
+
         return user
 
 # Coach directory listing

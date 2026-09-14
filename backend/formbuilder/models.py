@@ -52,6 +52,16 @@ class FormTemplate(models.Model):
     questions = models.JSONField(default=list, blank=True)
 
     active = models.BooleanField(default=True)  # archive instead of delete
+
+    # Send this form to every new client the moment they register, without the
+    # coach having to remember. Dr Nath's health-and-wellness intake is the
+    # reason it exists: "the immediate document a new client should receive
+    # once she/he has registered."
+    auto_assign_on_signup = models.BooleanField(
+        default=False,
+        help_text="Send automatically to every client who registers.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
