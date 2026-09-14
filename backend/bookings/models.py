@@ -52,6 +52,10 @@ class SessionBooking(models.Model):
     # completed vs no-show once the session's time has passed.
     coach_joined_at = models.DateTimeField(null=True, blank=True)
     client_joined_at = models.DateTimeField(null=True, blank=True)
+    # When the session was actually finished. `duration` above is only what was
+    # booked; without this there is no record of how long a session really ran,
+    # which is what Dr Nath asked for on completed sessions.
+    ended_at = models.DateTimeField(null=True, blank=True)
     # Waiting-room admission (coach is host): the client can only get a call
     # token once the coach admits them. '' = not requested yet.
     ADMIT_CHOICES = (
@@ -144,6 +148,26 @@ class SessionBooking(models.Model):
             # Catch any other unexpected errors during the validation process
             raise ValidationError(f"An unexpected error occurred during booking validation: {e}")
     
+    @property
+    def actual_start(self):
+        """When the session really began: whoever joined first.
+
+        Derived rather than stored — the join times are already recorded, and a
+        second field would be another source of truth to keep in step.
+        """
+        times = [t for t in (self.coach_joined_at, self.client_joined_at) if t]
+        return min(times) if times else None
+
+    @property
+    def actual_duration_minutes(self):
+        """How long the session actually ran, or None if it can't be told."""
+        start = self.actual_start
+        if not start or not self.ended_at:
+            return None
+        seconds = (self.ended_at - start).total_seconds()
+        return int(round(seconds / 60)) if seconds > 0 else None
+
+
     def __str__(self):
         mentor_username = self.mentor.user.username if self.mentor and hasattr(self.mentor, 'user') else 'N/A Mentor'
         learner_username = self.learner.username if self.learner else 'N/A Learner'

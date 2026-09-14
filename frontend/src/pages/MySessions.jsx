@@ -26,6 +26,18 @@ export const STATUS_LABELS = {
   not_held: "Did not take place",
 };
 
+// What actually happened, for a finished session: when it really started and
+// ended, and how long it really ran. `duration` is only what was booked — Dr
+// Nath asked for the real figures on completed sessions.
+function actualRun(session) {
+  if (!session.actual_start || !session.ended_at) return null;
+  const start = new Date(session.actual_start);
+  const end = new Date(session.ended_at);
+  const mins = session.actual_duration_minutes;
+  const t = (d) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `${t(start)} – ${t(end)}${mins ? ` · ${mins} min actual` : ""}`;
+}
+
 const StatusBadge = ({ status }) => {
   const map = {
     pending:   { bg: "rgba(251,191,36,0.12)", color: "#92400E", border: "1px solid rgba(251,191,36,0.3)" },
@@ -180,8 +192,18 @@ const SessionCard = ({ session, activeTab, onCancel, onChangeProgram, onNudge, o
             </div>
             <div className="flex items-center gap-2 ml-auto flex-wrap">
               {session.duration && (
-                <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(200,169,81,0.1)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}>
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(200,169,81,0.1)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.2)" }}
+                  title="Booked length">
                   {session.duration} min
+                </span>
+              )}
+              {/* Only once it has actually run. Historical sessions have no end
+                  time recorded, so they show nothing rather than a guess. */}
+              {actualRun(session) && (
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full flex items-center gap-1"
+                  style={{ background: "#E4EFE7", color: "#2F6B4F", border: "1px solid rgba(47,107,79,0.2)" }}
+                  title="When the session actually ran">
+                  <FiClock size={10} />{actualRun(session)}
                 </span>
               )}
               {session.price && (

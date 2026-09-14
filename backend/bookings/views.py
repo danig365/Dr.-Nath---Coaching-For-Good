@@ -309,6 +309,11 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
         # Completed only if both parties actually joined; otherwise a no-show.
         from .services import finalize_status
         booking.status = finalize_status(booking)
+        # Stamp when it actually finished, so the session's real length can be
+        # reported rather than only the length that was booked. First write
+        # wins: a rejoin that completes again shouldn't overwrite the original.
+        if booking.ended_at is None:
+            booking.ended_at = now
         booking.save()
         # Completed → thank-you + rebook invite. No-show → tell both parties and
         # invite the client to reschedule.

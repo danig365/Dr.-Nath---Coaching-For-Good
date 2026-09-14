@@ -147,7 +147,8 @@ class SessionBookingSerializer(serializers.ModelSerializer):
         'learner_username', 'mentor_username', 'learner_name', 'mentor_name',
         'skill_title', 'price', 'feedback', 'unread_messages', 'has_reflection', 'has_summary',
         'payment_status', 'amount_paid',
-        'coach_joined_at', 'client_joined_at', 'no_show_by', 'session_number',
+        'coach_joined_at', 'client_joined_at', 'ended_at', 'actual_start',
+        'actual_duration_minutes', 'no_show_by', 'session_number',
         ]
         # ⭐ Corrected read_only_fields list for the new create logic ⭐
         # 'learner' is not sent by frontend. 'mentor' is inferred from 'skill'.
@@ -156,7 +157,8 @@ class SessionBookingSerializer(serializers.ModelSerializer):
         'id', 'created_at',
         'learner_username', 'mentor_username', 'skill_title', 'learner', 'mentor', 'price', 'feedback',
         'payment_status', 'amount_paid',
-        'coach_joined_at', 'client_joined_at', 'no_show_by', 'session_number',
+        'coach_joined_at', 'client_joined_at', 'ended_at', 'actual_start',
+        'actual_duration_minutes', 'no_show_by', 'session_number',
        ]
 
     # Statuses that don't represent a delivered/upcoming session, so they take no
