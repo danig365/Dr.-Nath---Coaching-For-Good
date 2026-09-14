@@ -6,7 +6,7 @@ import { toast } from "react-toastify";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAccessGuard } from "../utils/accessGuard";
 import {
-  FiFileText, FiPlus, FiTrash2, FiSend, FiEdit3, FiCopy, FiArchive,
+  FiFileText, FiPlus, FiTrash2, FiSend, FiEdit3, FiCopy, FiArchive, FiUsers, FiBarChart2,
   FiX, FiChevronUp, FiChevronDown, FiCheckCircle, FiClock, FiEye,
 } from "react-icons/fi";
 
@@ -382,6 +382,67 @@ function FillModal({ assignment, onClose, onSubmitted }) {
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
+// Poll results — the totals, which is the point of asking everyone. Reading
+// twenty individual responses one at a time answers nothing.
+function ResultsModal({ results, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(20,33,61,0.6)" }} onClick={onClose}>
+      <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl p-6"
+        style={{ background: "#fff" }} onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-xl font-normal mb-1"
+          style={{ color: DARK, fontFamily: "'Playfair Display', serif" }}>{results.title}</h3>
+        <p className="text-sm mb-5" style={{ color: BROWN }}>
+          {results.completed} of {results.sent} answered
+        </p>
+
+        <div className="space-y-5">
+          {results.questions.map((q) => (
+            <div key={q.id}>
+              <p className="text-sm font-semibold mb-1.5" style={{ color: DARK }}>{q.label}</p>
+
+              {q.average != null && (
+                <p className="text-sm mb-1" style={{ color: "#2F6B4F" }}>
+                  Average: <strong>{q.average}</strong>
+                </p>
+              )}
+
+              {q.counts && Object.keys(q.counts).length > 0 ? (
+                <div className="space-y-1">
+                  {Object.entries(q.counts).map(([label, n]) => {
+                    const pct = q.answered ? Math.round((n / q.answered) * 100) : 0;
+                    return (
+                      <div key={label} className="flex items-center gap-2">
+                        <span className="text-xs w-24 shrink-0" style={{ color: BROWN }}>{label}</span>
+                        <div className="flex-1 h-2 rounded-full" style={{ background: "#F3ECD9" }}>
+                          <div className="h-2 rounded-full" style={{ width: `${pct}%`, background: GOLD }} />
+                        </div>
+                        <span className="text-xs w-14 text-right" style={{ color: DARK }}>{n} · {pct}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : q.answers ? (
+                q.answers.length ? (
+                  <ul className="space-y-1">
+                    {q.answers.map((a, i) => (
+                      <li key={i} className="text-sm px-3 py-2 rounded-lg"
+                        style={{ background: "#FAF6EC", color: DARK }}>{a}</li>
+                    ))}
+                  </ul>
+                ) : <p className="text-sm" style={{ color: BROWN }}>No answers yet.</p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+
+        <button onClick={onClose} className="mt-6 w-full py-2.5 rounded-full text-sm font-bold"
+          style={{ background: "#1B2B4A", color: "#F3E9C9" }}>Close</button>
+      </div>
+    </div>
+  );
+}
+
 export default function Forms() {
   const { isAuthenticated, isCoach, logout } = useAuth();
   const { requireSignedIn } = useAccessGuard();
@@ -423,6 +484,37 @@ export default function Forms() {
     try { await api.delete(`/forms/templates/${t.id}/`); toast.success("Template archived."); fetchAll(); }
     catch { toast.error("Could not archive."); }
   };
+  const [results, setResults] = useState(null);
+
+  // Dr Nath asked to poll "currently registered clients" — everyone signed up,
+  // not just those who have booked. Re-running it only reaches people who
+  // registered since; nobody gets a second copy.
+  const sendToAll = async (t) => {
+    if (!window.confirm(`Send "${t.title}" to every registered client?`)) return;
+    try {
+      const res = await api.post(`/forms/templates/${t.id}/send-to-all/`);
+      const { assigned, skipped_already_sent: skipped } = res.data;
+      toast.success(
+        assigned
+          ? `Sent to ${assigned} client${assigned === 1 ? "" : "s"}.` +
+            (skipped ? ` ${skipped} already had it.` : "")
+          : "Everyone already has this form."
+      );
+      fetchAll();
+    } catch {
+      toast.error("Could not send to everyone.");
+    }
+  };
+
+  const openResults = async (t) => {
+    try {
+      const res = await api.get(`/forms/templates/${t.id}/results/`);
+      setResults(res.data);
+    } catch {
+      toast.error("Could not load results.");
+    }
+  };
+
   const duplicate = async (t) => {
     try { await api.post(`/forms/templates/${t.id}/duplicate/`); toast.success("Template duplicated."); fetchAll(); }
     catch { toast.error("Could not duplicate."); }
@@ -495,6 +587,13 @@ export default function Forms() {
                   <button onClick={() => setAssignTemplate(t)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
                     style={{ background: `linear-gradient(135deg,${GOLD},#F0D98C)`, color: "#14213D" }}>
                     <FiSend size={12} /> Send to client
+                  </button>
+                  <button onClick={() => sendToAll(t)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
+                    style={{ background: "#1B2B4A", color: "#F3E9C9" }} title="Send to every registered client">
+                    <FiUsers size={12} /> Send to all clients
+                  </button>
+                  <button onClick={() => openResults(t)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(47,107,79,0.10)", color: "#2F6B4F" }}>
+                    <FiBarChart2 size={12} /> Results
                   </button>
                   <button onClick={() => setEditTemplate(t)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A" }}>
                     <FiEdit3 size={12} /> Edit
@@ -597,6 +696,7 @@ export default function Forms() {
         {editTemplate && <TemplateModal template={editTemplate} onClose={() => setEditTemplate(null)} onSaved={() => { setEditTemplate(null); fetchAll(); }} />}
         {assignTemplate && <AssignModal template={assignTemplate} clients={clients} onClose={() => setAssignTemplate(null)} onAssigned={() => { setAssignTemplate(null); setTab("sent"); fetchAll(); }} />}
         {viewResponse && <ResponsesModal assignment={viewResponse} onClose={() => setViewResponse(null)} />}
+        {results && <ResultsModal results={results} onClose={() => setResults(null)} />}
         {fillTarget && <FillModal assignment={fillTarget} onClose={() => setFillTarget(null)} onSubmitted={() => { setFillTarget(null); fetchAll(); }} />}
       </AnimatePresence>
     </div>
