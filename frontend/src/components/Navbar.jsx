@@ -2,7 +2,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bars3Icon, XMarkIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
+import { Bars3Icon, XMarkIcon, ChevronDownIcon, PhoneIcon } from "@heroicons/react/24/outline";
 import { api } from "../utils/auth";
 import { isUpcomingSession } from "../utils/sessionTiming";
 import { GROUP_SESSIONS_ENABLED } from "../config/features";
@@ -12,6 +12,8 @@ const Navbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const currentFull = location.pathname + location.search;
+  // The marketing home: "/" for guests, "/home" once signed in.
+  const onHome = location.pathname === "/" || location.pathname === "/home";
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -140,6 +142,24 @@ const Navbar = () => {
           boxShadow: scrolled ? "0 6px 24px rgba(27,43,74,0.16)" : "0 2px 10px rgba(27,43,74,0.08)",
         }}
       >
+        {/* Contact strip — the number a prospective client should see before
+            anything else. Home only: on the signed-in pages the navbar is
+            already dense and they have the coach in-app. */}
+        {onHome && (
+          <div style={{ background: "#1B2B4A" }}>
+            <div className="w-full px-6 sm:px-10 lg:px-20 py-2 flex items-center justify-end gap-2">
+              <PhoneIcon className="w-4 h-4" style={{ color: "#C8A951" }} />
+              <a
+                href="tel:+33751367096"
+                className="text-[13px] font-semibold tracking-wide transition-colors hover:text-[#E8C96A]"
+                style={{ color: "#F3E9C9" }}
+              >
+                +33 7 51 36 70 96
+              </a>
+            </div>
+          </div>
+        )}
+
         <div className="w-full px-6 sm:px-10 lg:px-20">
           <div className="flex items-center justify-between h-28">
 
