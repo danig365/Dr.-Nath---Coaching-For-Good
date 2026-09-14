@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { FiPlus, FiX, FiDollarSign, FiArrowLeft, FiTag, FiBookOpen, FiLayers, FiSave } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
+import { useAccessGuard } from "../utils/accessGuard";
 
 const SKILL_LEVELS = ["beginner", "intermediate", "advanced", "expert"];
 const CATEGORIES = ["Programming", "Design", "Business", "Marketing", "Data Science", "Career Growth", "Leadership", "Other"];
@@ -56,6 +57,7 @@ const EditSkill = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { isAuthenticated, isCoach, logout } = useAuth();
+  const { requireCoach } = useAccessGuard();
 
   const [form, setForm] = useState({
     name: "", description: "", level: "intermediate",
@@ -65,7 +67,7 @@ const EditSkill = () => {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated || !isCoach()) { logout(); return; }
+    if (requireCoach()) return;
     const fetchSkill = async () => {
       try {
         const res = await api.get(`/skills/${id}/`);
@@ -89,7 +91,7 @@ const EditSkill = () => {
       }
     };
     fetchSkill();
-  }, [id, isAuthenticated, isCoach, logout, navigate]);
+  }, [id, navigate, requireCoach]);
 
   const handleChange = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
 

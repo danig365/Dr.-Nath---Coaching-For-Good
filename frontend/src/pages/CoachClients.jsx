@@ -3,20 +3,22 @@ import { motion } from "framer-motion";
 import { FiSearch, FiUsers, FiMail, FiCalendar } from "react-icons/fi";
 import { api } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
+import { useAccessGuard } from "../utils/accessGuard";
 
 export default function CoachClients() {
   const { isAuthenticated, isCoach, logout } = useAuth();
+  const { requireCoach } = useAccessGuard();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
-    if (!isAuthenticated || !isCoach()) { logout(); return; }
+    if (requireCoach()) return;
     api.get("/clients/")
       .then((res) => setClients(Array.isArray(res.data) ? res.data : []))
       .catch(() => setClients([]))
       .finally(() => setLoading(false));
-  }, [isAuthenticated, isCoach, logout]);
+  }, [requireCoach]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

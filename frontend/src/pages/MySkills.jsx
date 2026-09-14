@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 import { api } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
+import { useAccessGuard } from "../utils/accessGuard";
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 const StatCard = ({ title, value, icon, bg = "#F3ECD9" }) => (
@@ -165,9 +166,10 @@ const MySkills = () => {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const navigate = useNavigate();
   const { isAuthenticated, isCoach, logout } = useAuth();
+  const { requireCoach } = useAccessGuard();
 
   const fetchSkills = useCallback(async () => {
-    if (!isAuthenticated || !isCoach()) { logout(); return; }
+    if (requireCoach()) return;
     setLoading(true);
     try {
       const res = await api.get("/skills/");
@@ -178,7 +180,7 @@ const MySkills = () => {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, isCoach, logout]);
+  }, [logout, requireCoach]);
 
   useEffect(() => { fetchSkills(); }, [fetchSkills]);
 

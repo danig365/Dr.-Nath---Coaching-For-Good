@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { toast } from "react-toastify";
 import { motion, AnimatePresence } from "framer-motion";
 import { FiActivity, FiCheck, FiZap, FiPlus, FiEdit2, FiTrash2, FiArchive, FiRotateCcw, FiX, FiStar } from "react-icons/fi";
+import { useAccessGuard } from "../utils/accessGuard";
 
 const GOLD = "#C8A951";
 const DARK = "#1B2B4A";
@@ -258,6 +259,7 @@ function SuggestModal({ clientId, clientName, onClose, onAssigned }) {
 
 const HabitTracker = () => {
   const { isAuthenticated, isCoach, logout } = useAuth();
+  const { requireSignedIn } = useAccessGuard();
   const coach = isCoach();
   const [habits, setHabits] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -296,10 +298,10 @@ const HabitTracker = () => {
   }, [coach]);
 
   useEffect(() => {
-    if (!isAuthenticated) { logout(); return; }
+    if (requireSignedIn()) return;
     if (coach) { fetchClients(); fetchHabits(""); }
     else { fetchHabits(); }
-  }, [isAuthenticated, coach, logout, fetchClients, fetchHabits]);
+  }, [coach, fetchClients, fetchHabits, requireSignedIn]);
 
   const onClientChange = (cid) => { setClientId(cid); fetchHabits(cid); };
 

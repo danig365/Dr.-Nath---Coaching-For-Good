@@ -6,6 +6,7 @@ import { FiFolder, FiPlus, FiTrash2, FiUploadCloud, FiFile, FiUsers, FiUser, FiE
 import { api, downloadResource, downloadSubmission } from "../utils/auth";
 import { useAuth } from "../context/AuthContext";
 import WorkspaceTabs from "../components/WorkspaceTabs";
+import { useAccessGuard } from "../utils/accessGuard";
 
 const card = { background: "white", border: "1px solid rgba(200,169,81,0.15)", boxShadow: "0 2px 16px rgba(27,43,74,0.05)" };
 const inputStyle = { background: "#FAF6EC", border: "1px solid rgba(27,43,74,0.2)", color: "#1B2B4A" };
@@ -63,6 +64,7 @@ const emptyForm = { title: "", description: "", folder: "", visibility: "all_cli
 
 const ResourcesManage = () => {
   const { isAuthenticated, isCoach, logout } = useAuth();
+  const { requireCoach } = useAccessGuard();
   const [folders, setFolders] = useState([]);
   const [resources, setResources] = useState([]);
   const [clients, setClients] = useState([]);
@@ -80,7 +82,7 @@ const ResourcesManage = () => {
   const [submissions, setSubmissions] = useState([]);
 
   const fetchAll = useCallback(async () => {
-    if (!isAuthenticated || !isCoach()) { logout(); return; }
+    if (requireCoach()) return;
     setLoading(true);
     try {
       const [f, r, c, g, s] = await Promise.all([
@@ -95,7 +97,7 @@ const ResourcesManage = () => {
       toast.error("Failed to load resources.");
       if (err.response?.status === 401) logout();
     } finally { setLoading(false); }
-  }, [isAuthenticated, isCoach, logout]);
+  }, [logout, requireCoach]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 

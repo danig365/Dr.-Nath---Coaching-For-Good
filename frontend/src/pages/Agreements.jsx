@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { FiFileText, FiUploadCloud, FiDownload, FiEdit3, FiXCircle, FiCheckCircle, FiClock, FiX } from "react-icons/fi";
 import { downloadFile } from "../utils/downloadFile";
 import WorkspaceTabs from "../components/WorkspaceTabs";
+import { useAccessGuard } from "../utils/accessGuard";
 
 const GOLD = "#C8A951";
 const DARK = "#1B2B4A";
@@ -71,6 +72,7 @@ function ActionModal({ mode, doc, onClose, onSubmit }) {
 
 const Agreements = () => {
   const { isAuthenticated, isCoach, logout } = useAuth();
+  const { requireSignedIn } = useAccessGuard();
   const coach = isCoach();
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -80,7 +82,7 @@ const Agreements = () => {
   const [modal, setModal] = useState(null); // { mode, doc }
 
   const fetchDocs = useCallback(async () => {
-    if (!isAuthenticated) { logout(); return; }
+    if (requireSignedIn()) return;
     setLoading(true);
     try {
       const reqs = [api.get("/signatures/")];
@@ -90,7 +92,7 @@ const Agreements = () => {
       if (coach && cs) setClients(cs.data);
     } catch { toast.error("Failed to load documents."); }
     finally { setLoading(false); }
-  }, [isAuthenticated, coach, logout]);
+  }, [coach, requireSignedIn]);
 
   useEffect(() => { fetchDocs(); }, [fetchDocs]);
 

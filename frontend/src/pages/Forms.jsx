@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import WorkspaceTabs from "../components/WorkspaceTabs";
 import { toast } from "react-toastify";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAccessGuard } from "../utils/accessGuard";
 import {
   FiFileText, FiPlus, FiTrash2, FiSend, FiEdit3, FiCopy, FiArchive,
   FiX, FiChevronUp, FiChevronDown, FiCheckCircle, FiClock, FiEye,
@@ -378,6 +379,7 @@ function FillModal({ assignment, onClose, onSubmitted }) {
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function Forms() {
   const { isAuthenticated, isCoach, logout } = useAuth();
+  const { requireSignedIn } = useAccessGuard();
   const coach = isCoach();
   const [tab, setTab] = useState("templates");
   const [templates, setTemplates] = useState([]);
@@ -390,7 +392,7 @@ export default function Forms() {
   const [fillTarget, setFillTarget] = useState(null); // client: form being filled in
 
   const fetchAll = useCallback(async () => {
-    if (!isAuthenticated) { logout(); return; }
+    if (requireSignedIn()) return;
     setLoading(true);
     try {
       if (coach) {
@@ -407,7 +409,7 @@ export default function Forms() {
       }
     } catch { toast.error("Failed to load forms."); }
     finally { setLoading(false); }
-  }, [isAuthenticated, coach, logout]);
+  }, [coach, requireSignedIn]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 

@@ -9,6 +9,7 @@ import { GROUP_SESSIONS_ENABLED } from "../config/features";
 import { SESSION_GRACE_MS } from "../utils/sessionTiming";
 import GoogleCalendarCard from "../components/GoogleCalendarCard";
 import SentInvitesPanel from "./SentInvitesPanel";
+import { useAccessGuard } from "../utils/accessGuard";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DURATIONS = [15, 30, 45, 60]; // 60 min is the maximum slot length
@@ -543,6 +544,7 @@ const ShareSlotModal = ({ slot, skills, tz, onClose, onSent }) => {
 const MyAvailability = () => {
   const navigate = useNavigate();
   const { isAuthenticated, isCoach, logout } = useAuth();
+  const { requireCoach } = useAccessGuard();
   const [tab, setTab] = useState("rules");
   const [rules, setRules] = useState([]);
   const [slots, setSlots] = useState([]);
@@ -578,7 +580,7 @@ const MyAvailability = () => {
   const pagedRules = rules.slice((currentRulePage - 1) * RULES_PER_PAGE, currentRulePage * RULES_PER_PAGE);
 
   const fetchAll = useCallback(async () => {
-    if (!isAuthenticated || !isCoach()) { logout(); return; }
+    if (requireCoach()) return;
     setLoading(true);
     try {
       const [r, s, p, g, sk] = await Promise.all([
@@ -608,7 +610,7 @@ const MyAvailability = () => {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, isCoach, logout]);
+  }, [logout, requireCoach]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
