@@ -25,7 +25,7 @@ function renderRich(text) {
 const GREETING = {
   role: "assistant",
   content:
-    "Hi! 👋 I'm the Dr. Nath assistant. Ask me about coaching, how booking works, or finding the right coach.",
+    "Hi! 👋 I'm Nathion, Dr. Nath's virtual assistant. Ask me about coaching, how booking works, or finding the right coach.",
 };
 
 const SUGGESTIONS = [
@@ -33,6 +33,12 @@ const SUGGESTIONS = [
   "What kinds of coaching are offered?",
   "How does Smart Match work?",
 ];
+
+// What Nathion says unprompted to someone browsing the home page.
+const NUDGE = "Thank you for landing on our webpage — how may I assist you?";
+const NUDGE_DELAY_MS = 3500;
+// Remembered per browser so it greets once, not on every visit.
+const NUDGE_SEEN_KEY = "nathion-greeted";
 
 // Don't overlap the video-call UI.
 const isHiddenPath = (path) =>
@@ -44,7 +50,25 @@ export default function AssistantWidget() {
   const [messages, setMessages] = useState([GREETING]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [nudge, setNudge] = useState(false);
   const endRef = useRef(null);
+
+  // Greet a visitor browsing the marketing home, as Dr Nath asked. Only there,
+  // only once per browser, and never on top of an already-open chat.
+  const onHome = location.pathname === "/" || location.pathname === "/home";
+  useEffect(() => {
+    if (!onHome || open) return;
+    let seen = false;
+    try { seen = localStorage.getItem(NUDGE_SEEN_KEY) === "1"; } catch { /* private mode */ }
+    if (seen) return;
+    const t = setTimeout(() => setNudge(true), NUDGE_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [onHome, open]);
+
+  const dismissNudge = () => {
+    setNudge(false);
+    try { localStorage.setItem(NUDGE_SEEN_KEY, "1"); } catch { /* private mode */ }
+  };
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -76,9 +100,41 @@ export default function AssistantWidget() {
 
   return (
     <>
+      {/* Nathion's opening line, beside the launcher */}
+      <AnimatePresence>
+        {nudge && !open && (
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.98 }}
+            className="fixed z-[69] max-w-[260px] rounded-2xl px-4 py-3 shadow-xl"
+            style={{ bottom: 92, right: 24, background: "#fff", border: `1px solid ${GOLD}33` }}
+          >
+            <button
+              onClick={dismissNudge}
+              aria-label="Dismiss"
+              className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center shadow"
+              style={{ background: NAVY, color: GOLD }}
+            >
+              <FiX size={13} />
+            </button>
+            <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: GOLD }}>
+              Nathion
+            </p>
+            <button
+              onClick={() => { dismissNudge(); setOpen(true); }}
+              className="text-left text-sm leading-snug mt-0.5"
+              style={{ color: NAVY_DEEP }}
+            >
+              {NUDGE}
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Floating button */}
       <motion.button
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => { dismissNudge(); setOpen((o) => !o); }}
         aria-label={open ? "Close assistant" : "Open assistant"}
         whileHover={{ scale: 1.06 }}
         whileTap={{ scale: 0.94 }}
@@ -118,7 +174,7 @@ export default function AssistantWidget() {
                 <FaRobot size={18} />
               </div>
               <div className="min-w-0">
-                <p className="text-white text-sm font-bold leading-tight">Dr. Nath Assistant</p>
+                <p className="text-white text-sm font-bold leading-tight">Nathion</p>
                 <p className="text-[11px]" style={{ color: "rgba(255,255,255,0.55)" }}>Here to help you get started</p>
               </div>
             </div>
