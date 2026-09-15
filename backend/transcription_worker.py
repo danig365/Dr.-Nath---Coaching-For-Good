@@ -117,26 +117,44 @@ async def entrypoint(ctx: JobContext):
     tasks = set()
 
     async def transcribe_track(track, participant):
-        speaker = await _label_for(booking, participant.identity)
-        audio_stream = rtc.AudioStream(track)
-        stt_stream = stt_engine.stream()
+        # Everything in here runs in a fire-and-forget task, so an exception
+        # would otherwise vanish without a trace — which is exactly how the first
+        # real call produced an empty transcript with nothing in the log.
+        try:
+            speaker = await _label_for(booking, participant.identity)
+            logger.info("Room %s: transcribing %s as %s", ctx.room.name,
+                        participant.identity, speaker)
+            audio_stream = rtc.AudioStream(track)
+            stt_stream = stt_engine.stream()
+            frames = 0
+            finals = 0
 
-        async def pump_audio():
-            async for ev in audio_stream:
-                stt_stream.push_frame(ev.frame)
-            # end_input, not aclose: aclose drops the stream immediately, losing
-            # whatever the speaker said just before leaving. end_input lets the
-            # provider flush that last final transcript first.
-            stt_stream.end_input()
+            async def pump_audio():
+                nonlocal frames
+                async for ev in audio_stream:
+                    stt_stream.push_frame(ev.frame)
+                    frames += 1
+                # end_input, not aclose: aclose drops the stream immediately,
+                # losing whatever the speaker said just before leaving.
+                stt_stream.end_input()
 
-        async def read_events():
-            async for ev in stt_stream:
-                if ev.type == agents_stt.SpeechEventType.FINAL_TRANSCRIPT and ev.alternatives:
-                    text = (ev.alternatives[0].text or "").strip()
-                    if text:
-                        transcript.append({"speaker": speaker, "text": text, "ts": time.time()})
+            async def read_events():
+                nonlocal finals
+                async for ev in stt_stream:
+                    if ev.type == agents_stt.SpeechEventType.FINAL_TRANSCRIPT and ev.alternatives:
+                        text = (ev.alternatives[0].text or "").strip()
+                        if text:
+                            finals += 1
+                            if finals == 1:
+                                logger.info("Room %s: first words from %s", ctx.room.name, speaker)
+                            transcript.append({"speaker": speaker, "text": text, "ts": time.time()})
 
-        await asyncio.gather(pump_audio(), read_events())
+            await asyncio.gather(pump_audio(), read_events())
+            logger.info("Room %s: %s track ended — %d audio frames, %d final segments",
+                        ctx.room.name, speaker, frames, finals)
+        except Exception:  # noqa: BLE001
+            logger.exception("Room %s: transcription failed for %s",
+                             ctx.room.name, participant.identity)
 
     @ctx.room.on("track_subscribed")
     def on_track_subscribed(track, publication, participant):
@@ -145,10 +163,15 @@ async def entrypoint(ctx: JobContext):
             tasks.add(t)
             t.add_done_callback(tasks.discard)
 
-    async def finalize():
+    async def finalize(reason=""):
         # Merge time-ordered segments and hand off to the shared summariser.
         ordered = sorted(transcript, key=lambda s: s.get("ts", 0))
         text = "\n".join(f"{s['speaker']}: {s['text']}" for s in ordered)
+        logger.info("Room %s closing (%s): %d segments, %d chars",
+                    ctx.room.name, reason or "no reason given", len(ordered), len(text))
+        if not text.strip():
+            # Said out loud, because an empty transcript used to leave no trace.
+            logger.warning("Room %s: nothing was transcribed — no summary stored", ctx.room.name)
         if text.strip():
             try:
                 await _store_summary(booking, text)
