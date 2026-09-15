@@ -90,6 +90,18 @@ def _label_for(booking, identity):
 
 
 @sync_to_async
+def _notes_off(booking_id):
+    from bookings.models import SessionBooking
+    return bool(SessionBooking.objects.filter(id=booking_id)
+                .values_list("ai_notes_off", flat=True).first())
+
+
+# How often the worker re-reads the booking's AI-notes switch. A participant who
+# turns notes off mid-call stops being recorded within this many seconds.
+NOTES_SWITCH_POLL_SECONDS = 3
+
+
+@sync_to_async
 def _store_summary(booking, transcript_text):
     from bookings.ai_summary import generate_and_store_summary
     return generate_and_store_summary(booking, transcript_text)
@@ -115,6 +127,21 @@ async def entrypoint(ctx: JobContext):
 
     transcript = []          # [{speaker, text, ts}]
     tasks = set()
+    # Either participant can switch AI notes off from the call screen. Mirrored
+    # here from the database by watch_notes_switch(); while it is set, anything
+    # transcribed is thrown away rather than kept.
+    notes = {"off": await _notes_off(booking_id)}
+
+    async def watch_notes_switch():
+        while True:
+            try:
+                off = await _notes_off(booking_id)
+                if off != notes["off"]:
+                    logger.info("Room %s: AI notes switched %s", ctx.room.name, "off" if off else "on")
+                notes["off"] = off
+            except Exception:  # noqa: BLE001
+                logger.exception("Room %s: could not read the AI notes switch", ctx.room.name)
+            await asyncio.sleep(NOTES_SWITCH_POLL_SECONDS)
 
     async def transcribe_track(track, participant):
         # Everything in here runs in a fire-and-forget task, so an exception
@@ -143,7 +170,7 @@ async def entrypoint(ctx: JobContext):
                 async for ev in stt_stream:
                     if ev.type == agents_stt.SpeechEventType.FINAL_TRANSCRIPT and ev.alternatives:
                         text = (ev.alternatives[0].text or "").strip()
-                        if text:
+                        if text and not notes["off"]:
                             finals += 1
                             if finals == 1:
                                 logger.info("Room %s: first words from %s", ctx.room.name, speaker)
@@ -164,6 +191,17 @@ async def entrypoint(ctx: JobContext):
             t.add_done_callback(tasks.discard)
 
     async def finalize(reason=""):
+        watcher.cancel()
+        # Notes still switched off at the end means no record of this call at
+        # all — not even what was captured before someone turned them off.
+        try:
+            off = await _notes_off(booking_id)
+        except Exception:  # noqa: BLE001
+            off = notes["off"]
+        if off:
+            logger.info("Room %s closing (%s): AI notes are off — transcript discarded, no summary",
+                        ctx.room.name, reason or "no reason given")
+            return
         # Merge time-ordered segments and hand off to the shared summariser.
         ordered = sorted(transcript, key=lambda s: s.get("ts", 0))
         text = "\n".join(f"{s['speaker']}: {s['text']}" for s in ordered)
@@ -179,6 +217,7 @@ async def entrypoint(ctx: JobContext):
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to store summary for booking %s: %s", booking_id, exc)
 
+    watcher = asyncio.create_task(watch_notes_switch())
     ctx.add_shutdown_callback(finalize)
     # AutoSubscribe lives in livekit.agents, not livekit.rtc — the rtc spelling
     # crashed every job on the first real call.

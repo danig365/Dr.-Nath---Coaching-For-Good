@@ -353,6 +353,34 @@ export default function SessionCallLiveKit() {
     }
   }, [myLabel]);
 
+  // Notes run if either the server worker or this browser can transcribe. With
+  // the worker on, every participant is transcribed whatever their browser, so
+  // everyone must see the notice and the switch — not only Chrome/Edge users.
+  const notesAvailable = serverStt || aiSupported;
+
+  // Switch AI notes for the whole session. Stored on the booking (the server
+  // worker reads it and stops keeping anything), and broadcast so the other
+  // participant's screen shows the same state straight away.
+  const setAiNotes = useCallback((enabled) => {
+    setAiNotesOn(enabled);
+    setShowAiBanner(false);
+    api.post(`/bookings/${bookingId}/ai-notes/`, { enabled })
+      .then(() => toast.info(enabled
+        ? "AI note-taking is back on."
+        : "AI note-taking is off — no transcript or summary will be kept for this session."))
+      .catch(() => {
+        setAiNotesOn(!enabled);
+        toast.error("Couldn't change AI note-taking. Please try again.");
+      });
+    const room = roomRef.current;
+    if (room?.localParticipant) {
+      try {
+        const payload = new TextEncoder().encode(JSON.stringify({ t: "ainotes", enabled, by: myLabel }));
+        room.localParticipant.publishData(payload, { reliable: true });
+      } catch { /* noop */ }
+    }
+  }, [bookingId, myLabel]);
+
   // Report transcriber lifecycle into the diagnostics log, and surface the two
   // states the user should know about (given up / paused).
   const handleTranscriberStatus = useCallback((event, detail) => {
@@ -478,7 +506,9 @@ export default function SessionCallLiveKit() {
       resetDiag(`booking ${bookingId} as ${user?.role || "user"}`);
       setCallState("connecting");
       setMediaError("");
-      const { url, token, server_transcription: useServerStt } = await getBookingCallToken(bookingId);
+      const { url, token, server_transcription: useServerStt, ai_notes_enabled: notesEnabled } = await getBookingCallToken(bookingId);
+      // Either participant may already have switched notes off for this session.
+      if (notesEnabled === false) setAiNotesOn(false);
       // If the server-side transcription worker is running it produces the whole
       // transcript from the LiveKit stream, so the browser must not open a second
       // microphone capture to do the same job. This is the switch that retires
@@ -629,7 +659,12 @@ export default function SessionCallLiveKit() {
           // Transcript segments from the other participant (AI note-taking).
           try {
             const msg = JSON.parse(new TextDecoder().decode(payload));
-            if (msg?.t === "sttseg" && msg.text) {
+            if (msg?.t === "ainotes" && typeof msg.enabled === "boolean") {
+              setAiNotesOn(msg.enabled);
+              toast.info(msg.enabled
+                ? `${msg.by || "The other participant"} turned AI note-taking back on.`
+                : `${msg.by || "The other participant"} turned AI note-taking off — nothing from this session will be kept.`);
+            } else if (msg?.t === "sttseg" && msg.text) {
               transcriptRef.current.push({
                 speaker: msg.speaker || "Participant",
                 text: String(msg.text),
@@ -1182,7 +1217,7 @@ export default function SessionCallLiveKit() {
         )}
 
         <div className="flex items-center gap-2 shrink-0">
-          {inCall && aiSupported && aiNotesOn && (
+          {inCall && notesAvailable && aiNotesOn && (
             aiDegraded ? (
               <span className="hidden sm:flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.55)", border: "1px solid rgba(255,255,255,0.12)" }} title={aiDegraded}>
                 <span className="w-1.5 h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.4)" }} />
@@ -1438,7 +1473,7 @@ export default function SessionCallLiveKit() {
 
         {/* AI note-taking consent banner — informs both parties, dismissible */}
         <AnimatePresence>
-          {inCall && aiSupported && aiNotesOn && showAiBanner && !mediaError && (
+          {inCall && notesAvailable && aiNotesOn && showAiBanner && !mediaError && (
             <motion.div
               initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }}
               className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[92%] max-w-md rounded-2xl px-4 py-3 flex items-start gap-3 shadow-xl"
@@ -1452,11 +1487,13 @@ export default function SessionCallLiveKit() {
                 <p className="text-xs mt-0.5 leading-relaxed" style={{ color: "rgba(255,255,255,0.7)" }}>
                   {aiDegraded
                     ? `${aiDegraded} Your call is unaffected, and the summary still uses everything captured so far.`
-                    : "This session is being transcribed to create a private summary for you and your coach. It pauses itself automatically if it would ever affect your call audio, and you can turn it off anytime."}
+                    : serverStt
+                      ? "This session is transcribed to create a private summary for you and your coach. Either of you can turn it off."
+                      : "This session is being transcribed to create a private summary for you and your coach. It pauses itself automatically if it would ever affect your call audio, and you can turn it off anytime."}
                 </p>
                 <div className="flex items-center gap-3 mt-2">
                   <button onClick={() => setShowAiBanner(false)} className="text-xs font-bold px-3 py-1 rounded-full" style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>Got it</button>
-                  <button onClick={() => { setAiNotesOn(false); setShowAiBanner(false); }} className="text-xs font-semibold" style={{ color: "rgba(255,255,255,0.6)" }}>Turn off</button>
+                  <button onClick={() => setAiNotes(false)} className="text-xs font-semibold" style={{ color: "rgba(255,255,255,0.6)" }}>Turn off</button>
                 </div>
               </div>
               <button onClick={() => setShowAiBanner(false)} className="p-1 rounded-full shrink-0" style={{ color: "rgba(255,255,255,0.5)" }}><FiX size={14} /></button>
@@ -1545,8 +1582,8 @@ export default function SessionCallLiveKit() {
 
           <BackgroundPicker selected={bgOption} onSelect={changeBackground} busy={bgBusy} />
 
-          {aiSupported && (
-            <button onClick={() => { const next = !aiNotesOn; setAiNotesOn(next); setShowAiBanner(next); }}
+          {notesAvailable && (
+            <button onClick={() => setAiNotes(!aiNotesOn)}
               className="w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all"
               style={{ background: aiNotesOn ? "rgba(200,169,81,0.9)" : "rgba(255,255,255,0.1)" }}
               title={aiNotesOn ? "AI note-taking on — tap to turn off" : "AI note-taking off — tap to turn on"}>

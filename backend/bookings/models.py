@@ -56,6 +56,11 @@ class SessionBooking(models.Model):
     # booked; without this there is no record of how long a session really ran,
     # which is what Dr Nath asked for on completed sessions.
     ended_at = models.DateTimeField(null=True, blank=True)
+    # Either participant can switch AI note-taking off for this session from the
+    # call screen. The transcription worker checks this live: while it is set,
+    # nothing said is kept, and if it is still set when the call closes no
+    # transcript or summary is stored at all.
+    ai_notes_off = models.BooleanField(default=False)
     # Waiting-room admission (coach is host): the client can only get a call
     # token once the coach admits them. '' = not requested yet.
     ADMIT_CHOICES = (

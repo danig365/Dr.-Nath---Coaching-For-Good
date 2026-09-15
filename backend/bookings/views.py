@@ -437,6 +437,24 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
         return Response({'status': booking.client_admit_status or 'none',
                          'coach_present': coach_in_room(booking)})
 
+    @action(detail=True, methods=['get', 'post'], url_path='ai-notes')
+    def ai_notes(self, request, pk=None):
+        """Read or set whether AI note-taking runs for this session.
+
+        Either participant may switch it off (or back on): consent to being
+        transcribed belongs to both people on the call, not just the host.
+        """
+        booking = self.get_object()
+        if request.user.id not in (booking.learner_id, booking.mentor.user_id):
+            return Response({'detail': 'Permission denied.'}, status=HTTP_403_FORBIDDEN)
+        if request.method == 'POST':
+            enabled = request.data.get('enabled')
+            if not isinstance(enabled, bool):
+                return Response({'detail': '`enabled` must be true or false.'}, status=HTTP_400_BAD_REQUEST)
+            booking.ai_notes_off = not enabled
+            booking.save(update_fields=['ai_notes_off'])
+        return Response({'enabled': not booking.ai_notes_off})
+
     @action(detail=True, methods=['get'], url_path='pending-joins')
     def pending_joins(self, request, pk=None):
         """Coach polls for a client waiting to be let in."""
@@ -2433,6 +2451,9 @@ class SessionAISummaryView(APIView):
         booking = self._booking(booking_id)
         if not self._is_participant(request, booking):
             return Response({'detail': 'Permission denied.'}, status=HTTP_403_FORBIDDEN)
+        if booking.ai_notes_off:
+            return Response({'detail': 'AI note-taking was turned off for this session.'},
+                            status=HTTP_400_BAD_REQUEST)
 
         # Both participants may POST at session end; generate_and_store_summary
         # is idempotent + cost-safe (skips the AI if an equal/longer transcript

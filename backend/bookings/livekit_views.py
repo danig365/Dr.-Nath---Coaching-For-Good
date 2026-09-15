@@ -206,7 +206,12 @@ class BookingCallTokenView(APIView):
         # Note: attendance is recorded only once the participant actually CONNECTS
         # to the room (see SessionBookingViewSet.mark_joined), not here — merely
         # requesting a token (or checking the lobby preview) must not count.
-        return _token_response(user, f'booking-{booking.id}')
+        response = _token_response(user, f'booking-{booking.id}')
+        if response.status_code == 200:
+            # Whether AI note-taking is on for this session — either participant
+            # may have switched it off, including on an earlier join.
+            response.data['ai_notes_enabled'] = not booking.ai_notes_off
+        return response
 
 
 # ── Guest join (N4): an extra person the coach invites into a 1:1 call ─────────
