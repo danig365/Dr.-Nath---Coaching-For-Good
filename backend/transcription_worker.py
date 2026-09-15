@@ -38,7 +38,7 @@ from django.conf import settings  # noqa: E402
 from asgiref.sync import sync_to_async  # noqa: E402
 
 from livekit import rtc  # noqa: E402
-from livekit.agents import JobContext, WorkerOptions, cli, stt as agents_stt  # noqa: E402
+from livekit.agents import AutoSubscribe, JobContext, WorkerOptions, cli, stt as agents_stt  # noqa: E402
 
 logger = logging.getLogger("transcription_worker")
 logging.basicConfig(level=logging.INFO)
@@ -124,7 +124,10 @@ async def entrypoint(ctx: JobContext):
         async def pump_audio():
             async for ev in audio_stream:
                 stt_stream.push_frame(ev.frame)
-            await stt_stream.aclose()
+            # end_input, not aclose: aclose drops the stream immediately, losing
+            # whatever the speaker said just before leaving. end_input lets the
+            # provider flush that last final transcript first.
+            stt_stream.end_input()
 
         async def read_events():
             async for ev in stt_stream:
@@ -154,7 +157,9 @@ async def entrypoint(ctx: JobContext):
                 logger.error("Failed to store summary for booking %s: %s", booking_id, exc)
 
     ctx.add_shutdown_callback(finalize)
-    await ctx.connect(auto_subscribe=rtc.AutoSubscribe.AUDIO_ONLY)
+    # AutoSubscribe lives in livekit.agents, not livekit.rtc — the rtc spelling
+    # crashed every job on the first real call.
+    await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
     logger.info("Transcribing room %s (booking %s)", ctx.room.name, booking_id)
 
 
