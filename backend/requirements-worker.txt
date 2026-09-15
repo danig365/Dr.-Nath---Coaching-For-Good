@@ -1,15 +1,19 @@
-# Dependencies for the server-side transcription worker (E7 Phase 3) ONLY.
-# Install into a SEPARATE virtualenv (venv-worker) — NOT the API server's venv —
-# because livekit-agents pulls in the RTC SDK + media deps that can clash with
-# the API server's pinned livekit-api. See transcription_worker.README.md.
+# Dependencies for the server-side transcription worker ONLY.
+# Install into a SEPARATE virtualenv (venv-worker) — never the API server's.
 #
-#   python -m venv venv-worker
+# Why separate: livekit-agents needs livekit-api>=1.2 and livekit-protocol>=1.1.21,
+# while the API pins livekit-api==1.1.0 and livekit-protocol==1.1.17. Installing
+# both into one environment is unsatisfiable (pip gives up with
+# "resolution-too-deep"). The worker also needs the API's Django stack, so it
+# installs requirements.txt with those two pins removed, then this file:
+#
+#   python3 -m venv venv-worker          # needs the python3.12-venv apt package
+#   grep -vE '^livekit-(api|protocol)==' requirements.txt > /tmp/req-worker-base.txt
+#   venv-worker/bin/pip install -r /tmp/req-worker-base.txt
 #   venv-worker/bin/pip install -r requirements-worker.txt
 #
-# It reuses the Django project (ORM + assistant.services), so it needs the base
-# app deps too.
--r requirements.txt
+# Pinned to 1.6.x, the release the worker was written and verified against —
+# an unpinned ~=1.6 silently resolves to 1.8.
 
-livekit-agents~=1.6
-livekit-plugins-deepgram~=1.6   # STT_PROVIDER=deepgram (recommended for streaming)
-livekit-plugins-openai~=1.6     # STT_PROVIDER=openai  (Whisper; reuses OPENAI_API_KEY)
+livekit-agents==1.6.10
+livekit-plugins-deepgram==1.6.10   # STT_PROVIDER=deepgram

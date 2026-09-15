@@ -88,7 +88,11 @@ def room_participant_count(booking):
         lkapi = lk_api.LiveKitAPI(settings.LIVEKIT_URL, settings.LIVEKIT_API_KEY, settings.LIVEKIT_API_SECRET)
         try:
             res = await lkapi.room.list_participants(lk_api.ListParticipantsRequest(room=room))
-            return len(res.participants)
+            # "People" — the transcription worker joins every booking room as an
+            # agent participant, and must not take a seat a guest could have.
+            from livekit.protocol import models as lk_models
+            agent = lk_models.ParticipantInfo.Kind.AGENT
+            return sum(1 for p in res.participants if p.kind != agent)
         finally:
             await lkapi.aclose()
 

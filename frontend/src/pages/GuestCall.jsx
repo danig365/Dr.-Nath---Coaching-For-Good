@@ -84,12 +84,15 @@ export default function GuestCall() {
 
   // ── Remote bookkeeping ──────────────────────────────────────────────────────
   const upsert = useCallback((p) => {
+    if (p?.isAgent) return; // the transcription worker is not a person
     setRemotes((prev) => ({ ...prev, [p.sid]: { ...(prev[p.sid] || {}), name: p.name || p.identity, identity: p.identity } }));
   }, []);
   const drop = useCallback((p) => {
+    if (p?.isAgent) return; // the transcription worker is not a person
     setRemotes((prev) => { const n = { ...prev }; delete n[p.sid]; return n; });
   }, []);
   const setTrack = useCallback((p, track, attach) => {
+    if (p?.isAgent) return; // the transcription worker is not a person
     setRemotes((prev) => {
       const entry = { ...(prev[p.sid] || { name: p.name || p.identity, identity: p.identity }) };
       entry[track.kind === Track.Kind.Video ? "videoTrack" : "audioTrack"] = attach ? track : undefined;

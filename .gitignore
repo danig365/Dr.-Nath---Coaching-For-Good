@@ -44,4 +44,5 @@ mobile/
 
 # Virtualenvs — kept on the server, rebuilt from requirements.txt elsewhere
 backend/venv/
+backend/venv-worker/
 backend/Lib/

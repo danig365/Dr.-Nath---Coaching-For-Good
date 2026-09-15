@@ -201,7 +201,11 @@ export default function SessionCallLiveKit() {
   }, [bookingId, navigate]);
 
   // ── Remote participant bookkeeping (multi-party, N4) ─────────────────────────
+  // The server-side transcription worker joins every session room as an AGENT
+  // participant. It is not a person: no tile, and it must never count as "the
+  // other side has joined".
   const upsertParticipant = useCallback((p) => {
+    if (p?.isAgent) return;
     setRemotes((prev) => {
       const next = { ...prev, [p.sid]: { ...(prev[p.sid] || {}), name: p.name || p.identity, identity: p.identity } };
       remotesRef.current = next;
@@ -212,6 +216,7 @@ export default function SessionCallLiveKit() {
     setRemotes((prev) => { const n = { ...prev }; delete n[p.sid]; remotesRef.current = n; return n; });
   }, []);
   const setParticipantTrack = useCallback((p, track, attach) => {
+    if (p?.isAgent) return;
     setRemotes((prev) => {
       const entry = { ...(prev[p.sid] || { name: p.name || p.identity, identity: p.identity }) };
       const key = track.kind === Track.Kind.Video ? "videoTrack" : "audioTrack";
@@ -528,7 +533,8 @@ export default function SessionCallLiveKit() {
       // any shared screen into the full-bleed main view (multi-party, N4).
       room
         .on(RoomEvent.ParticipantConnected, (p) => {
-          diag("room", "participant connected", { identity: p?.identity });
+          diag("room", "participant connected", { identity: p?.identity, agent: !!p?.isAgent });
+          if (p?.isAgent) return;
           upsertParticipant(p); markConnected();
         })
         .on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
@@ -649,8 +655,9 @@ export default function SessionCallLiveKit() {
       api.post(`/bookings/${bookingId}/mark-joined/`).catch(() => {});
       // Pick up anyone already in the room (they joined first) — seed their tiles
       // and mark the call active.
-      if (room.remoteParticipants && room.remoteParticipants.size > 0) {
-        room.remoteParticipants.forEach((p) => upsertParticipant(p));
+      const people = [...(room.remoteParticipants?.values() ?? [])].filter((p) => !p.isAgent);
+      if (people.length > 0) {
+        people.forEach((p) => upsertParticipant(p));
         markConnected();
       }
     } catch (err) {

@@ -23,8 +23,12 @@ idempotent + cost-safe, so the AI runs once).
 ```bash
 cd /root/dr-nath-coaching/backend
 
-# 1. Isolated venv for the worker
+# 1. Isolated venv for the worker (needs the python3.12-venv apt package).
+#    Two stages: the API's Django deps minus its livekit pins, then the agents.
+#    A single `pip install` of both is unsatisfiable — see requirements-worker.txt.
 python3 -m venv venv-worker
+grep -vE '^livekit-(api|protocol)==' requirements.txt > /tmp/req-worker-base.txt
+venv-worker/bin/pip install -r /tmp/req-worker-base.txt
 venv-worker/bin/pip install -r requirements-worker.txt
 
 # 2. Configure in .env (same file the API reads)
@@ -97,9 +101,24 @@ rather than degrade the conversation) — see `frontend/src/utils/liveTranscribe
 | `DEEPGRAM_MODEL` | `nova-2` | Deepgram model. |
 | `OPENAI_API_KEY` | — | Reused for `STT_PROVIDER=openai`. |
 
-## Not yet verified
+## Status
 
-The worker code is written against livekit-agents 1.6 but has **not been run
-end-to-end here** (needs the isolated install, an STT key, and a live 2-party
-room). Verify with a real test call after setup. The Django integration it relies
-on (`generate_and_store_summary`, `speaker_label_for_identity`) IS tested.
+Deployed 2026-09-15 on livekit-agents 1.6.10 with Deepgram. Verified: the worker
+starts under systemd, registers with LiveKit Cloud, and resolves speaker labels
+through the Django handoff. A real two-party call producing a stored summary is
+the one step still to confirm.
+
+## Host notes
+
+- **Port.** The agents health-check server defaults to 8081, which Metro (the
+  Expo dev server) already holds here — the worker failed on startup with
+  "address already in use". It now listens on `TRANSCRIPTION_WORKER_PORT`
+  (default 8091).
+- **Memory.** Production defaults to two warm job processes; this host has 3 GB
+  shared with the live API, so it keeps one (`TRANSCRIPTION_IDLE_PROCESSES`).
+  Idle footprint is roughly 490 MB. The unit sets `MemoryMax=1G`, so a runaway
+  worker is stopped by systemd rather than the OOM killer taking daphne.
+- **It is a room participant.** The worker joins each `booking-<id>` room as an
+  AGENT participant. The call pages ignore agents (no tile, never counted as the
+  other side joining) and `room_participant_count` excludes them, so it never
+  takes a guest's seat.

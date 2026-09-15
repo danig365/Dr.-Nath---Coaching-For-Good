@@ -23,6 +23,10 @@ EnvironmentFile=/root/dr-nath-coaching/backend/.env
 ExecStart=/root/dr-nath-coaching/backend/venv-worker/bin/python transcription_worker.py start
 Restart=on-failure
 RestartSec=5
+# This shares a small host with the live API. If transcription ever balloons,
+# systemd stops the worker — rather than the kernel's OOM killer picking daphne.
+MemoryHigh=800M
+MemoryMax=1G
 
 [Install]
 WantedBy=multi-user.target

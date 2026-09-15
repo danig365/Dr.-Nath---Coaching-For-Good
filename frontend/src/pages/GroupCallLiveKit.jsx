@@ -174,6 +174,7 @@ export default function GroupCallLiveKit() {
 
   // ── Remote participant track bookkeeping ────────────────────────────────────
   const upsertParticipant = useCallback((p) => {
+    if (p?.isAgent) return; // the transcription worker is not a person
     setRemotes((prev) => ({
       ...prev,
       [p.sid]: { ...(prev[p.sid] || {}), name: p.name || p.identity },
@@ -181,10 +182,12 @@ export default function GroupCallLiveKit() {
   }, []);
 
   const dropParticipant = useCallback((p) => {
+    if (p?.isAgent) return; // the transcription worker is not a person
     setRemotes((prev) => { const n = { ...prev }; delete n[p.sid]; return n; });
   }, []);
 
   const setTrack = useCallback((p, track, attach) => {
+    if (p?.isAgent) return; // the transcription worker is not a person
     setRemotes((prev) => {
       const entry = { ...(prev[p.sid] || { name: p.name || p.identity }) };
       const key = track.kind === Track.Kind.Video ? "videoTrack" : "audioTrack";

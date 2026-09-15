@@ -159,4 +159,14 @@ async def entrypoint(ctx: JobContext):
 
 
 if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    cli.run_app(WorkerOptions(
+        entrypoint_fnc=entrypoint,
+        # The agents health-check server defaults to 8081 — the port the Expo
+        # dev server (Metro) already holds on this host, so the worker died on
+        # startup with "address already in use". Keep it off the dev ports.
+        port=int(os.environ.get("TRANSCRIPTION_WORKER_PORT", "8091")),
+        # Production defaults to two pre-spawned job processes. This worker
+        # shares a 3 GB host with the live site and sessions run one at a time,
+        # so one warm process is enough; a second call still spawns on demand.
+        num_idle_processes=int(os.environ.get("TRANSCRIPTION_IDLE_PROCESSES", "1")),
+    ))
