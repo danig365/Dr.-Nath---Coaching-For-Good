@@ -661,9 +661,19 @@ export default function SessionCallLiveKit() {
         markConnected();
       }
     } catch (err) {
+      const detail = err?.response?.data?.detail;
+      // Refused because the coach hasn't admitted us (yet). That is not a
+      // failure — go back to waiting and keep polling, rather than dropping to
+      // the lobby with an error and no longer listening for the admission.
+      if (err?.response?.status === 403 && err?.response?.data?.admit_status !== undefined) {
+        diag("join", "not admitted yet — back to waiting", { admit_status: err.response.data.admit_status });
+        cleanup();
+        joiningRef.current = false;
+        setCallState("waiting");
+        return;
+      }
       // Only a genuine connection/token/network failure lands here.
       diag("join", "connect failed", { name: err?.name, message: err?.message });
-      const detail = err?.response?.data?.detail;
       toast.error(detail || "Could not connect to the session. Please check your internet and try again.");
       cleanup();
       setCallState("idle");
@@ -744,12 +754,16 @@ export default function SessionCallLiveKit() {
       handleJoin();
       return;
     }
-    setCallState("waiting");  // the preview effect releases the camera here
     try {
+      // Register the request BEFORE entering "waiting". Entering it starts the
+      // admission poll, whose first check fires immediately — and admission is
+      // reset by this request. The old order polled first, read an "admitted"
+      // left over from an earlier join of the same booking, went for a token,
+      // and was refused a moment later when this request cleared it: the client
+      // bounced back to the lobby and never heard the coach admit them.
       const res = await api.post(`/bookings/${bookingId}/request-join/`);
       setCoachPresent(!!res.data.coach_present);
-      // Admission isn't persistent — the coach admits every join. The waiting
-      // poll below takes it from here.
+      setCallState("waiting");  // the preview effect releases the camera here
     } catch {
       toast.error("Couldn't reach the session. Please try again.");
       setCallState("idle");
