@@ -60,6 +60,14 @@ export default function Contact() {
           <p className="text-base max-w-lg mx-auto" style={{ color: SLATE }}>
             Have a question about coaching, a program, or anything else? Send a message and we'll get back to you.
           </p>
+          <p className="text-sm mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1" style={{ color: SLATE }}>
+            <a href="mailto:query@dr-nath.com" className="inline-flex items-center gap-1.5 font-semibold hover:underline" style={{ color: "#A9863A" }}>
+              <FiMail size={14} /> query@dr-nath.com
+            </a>
+            <a href="tel:+33751367096" className="font-semibold hover:underline" style={{ color: "#A9863A" }}>
+              +33 7 51 36 70 96
+            </a>
+          </p>
         </motion.div>
 
         <motion.div

@@ -77,7 +77,9 @@ def send_email(to, subject, template, context=None, from_email=None,
             body=text_body,
             from_email=from_email or settings.DEFAULT_FROM_EMAIL,
             to=recipients,
-            reply_to=reply_to,
+            # Replies go to the enquiries inbox unless the caller says otherwise
+            # (e.g. a contact message replies straight to the person who sent it).
+            reply_to=reply_to or ([settings.CONTACT_EMAIL] if getattr(settings, 'CONTACT_EMAIL', '') else None),
             bcc=bcc_list or None,
         )
         if html_body:

@@ -2,7 +2,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bars3Icon, XMarkIcon, ChevronDownIcon, PhoneIcon } from "@heroicons/react/24/outline";
+import { Bars3Icon, XMarkIcon, ChevronDownIcon, PhoneIcon, EnvelopeIcon } from "@heroicons/react/24/outline";
 import { api } from "../utils/auth";
 import { isUpcomingSession } from "../utils/sessionTiming";
 import { GROUP_SESSIONS_ENABLED } from "../config/features";
@@ -147,13 +147,21 @@ const Navbar = () => {
             already dense and they have the coach in-app. */}
         {onHome && (
           <div style={{ background: "#1B2B4A" }}>
-            <div className="w-full px-6 sm:px-10 lg:px-20 py-2 flex items-center justify-end gap-2">
-              <PhoneIcon className="w-4 h-4" style={{ color: "#C8A951" }} />
+            <div className="w-full px-6 sm:px-10 lg:px-20 py-2 flex flex-wrap items-center justify-end gap-x-6 gap-y-1">
               <a
-                href="tel:+33751367096"
-                className="text-[13px] font-semibold tracking-wide transition-colors hover:text-[#E8C96A]"
+                href="mailto:query@dr-nath.com"
+                className="flex items-center gap-2 text-[13px] font-semibold tracking-wide transition-colors hover:text-[#E8C96A]"
                 style={{ color: "#F3E9C9" }}
               >
+                <EnvelopeIcon className="w-4 h-4" style={{ color: "#C8A951" }} />
+                query@dr-nath.com
+              </a>
+              <a
+                href="tel:+33751367096"
+                className="flex items-center gap-2 text-[13px] font-semibold tracking-wide transition-colors hover:text-[#E8C96A]"
+                style={{ color: "#F3E9C9" }}
+              >
+                <PhoneIcon className="w-4 h-4" style={{ color: "#C8A951" }} />
                 +33 7 51 36 70 96
               </a>
             </div>

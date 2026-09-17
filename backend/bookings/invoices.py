@@ -13,6 +13,7 @@ from django.utils import timezone
 from reportlab.lib.colors import HexColor
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+from django.conf import settings
 
 NAVY = HexColor('#1B2B4A')
 GOLD = HexColor('#C8A951')
@@ -24,7 +25,7 @@ LINE = HexColor('#E5DCC3')
 
 COMPANY_NAME = 'Dr. Nath Coaching'
 COMPANY_TAGLINE = 'Coaching for Impact'
-COMPANY_EMAIL = 'dr.nath@dr-nath.com'
+COMPANY_EMAIL = settings.CONTACT_EMAIL
 
 
 def _money(amount):

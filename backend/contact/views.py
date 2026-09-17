@@ -25,10 +25,10 @@ class ContactMessageListCreateView(generics.ListCreateAPIView):
         # Best-effort: notify the business that a message arrived.
         try:
             from django.conf import settings
-            from django.contrib.auth import get_user_model
             from notifications.services import send_email
-            coach = get_user_model().objects.filter(profile__role='coach').first()
-            to = coach.email if coach and coach.email else None
+            # The enquiries mailbox — not "the first coach in the table", which
+            # could be any approved coach account.
+            to = settings.CONTACT_EMAIL
             if to:
                 send_email(
                     to=to,

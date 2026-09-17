@@ -324,6 +324,10 @@ EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '15'))
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'Dr. Nath Coaching <no-reply@dr-nath.com>')
 # Public site URL used to build links inside emails.
 SITE_URL = os.environ.get('SITE_URL', 'https://dr-nath.com')
+# The public enquiries mailbox, as Dr Nath asked (13 Sept feedback). Contact-form
+# messages are delivered here, it is the Reply-To on outgoing email (so a client
+# replying to a reminder reaches a monitored inbox), and invoices show it.
+CONTACT_EMAIL = os.environ.get('CONTACT_EMAIL', 'query@dr-nath.com')
 
 INSTALLED_APPS += ['channels']
 
