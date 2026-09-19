@@ -31,10 +31,12 @@ const Navbar = () => {
 
   const [pendingCount, setPendingCount] = useState(0);
   const [upcomingCount, setUpcomingCount] = useState(0);
+  // Resources a coach has shared since this client last opened the page.
+  const [newResources, setNewResources] = useState(0);
   const pollRef = useRef(null);
 
   useEffect(() => {
-    if (!isAuthenticated) { setPendingCount(0); setUpcomingCount(0); return; }
+    if (!isAuthenticated) { setPendingCount(0); setUpcomingCount(0); setNewResources(0); return; }
     const fetchCounts = () =>
       api.get("/bookings/")
         .then(res => {
@@ -50,6 +52,22 @@ const Navbar = () => {
     pollRef.current = setInterval(fetchCounts, 30000);
     return () => clearInterval(pollRef.current);
   }, [isAuthenticated]);
+
+  // Shared resources the client hasn't seen. Coaches manage their own library,
+  // so the badge is only meaningful on the client's Resources item.
+  useEffect(() => {
+    if (!isAuthenticated || isCoach() || isAdmin()) { setNewResources(0); return undefined; }
+    const fetchUnread = () =>
+      api.get("/resources/unread/")
+        .then((res) => setNewResources(res.data?.count || 0))
+        .catch(() => {});
+    fetchUnread();
+    const id = setInterval(fetchUnread, 30000);
+    // The Resources page clears the count the moment it opens.
+    const clear = () => setNewResources(0);
+    window.addEventListener("resources-seen", clear);
+    return () => { clearInterval(id); window.removeEventListener("resources-seen", clear); };
+  }, [isAuthenticated, isCoach, isAdmin]);
 
   const navBg = scrolled
     ? "linear-gradient(180deg, rgba(243,233,205,0.98), rgba(230,210,156,0.98))"
@@ -116,8 +134,8 @@ const Navbar = () => {
       { to: "/match", label: "Find Match" },
       { to: "/skills", label: "Browse Skills" },
     ]},
-    { label: "Workspace", items: [
-      { to: "/resources", label: "Resources" },
+    { label: "Workspace", badge: newResources, items: [
+      { to: "/resources", label: "Resources", badge: newResources },
       { to: "/milestones", label: "Milestones" },
       { to: "/habits", label: "Habits" },
     ]},

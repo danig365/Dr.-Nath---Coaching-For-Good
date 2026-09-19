@@ -31,7 +31,7 @@ const Field = ({ label, children }) => (
 const emptyForm = { coach: "", title: "", note: "", in_response_to: "", file: null };
 
 const MyResources = () => {
-  const { isAuthenticated, logout } = useAuth();
+  const { logout } = useAuth();
   const { requireSignedIn } = useAccessGuard();
   const [resources, setResources] = useState([]);
   const [submissions, setSubmissions] = useState([]);
@@ -40,16 +40,29 @@ const MyResources = () => {
   const [busy, setBusy] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [uploading, setUploading] = useState(false);
+  // Everything shared after this moment is new to this client. Read before the
+  // page marks itself seen, so the "New" chips survive the visit that clears
+  // the nav badge.
+  const [newSince, setNewSince] = useState(null);
 
   const fetchAll = useCallback(async () => {
     if (requireSignedIn()) return;
     setLoading(true);
     try {
-      const [shared, subs, cs] = await Promise.all([
+      const [shared, subs, cs, unread] = await Promise.all([
         api.get("/resources/shared/"),
         api.get("/resources/submissions/"),
         api.get("/resources/submissions/coaches/"),
+        api.get("/resources/unread/").catch(() => null),
       ]);
+      // Opening the page is what "seen" means, so clear the count now and tell
+      // the navbar, which polls on its own but shouldn't lag behind the page.
+      if (unread?.data?.count > 0) {
+        setNewSince(unread.data.since ? new Date(unread.data.since).getTime() : 0);
+        api.post("/resources/mark-seen/")
+          .then(() => window.dispatchEvent(new Event("resources-seen")))
+          .catch(() => {});
+      }
       setResources(shared.data);
       setSubmissions(subs.data);
       setCoaches(cs.data);
@@ -168,7 +181,13 @@ const MyResources = () => {
                           <div key={r.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl" style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.12)" }}>
                             {r.is_link ? <FiLink size={18} style={{ color: "#C8A951" }} /> : <FiFile size={18} style={{ color: "#C8A951" }} />}
                             <div className="min-w-0 flex-1">
-                              <p className="font-semibold text-[#1B2B4A] truncate">{r.title}</p>
+                              <p className="font-semibold text-[#1B2B4A] truncate">
+                                {r.title}
+                                {newSince !== null && new Date(r.created_at).getTime() > newSince && (
+                                  <span className="ml-2 align-middle text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                                    style={{ background: "#C8A951", color: "#14213D" }}>NEW</span>
+                                )}
+                              </p>
                               {r.description && <p className="text-xs truncate" style={{ color: "rgba(74,85,104,0.7)" }}>{r.description}</p>}
                             </div>
                             {!r.is_link && <span className="text-xs shrink-0" style={{ color: "rgba(74,85,104,0.6)" }}>{fmtSize(r.file_size)}</span>}

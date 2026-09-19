@@ -19,6 +19,11 @@ class UserProfile(models.Model):
     )
 
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='profile')
+    # When this client last opened their Resources page. Anything a coach has
+    # shared since then is "new" — that's the count on the Resources nav item,
+    # the same idea as the upcoming-sessions badge. Null = never opened, so
+    # everything shared with them counts as new.
+    resources_seen_at = models.DateTimeField(null=True, blank=True)
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='client')
     bio = models.TextField(blank=True, null=True)
     photo = models.ImageField(upload_to='coach_photos/', blank=True, null=True)

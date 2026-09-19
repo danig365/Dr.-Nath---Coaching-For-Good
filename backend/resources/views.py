@@ -1,3 +1,4 @@
+from django.utils import timezone as dj_tz
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -156,6 +157,30 @@ class ResourceViewSet(viewsets.ModelViewSet):
         """Resources shared with the current client."""
         qs = resources_for_client(request.user).select_related('coach__user', 'folder')
         return Response(self.get_serializer(qs, many=True).data)
+
+    @action(detail=False, methods=['get'], url_path='unread')
+    def unread(self, request):
+        """How many shared resources this client hasn't seen yet.
+
+        `since` is the cut-off the count was measured against, so the page can
+        mark exactly those rows as new before calling mark-seen.
+        """
+        profile = getattr(request.user, 'profile', None)
+        since = getattr(profile, 'resources_seen_at', None)
+        qs = resources_for_client(request.user)
+        if since:
+            qs = qs.filter(created_at__gt=since)
+        return Response({'count': qs.count(), 'since': since})
+
+    @action(detail=False, methods=['post'], url_path='mark-seen')
+    def mark_seen(self, request):
+        """The client has just looked at their resources — clear the count."""
+        profile = getattr(request.user, 'profile', None)
+        if profile is None:
+            return Response({'seen_at': None})
+        profile.resources_seen_at = dj_tz.now()
+        profile.save(update_fields=['resources_seen_at'])
+        return Response({'seen_at': profile.resources_seen_at})
 
     @action(detail=False, methods=['get'])
     def clients(self, request):
