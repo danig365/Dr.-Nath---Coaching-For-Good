@@ -620,7 +620,7 @@ class AdminSessionsView(APIView):
 
 
 class AdminUserManageView(APIView):
-    """Admin: suspend/reactivate (PATCH is_active) or delete (DELETE) a coach or
+    """Admin: deactivate/reactivate (PATCH is_active) or delete (DELETE) a coach or
     client. Admin/staff accounts and your own account are protected."""
     permission_classes = [IsAdminUser]
 

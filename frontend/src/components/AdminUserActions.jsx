@@ -4,7 +4,7 @@ import { toast } from "react-toastify";
 import { FiMoreVertical, FiUserX, FiUserCheck, FiTrash2 } from "react-icons/fi";
 import { api } from "../utils/auth";
 
-// Kebab menu of admin actions for a coach/client row: suspend / reactivate /
+// Kebab menu of admin actions for a coach/client row: deactivate / reactivate /
 // delete. Rendered in a portal (fixed position) so it's never clipped by the
 // table's overflow. `kind` is "coach" | "client". onDone() refetches.
 export default function AdminUserActions({ userId, isActive, kind = "user", onDone }) {
@@ -33,7 +33,7 @@ export default function AdminUserActions({ userId, isActive, kind = "user", onDo
     setBusy(true);
     try {
       await api.patch(`/admin/users/${userId}/`, { is_active: next });
-      toast.success(next ? "Account reactivated." : "Account suspended.");
+      toast.success(next ? "Account reactivated." : "Account deactivated.");
       close(); onDone?.();
     } catch (err) {
       toast.error(err.response?.data?.detail || "Couldn't update the account.");
@@ -69,7 +69,7 @@ export default function AdminUserActions({ userId, isActive, kind = "user", onDo
                 {isActive ? (
                   <button onClick={() => setActive(false)} disabled={busy}
                     className="w-full flex items-center gap-2.5 px-4 py-2 text-sm hover:bg-[#1B2B4A]/[0.05]" style={{ color: "#B45309" }}>
-                    <FiUserX size={15} /> Suspend account
+                    <FiUserX size={15} /> Deactivate account
                   </button>
                 ) : (
                   <button onClick={() => setActive(true)} disabled={busy}
