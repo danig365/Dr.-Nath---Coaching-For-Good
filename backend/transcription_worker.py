@@ -236,4 +236,9 @@ if __name__ == "__main__":
         # shares a 3 GB host with the live site and sessions run one at a time,
         # so one warm process is enough; a second call still spawns on demand.
         num_idle_processes=int(os.environ.get("TRANSCRIPTION_IDLE_PROCESSES", "1")),
+        # finalize() runs as a shutdown callback and does the real work: the AI
+        # summary, the analytics pass and the summary email. The library's
+        # 10-second default killed the process mid-way through a real session's
+        # summary (booking 88, 17 Sept: summary stored, email never sent).
+        shutdown_process_timeout=float(os.environ.get("TRANSCRIPTION_SHUTDOWN_TIMEOUT", "180")),
     ))

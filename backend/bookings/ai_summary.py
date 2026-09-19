@@ -56,6 +56,16 @@ def generate_and_store_summary(booking, transcript, *, min_chars=MIN_TRANSCRIPT_
         },
     )
 
+    # Email the summary to both parties as soon as it exists (fires from whichever
+    # path generated it — the call page or the server-side worker). Guarded so it
+    # only sends once and only for a session that actually took place.
+    try:
+        booking.refresh_from_db(fields=['status'])
+        from .notifications import send_session_summary_email
+        send_session_summary_email(booking)
+    except Exception:  # noqa: BLE001 — never break summary generation on email
+        pass
+
     # F1: Zoom-style analytics from the same transcript — generated once
     # (cost-guarded). Source-agnostic: improves automatically if a better
     # transcript (e.g. server-side STT) is stored later.
@@ -68,13 +78,4 @@ def generate_and_store_summary(booking, transcript, *, min_chars=MIN_TRANSCRIPT_
                 summ.save(update_fields=['analytics'])
         except Exception:  # noqa: BLE001 — never break summary on analytics
             pass
-    # Email the summary to both parties as soon as it exists (fires from whichever
-    # path generated it — the call page or the server-side worker). Guarded so it
-    # only sends once and only for a session that actually took place.
-    try:
-        booking.refresh_from_db(fields=['status'])
-        from .notifications import send_session_summary_email
-        send_session_summary_email(booking)
-    except Exception:  # noqa: BLE001 — never break summary generation on email
-        pass
     return summ
