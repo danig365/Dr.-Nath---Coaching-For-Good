@@ -10,7 +10,10 @@ import { api } from "../utils/auth";
 export default function AdminUserActions({ userId, isActive, kind = "user", onDone }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  // Which action is waiting to be confirmed: "deactivate" | "delete" | null.
+  // Both change what other people can see or lose data, so neither fires on a
+  // single click of a menu item. Reactivating is harmless and stays one click.
+  const [confirming, setConfirming] = useState(null);
   const [pos, setPos] = useState(null); // {top, right}
   const btnRef = useRef(null);
 
@@ -18,8 +21,8 @@ export default function AdminUserActions({ userId, isActive, kind = "user", onDo
     const r = btnRef.current?.getBoundingClientRect();
     if (r) setPos({ top: r.bottom + 6, right: window.innerWidth - r.right });
   };
-  const toggle = () => { if (!open) place(); setOpen((o) => !o); setConfirmDelete(false); };
-  const close = () => { setOpen(false); setConfirmDelete(false); };
+  const toggle = () => { if (!open) place(); setOpen((o) => !o); setConfirming(null); };
+  const close = () => { setOpen(false); setConfirming(null); };
 
   useEffect(() => {
     if (!open) return undefined;
@@ -64,10 +67,10 @@ export default function AdminUserActions({ userId, isActive, kind = "user", onDo
           <div className="fixed inset-0 z-[90]" onClick={close} />
           <div className="fixed z-[91] min-w-[190px] rounded-xl py-1.5 shadow-xl"
             style={{ top: pos.top, right: pos.right, background: "white", border: "1px solid rgba(200,169,81,0.3)" }}>
-            {!confirmDelete ? (
+            {!confirming ? (
               <>
                 {isActive ? (
-                  <button onClick={() => setActive(false)} disabled={busy}
+                  <button onClick={() => setConfirming("deactivate")} disabled={busy}
                     className="w-full flex items-center gap-2.5 px-4 py-2 text-sm hover:bg-[#1B2B4A]/[0.05]" style={{ color: "#B45309" }}>
                     <FiUserX size={15} /> Deactivate account
                   </button>
@@ -77,20 +80,32 @@ export default function AdminUserActions({ userId, isActive, kind = "user", onDo
                     <FiUserCheck size={15} /> Reactivate account
                   </button>
                 )}
-                <button onClick={() => setConfirmDelete(true)} disabled={busy}
+                <button onClick={() => setConfirming("delete")} disabled={busy}
                   className="w-full flex items-center gap-2.5 px-4 py-2 text-sm hover:bg-[#1B2B4A]/[0.05]" style={{ color: "#B91C1C" }}>
                   <FiTrash2 size={15} /> Delete permanently
                 </button>
               </>
             ) : (
-              <div className="px-3 py-2">
-                <p className="text-xs mb-2" style={{ color: "#4A5568" }}>Delete this {kind} and all their data? This can't be undone.</p>
+              <div className="px-3 py-2.5" style={{ width: 250 }}>
+                <p className="text-xs font-bold mb-1" style={{ color: "#1B2B4A" }}>
+                  {confirming === "delete" ? `Delete this ${kind}?` : `Deactivate this ${kind}?`}
+                </p>
+                <p className="text-xs mb-2.5 leading-relaxed" style={{ color: "#4A5568" }}>
+                  {confirming === "delete"
+                    ? "This removes them and all their data permanently. It can't be undone."
+                    : kind === "coach"
+                      ? "They'll be removed from the coach directory and every booking page, and won't be able to sign in. Sessions already booked are unaffected. You can reactivate them at any time."
+                      : "They won't be able to sign in. Sessions already booked are unaffected. You can reactivate them at any time."}
+                </p>
                 <div className="flex gap-2">
-                  <button onClick={remove} disabled={busy}
-                    className="flex-1 py-1.5 rounded-lg text-xs font-bold" style={{ background: "#B91C1C", color: "white" }}>
-                    {busy ? "Deleting…" : "Delete"}
+                  <button onClick={() => (confirming === "delete" ? remove() : setActive(false))} disabled={busy}
+                    className="flex-1 py-1.5 rounded-lg text-xs font-bold"
+                    style={{ background: confirming === "delete" ? "#B91C1C" : "#B45309", color: "white" }}>
+                    {busy
+                      ? (confirming === "delete" ? "Deleting…" : "Deactivating…")
+                      : (confirming === "delete" ? "Delete" : "Deactivate")}
                   </button>
-                  <button onClick={() => setConfirmDelete(false)} disabled={busy}
+                  <button onClick={() => setConfirming(null)} disabled={busy}
                     className="flex-1 py-1.5 rounded-lg text-xs font-semibold" style={{ background: "rgba(27,43,74,0.06)", color: "#4A5568" }}>
                     Cancel
                   </button>
