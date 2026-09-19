@@ -6,6 +6,17 @@ from django.dispatch import receiver
 class CustomUser(AbstractUser):
     pass
 
+def bookable_coaches(qs=None):
+    """Coaches the public may see and book: approved AND not deactivated.
+
+    An admin deactivating a coach has to remove them from everywhere at once —
+    the directory, Smart Match, their profile page, the skills a client browses
+    and the slots behind them. One definition, used by every one of those.
+    """
+    qs = UserProfile.objects.all() if qs is None else qs
+    return qs.filter(role='coach', approval_status='approved', user__is_active=True)
+
+
 class UserProfile(models.Model):
     ROLE_CHOICES = (
         ('coach', 'Coach'),

@@ -15,7 +15,7 @@ from .serializers import (
     GroupSessionSerializer, GroupEnrollmentSerializer, MyGroupEnrollmentSerializer,
     SlotInviteSerializer,
 )
-from .services import generate_slots_for_coach, release_expired_holds, HOLD_MINUTES, reserve_seat, SeatUnavailable
+from .services import generate_slots_for_coach, release_expired_holds, HOLD_MINUTES, reserve_seat, SeatUnavailable, coach_is_bookable
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.db.models import Count, Q
@@ -867,6 +867,10 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
         else:
             return Response({'detail': 'A coach or skill query param is required.'}, status=HTTP_400_BAD_REQUEST)
 
+        # A deactivated (or unapproved) coach has no bookable times at all.
+        if not coach_is_bookable(coach):
+            return Response([])
+
         # Enforce the coach's minimum-notice rule (e.g. no booking within 24h).
         qs = qs.filter(start_datetime__gt=min_notice_cutoff(coach))
         # Hide slots that clash with the coach's external Google Calendar
@@ -892,6 +896,9 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
                 return Response({'detail': 'Slot not found.'}, status=status.HTTP_404_NOT_FOUND)
             if slot.status != 'open':
                 return Response({'detail': 'This slot is no longer available.'}, status=HTTP_400_BAD_REQUEST)
+            if not coach_is_bookable(slot.coach):
+                return Response({'detail': 'This coach is not taking bookings at the moment.'},
+                                status=HTTP_400_BAD_REQUEST)
             # E2: a programme-locked client can only hold their own coach's slots.
             from .services import locked_skill_id
             locked = locked_skill_id(request.user)
@@ -1209,7 +1216,10 @@ class GroupSessionViewSet(viewsets.ModelViewSet):
     def available(self, request):
         """Authenticated listing of upcoming, bookable group sessions for clients."""
         release_expired_holds()
-        qs = GroupSession.objects.filter(status='scheduled', end_datetime__gt=dj_tz.now())
+        qs = GroupSession.objects.filter(
+            status='scheduled', end_datetime__gt=dj_tz.now(),
+            coach__approval_status='approved', coach__user__is_active=True,
+        )
         coach_id = request.query_params.get('coach')
         skill_id = request.query_params.get('skill')
         if coach_id:

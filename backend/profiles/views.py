@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db.models import Sum, Count, Q
-from .models import CustomUser, UserProfile
+from .models import CustomUser, UserProfile, bookable_coaches
 from .serializers import (
     CurrentUserAndProfileSerializer, RegisterSerializer,
     CoachDirectorySerializer, CoachApprovalSerializer
@@ -73,7 +73,10 @@ class CustomTokenObtainPairView(TokenObtainPairView):
             return Response({'detail': 'No account found with that username or email. Please check it, or create an account.'},
                             status=status.HTTP_400_BAD_REQUEST)
         if not user.is_active:
-            return Response({'detail': 'This account is inactive. Please contact us for help.'},
+            # Say what actually happened and who can undo it — "inactive" left
+            # people guessing whether they had the wrong password.
+            return Response({'detail': 'This account has been deactivated by an administrator. '
+                                       'Please contact query@dr-nath.com to have it reactivated.'},
                             status=status.HTTP_400_BAD_REQUEST)
         if not user.check_password(password):
             return Response({'detail': 'Incorrect password. Please try again, or reset your password.'},
@@ -129,9 +132,7 @@ class CoachDirectoryView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        qs = UserProfile.objects.filter(
-            role='coach', approval_status='approved'
-        ).select_related('user')
+        qs = bookable_coaches().select_related('user')
 
         # Filtering
         specialty = self.request.query_params.get('specialty')
@@ -165,7 +166,7 @@ class SmartMatchView(APIView):
         profile.save()
 
         # Match coaches
-        qs = UserProfile.objects.filter(role='coach', approval_status='approved')
+        qs = bookable_coaches()
         matched = []
         for coach in qs.select_related('user'):
             score = 0
@@ -250,7 +251,7 @@ class AdminStatsView(APIView):
         total_hours = round(total_minutes / 60, 1)
 
         # User counts
-        total_coaches = UserProfile.objects.filter(role='coach', approval_status='approved').count()
+        total_coaches = bookable_coaches().count()
         pending_coaches = UserProfile.objects.filter(role='coach', approval_status='pending').count()
         total_clients = UserProfile.objects.filter(role='client').count()
 
@@ -658,12 +659,7 @@ class CoachDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.AllowAny]
 
     def get_object(self):
-        return get_object_or_404(
-            UserProfile,
-            user__id=self.kwargs['user_id'],
-            role='coach',
-            approval_status='approved'
-        )
+        return get_object_or_404(bookable_coaches(), user__id=self.kwargs['user_id'])
 
 
 class PasswordResetRequestView(APIView):

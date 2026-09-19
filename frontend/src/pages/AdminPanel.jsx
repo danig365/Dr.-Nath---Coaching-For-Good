@@ -867,6 +867,18 @@ export default function AdminPanel() {
             );
           };
 
+          // Approval and account state are different things: a coach can be
+          // approved and still deactivated by an admin, which is what takes them
+          // off the booking pages. Show it in its own column.
+          const accountBadge = (isActive) => (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
+              style={isActive
+                ? { background: "rgba(52,168,83,0.1)", color: "#2E7D32", border: "1px solid rgba(52,168,83,0.25)" }
+                : { background: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.2)" }}>
+              {isActive ? "Active" : "Deactivated"}
+            </span>
+          );
+
           const stars = (rating) => {
             if (!rating) return <span style={{ color: "rgba(74,85,104,0.45)" }}>—</span>;
             return (
@@ -915,9 +927,10 @@ export default function AdminPanel() {
               <div className="rounded-2xl overflow-hidden" style={{ background: "white", border: "1px solid rgba(200,169,81,0.15)" }}>
                 {/* Header */}
                 <div className="grid text-xs font-semibold uppercase tracking-wider px-5 py-3"
-                  style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 1fr 0.6fr", color: "rgba(74,85,104,0.6)", borderBottom: "1px solid rgba(200,169,81,0.12)", background: "#FAF6EC" }}>
+                  style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 0.6fr", color: "rgba(74,85,104,0.6)", borderBottom: "1px solid rgba(200,169,81,0.12)", background: "#FAF6EC" }}>
                   <span>Coach</span>
                   <span className="text-center">Status</span>
+                  <span className="text-center">Account</span>
                   <span className="text-center">Sessions</span>
                   <span className="text-center">Completed</span>
                   <span className="text-center">Revenue</span>
@@ -939,7 +952,9 @@ export default function AdminPanel() {
                       transition={{ delay: i * 0.03 }}
                       className="grid items-center px-5 py-4"
                       style={{
-                        gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 1fr 0.6fr",
+                        gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 0.6fr",
+                        // A deactivated coach shouldn't read as a normal row.
+                        opacity: coach.is_active === false ? 0.65 : 1,
                         borderBottom: i < filtered.length - 1 ? "1px solid rgba(200,169,81,0.08)" : "none",
                       }}
                     >
@@ -959,6 +974,8 @@ export default function AdminPanel() {
                       </div>
 
                       <div className="text-center">{statusBadge(coach.approval_status)}</div>
+
+                      <div className="text-center">{accountBadge(coach.is_active !== false)}</div>
 
                       <div className="text-center">
                         <span className="text-sm font-bold text-[#1B2B4A]">{coach.stats.total}</span>

@@ -115,7 +115,12 @@ class PublicSkillListView(generics.ListAPIView):
     authentication_classes = [JWTAuthentication]
 
     def get_queryset(self):
-        qs = Skill.objects.filter(active=True).select_related('profile__user')
+        # Only skills from a coach who is approved and still active: an admin
+        # deactivating a coach must take their offerings off the booking pages
+        # too, not just their profile.
+        qs = Skill.objects.filter(
+            active=True, profile__approval_status='approved', profile__user__is_active=True,
+        ).select_related('profile__user')
         user = self.request.user
         if user.is_authenticated:
             from bookings.services import locked_skill_id

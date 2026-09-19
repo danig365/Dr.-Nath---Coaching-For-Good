@@ -74,6 +74,19 @@ def open_start_slots(open_slots, duration_minutes):
     return valid
 
 
+def coach_is_bookable(coach):
+    """True when this coach (a UserProfile) may take new bookings.
+
+    Mirrors profiles.models.bookable_coaches for a single row: approved, and
+    not deactivated by an admin.
+    """
+    return bool(
+        coach
+        and coach.approval_status == 'approved'
+        and getattr(coach.user, 'is_active', False)
+    )
+
+
 def min_notice_cutoff(coach):
     """Earliest start time a client is allowed to book for this coach — i.e.
     `now + coach.min_notice_hours`. Used to hide and to reject slots that are
