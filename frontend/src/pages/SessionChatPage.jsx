@@ -9,6 +9,7 @@ import { toast } from "react-toastify";
 import { api } from "../utils/auth";
 import { SESSION_REJOIN_MS } from "../utils/sessionTiming";
 import { useAuth } from "../context/AuthContext";
+import { useAccessGuard } from "../utils/accessGuard";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // keep in sync with backend guard
 
@@ -32,6 +33,7 @@ const SessionChatPage = () => {
   const { bookingId } = useParams();
   const navigate = useNavigate();
   const { user, isAuthenticated, isCoach, logout, timezone } = useAuth();
+  const { requireSignedIn } = useAccessGuard();
   const [booking, setBooking] = useState(null);
   const [messages, setMessages] = useState([]);
   const [messageText, setMessageText] = useState("");
@@ -45,7 +47,7 @@ const SessionChatPage = () => {
   const wsRef = useRef(null);
 
   const fetchThread = useCallback(async () => {
-    if (!isAuthenticated) { toast.error("Please log in."); logout(); return; }
+    if (requireSignedIn()) return;
     setLoading(true);
     try {
       const [bookingRes, messagesRes] = await Promise.all([
@@ -61,7 +63,7 @@ const SessionChatPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [bookingId, isAuthenticated, isCoach, logout, navigate]);
+  }, [bookingId, isCoach, navigate, requireSignedIn]);
 
   const isChatEnabled = booking?.status === "accepted" || booking?.status === "completed";
 

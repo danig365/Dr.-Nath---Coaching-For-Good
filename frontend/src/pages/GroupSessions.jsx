@@ -8,6 +8,7 @@ import { useAuth } from "../context/AuthContext";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
 import PaymentForm from "../components/PaymentForm";
+import { useAccessGuard } from "../utils/accessGuard";
 
 const stripePromise = loadStripe(
   "pk_test_51RCasKQOwqqD0Bo5Lzoz0xt4hMfh2bmrua5Vo3TchUsnI5ZpgDV1Pg7pZUlmBd0soZSOrkJLSTAWkMisLNxH1Pru00v8URzIRH"
@@ -162,13 +163,14 @@ const SessionCard = ({ session, onReserve, reserved, index, navigate }) => (
 const GroupSessions = () => {
   const navigate = useNavigate();
   const { isAuthenticated, logout } = useAuth();
+  const { requireSignedIn } = useAccessGuard();
   const [sessions, setSessions] = useState([]);
   const [reservedIds, setReservedIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [checkout, setCheckout] = useState(null);
 
   const fetchSessions = useCallback(async () => {
-    if (!isAuthenticated) { toast.error("Please log in to view group sessions."); logout(); return; }
+    if (requireSignedIn()) return;
     setLoading(true);
     try {
       const [res, mine] = await Promise.all([
@@ -186,7 +188,7 @@ const GroupSessions = () => {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, logout]);
+  }, [logout, requireSignedIn]);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 

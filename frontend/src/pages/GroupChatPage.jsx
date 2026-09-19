@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 import { api } from "../utils/auth";
 import { SESSION_GRACE_MS } from "../utils/sessionTiming";
 import { useAuth } from "../context/AuthContext";
+import { useAccessGuard } from "../utils/accessGuard";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // keep in sync with backend guard
 
@@ -22,6 +23,7 @@ const GroupChatPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user, isAuthenticated, isCoach, logout } = useAuth();
+  const { requireSignedIn } = useAccessGuard();
   const [session, setSession] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
@@ -34,7 +36,7 @@ const GroupChatPage = () => {
   const currentUserId = user?.user_id;
 
   const fetchAll = useCallback(async () => {
-    if (!isAuthenticated) { toast.error("Please log in."); logout(); return; }
+    if (requireSignedIn()) return;
     setLoading(true);
     try {
       let found = null;
@@ -56,7 +58,7 @@ const GroupChatPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [id, isAuthenticated, isCoach, logout, navigate]);
+  }, [id, isCoach, navigate, requireSignedIn]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
