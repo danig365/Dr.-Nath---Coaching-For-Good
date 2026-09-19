@@ -9,10 +9,10 @@ import {
 } from "@livekit/track-processors";
 import { Track } from "livekit-client";
 
-// TEMPORARY DEBUG (remove once virtual backgrounds are confirmed working):
-// turns on the library's own pipeline logs so we can see exactly which step
-// stalls. Everything is console-only and prefixed with [bg].
-const BG_DEBUG = true;
+// Pipeline logging for diagnosing a background that won't apply. Off now that
+// the presets are confirmed working — flip to true to get the library's own
+// logs, all console-only and prefixed with [bg].
+const BG_DEBUG = false;
 if (BG_DEBUG) {
   try { setLogLevel("debug"); } catch (e) { console.warn("[bg] setLogLevel failed", e); }
 }
@@ -53,6 +53,53 @@ export function preloadBackgroundAssets() {
   warm(`${ASSET_PATHS.tasksVisionFileSet}/vision_wasm_internal.js`);
   warm(`${ASSET_PATHS.tasksVisionFileSet}/vision_wasm_internal.wasm`);
   warm(ASSET_PATHS.modelAssetPath);
+}
+
+// The largest edge we hand to the segmentation shader. A photo straight off a
+// phone is often 4000px+ wide, which is over the maximum texture size on plenty
+// of GPUs — the upload fails and the background silently never appears, while
+// the bundled presets (1920px JPEGs) work fine.
+const MAX_CUSTOM_EDGE = 1920;
+
+/**
+ * Turn a file the user picked into something the processor can definitely use:
+ * decoded here, scaled down, and re-encoded as a JPEG data URL.
+ *
+ * Why not hand the processor the object URL directly (what we used to do): the
+ * library loads the image with `crossOrigin = "Anonymous"`, swallows any load
+ * error into a console line, and then runs with no background at all — so an
+ * image it can't read (an iPhone HEIC, which browsers can't decode, or one too
+ * large for the GPU) looked exactly like "custom backgrounds don't work".
+ *
+ * Returns a data URL. Throws an Error with a message worth showing the user.
+ */
+export async function prepareCustomBackground(file) {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error(
+        "This image couldn't be read. Photos straight from an iPhone (.HEIC) aren't supported — please use a JPG or PNG."
+      ));
+      el.src = objectUrl;
+    });
+
+    const scale = Math.min(1, MAX_CUSTOM_EDGE / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("This browser couldn't prepare the image.");
+    ctx.drawImage(img, 0, 0, w, h);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    if (!dataUrl.startsWith("data:image/jpeg")) throw new Error("This browser couldn't prepare the image.");
+    return dataUrl;
+  } finally {
+    try { URL.revokeObjectURL(objectUrl); } catch { /* noop */ }
+  }
 }
 
 // The local camera LiveKit track from a Room, or null.
@@ -103,6 +150,23 @@ export async function applyBackground(videoTrack, optionId, customImage) {
       webgl2: !!document.createElement("canvas").getContext("webgl2"),
     });
     if (!supportsBackgroundProcessors()) { log("NOT SUPPORTED on this browser"); return { ok: false, reason: "unsupported" }; }
+
+    // Check the image loads BEFORE handing it over: the processor logs a load
+    // failure and then renders with no background, which reads as "the feature
+    // is broken" rather than "that file couldn't be used".
+    if (image) {
+      const loaded = await new Promise((resolve) => {
+        const el = new Image();
+        el.crossOrigin = "Anonymous";       // exactly what the library does
+        el.onload = () => resolve(true);
+        el.onerror = () => resolve(false);
+        el.src = image;
+      });
+      if (!loaded) {
+        log("background image failed to load", image.slice(0, 64));
+        return { ok: false, reason: "image" };
+      }
+    }
 
     // Confirm the self-hosted assets are actually reachable from this browser.
     if (BG_DEBUG) {

@@ -496,9 +496,12 @@ export default function GroupCallLiveKit() {
     // Remember the uploaded image so it survives camera off→on / restarts.
     if (optionId === "custom" && image) customBgRef.current = image;
     const res = await applyBackground(getLocalVideoTrack(roomRef.current), optionId, customBgRef.current);
-    if (res?.ok === false && res.reason === "unsupported") {
-      toast.error("Virtual backgrounds aren't supported on this device or browser.");
+    if (res?.ok === false) {
+      toast.error(res.reason === "image"
+        ? "That image couldn't be used as a background. Please try a different JPG or PNG."
+        : "Virtual backgrounds aren't supported on this device or browser.");
       setBgOption("none");
+      if (optionId === "custom") customBgRef.current = null;
     }
     setBgBusy(false);
   }, []);
