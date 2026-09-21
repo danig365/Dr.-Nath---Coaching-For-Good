@@ -74,6 +74,21 @@ def open_start_slots(open_slots, duration_minutes):
     return valid
 
 
+def min_notice_message(coach, *, audience='client'):
+    """Why a time inside the notice window can't be used, in words.
+
+    One sentence, one place: the client sees it when a booking is refused, the
+    coach sees it when they try to open a slot that nobody could book.
+    """
+    hours = getattr(coach, 'min_notice_hours', 0) or 0
+    if audience == 'coach':
+        return (f"That time is less than {hours} hours away, so no client could book it — "
+                f"your booking policy asks for at least {hours} hours' notice. "
+                f"Choose a later time, or lower the notice period in Booking policy.")
+    return (f"This time is too soon — sessions must be booked at least {hours} hours "
+            f"in advance. Please choose a later time.")
+
+
 def coach_is_bookable(coach):
     """True when this coach (a UserProfile) may take new bookings.
 

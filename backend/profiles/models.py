@@ -49,7 +49,7 @@ class UserProfile(models.Model):
         help_text="How many days into the future clients may book."
     )
     min_notice_hours = models.PositiveIntegerField(
-        default=24,
+        default=12,
         help_text="Minimum lead time, in hours, required before a session can start."
     )
 

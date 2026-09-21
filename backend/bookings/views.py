@@ -737,6 +737,13 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         profile = self._ensure_coach()
+        # A slot inside the notice window is dead on arrival — clients can't book
+        # it and it isn't even listed, so the coach invites people to a time that
+        # silently refuses them. Say so now, while they can pick another.
+        from .services import min_notice_cutoff, min_notice_message
+        start = serializer.validated_data.get('start_datetime')
+        if start and start < min_notice_cutoff(profile):
+            raise DRFValidationError(min_notice_message(profile, audience='coach'))
         serializer.save(coach=profile, source='manual')
 
     def perform_update(self, serializer):
@@ -910,16 +917,41 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
                         {'detail': "You're enrolled in a specific programme and can only book that one."},
                         status=HTTP_403_FORBIDDEN,
                     )
-            from .services import min_notice_cutoff
+            from .services import min_notice_cutoff, min_notice_message
             if slot.start_datetime < min_notice_cutoff(slot.coach):
-                hrs = slot.coach.min_notice_hours or 24
-                return Response({'detail': f'This time is too soon — sessions must be booked at least {hrs} hours in advance.'},
-                                status=HTTP_400_BAD_REQUEST)
+                return Response({'detail': min_notice_message(slot.coach)}, status=HTTP_400_BAD_REQUEST)
             slot.status = 'held'
             slot.held_until = dj_tz.now() + timedelta(minutes=HOLD_MINUTES)
             slot.held_by = request.user
             slot.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
         return Response(self.get_serializer(slot).data, status=HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], permission_classes=[AllowAny], url_path='bookable')
+    def bookable(self, request, pk=None):
+        """Why this exact time can or can't be booked right now.
+
+        The booking page lists only bookable slots, so an invite link pointing at
+        one that has since dropped off the list could only say "no longer
+        available" — which tells the client nothing. This gives them the actual
+        reason, including the notice window.
+        """
+        from .services import min_notice_cutoff, min_notice_message, coach_is_bookable
+        slot = TimeSlot.objects.select_related('coach', 'coach__user').filter(pk=pk).first()
+        if slot is None:
+            return Response({'bookable': False, 'reason': 'That time is no longer on the calendar.'})
+        if not coach_is_bookable(slot.coach):
+            return Response({'bookable': False, 'reason': 'This coach is not taking bookings at the moment.'})
+        if slot.start_datetime <= dj_tz.now():
+            return Response({'bookable': False, 'reason': 'That time has already passed.'})
+        if slot.start_datetime < min_notice_cutoff(slot.coach):
+            return Response({'bookable': False, 'reason': min_notice_message(slot.coach)})
+        if slot.status == 'booked':
+            return Response({'bookable': False, 'reason': 'That time has already been booked.'})
+        if slot.status == 'held' and slot.held_by_id != getattr(request.user, 'id', None):
+            return Response({'bookable': False, 'reason': 'Someone else is booking that time right now.'})
+        if slot.status != 'open':
+            return Response({'bookable': False, 'reason': 'That time is no longer available.'})
+        return Response({'bookable': True, 'reason': ''})
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def release(self, request, pk=None):
@@ -956,6 +988,12 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
                            "accepted. Pick a slot in the future."},
                 status=HTTP_400_BAD_REQUEST,
             )
+        # Same trap one step earlier: a time inside the notice window is not
+        # bookable, so the invitee would get a link they cannot use.
+        from .services import min_notice_cutoff, min_notice_message
+        if slot.start_datetime < min_notice_cutoff(slot.coach):
+            return Response({'detail': min_notice_message(slot.coach, audience='coach')},
+                            status=HTTP_400_BAD_REQUEST)
 
         note = (request.data.get('message') or '').strip()
 
@@ -1505,8 +1543,8 @@ class ConfirmBookingPaymentView(APIView):
                                     status=status.HTTP_400_BAD_REQUEST)
                 from .services import min_notice_cutoff
                 if slot.start_datetime < min_notice_cutoff(mentor_profile):
-                    hrs = mentor_profile.min_notice_hours or 24
-                    return Response({'error': f'This time is too soon — sessions must be booked at least {hrs} hours in advance.'},
+                    from .services import min_notice_message
+                    return Response({'error': min_notice_message(mentor_profile)},
                                     status=status.HTTP_400_BAD_REQUEST)
                 session_date = slot.start_datetime.date()
                 session_time = slot.start_datetime.time()
@@ -1680,8 +1718,8 @@ class ConfirmFreeBookingView(APIView):
                                     status=status.HTTP_400_BAD_REQUEST)
                 from .services import min_notice_cutoff
                 if slot.start_datetime < min_notice_cutoff(mentor_profile):
-                    hrs = mentor_profile.min_notice_hours or 24
-                    return Response({'error': f'This time is too soon — sessions must be booked at least {hrs} hours in advance.'},
+                    from .services import min_notice_message
+                    return Response({'error': min_notice_message(mentor_profile)},
                                     status=status.HTTP_400_BAD_REQUEST)
 
                 duration = skill.duration_minutes or slot.duration_minutes
