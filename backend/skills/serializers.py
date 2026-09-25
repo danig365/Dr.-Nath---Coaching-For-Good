@@ -4,16 +4,32 @@ from profiles.models import UserProfile, CustomUser # Ensure CustomUser and User
 
 # --- Serializer for Mentor's Own Skill Management (used by MySkills.jsx) ---
 class SkillSerializer(serializers.ModelSerializer):
+    # So a coach can see an allocation being used up without doing sums.
+    bookings_used = serializers.SerializerMethodField()
+    bookings_left = serializers.SerializerMethodField()
+
+    def get_bookings_used(self, obj):
+        from bookings.services import skill_bookings_used
+        return skill_bookings_used(obj)
+
+    def get_bookings_left(self, obj):
+        if obj.max_total_bookings is None:
+            return None
+        from bookings.services import skill_bookings_used
+        return max(0, obj.max_total_bookings - skill_bookings_used(obj))
+
     class Meta:
         model = Skill
         fields = [
             'id', 'name', 'price',
             'category', 'level', 'description', 'tags', 'active', 'is_chemistry',
-            'duration_minutes', 'sessions_completed', 'avg_rating'
+            'duration_minutes', 'sessions_completed', 'avg_rating',
+            'max_total_bookings', 'max_bookings_per_client', 'bookings_used', 'bookings_left',
         ]
         # 'profile' is set by the view's perform_create/update
         # 'sessions_completed' and 'avg_rating' are typically calculated/aggregated, not directly set by mentor
-        read_only_fields = ['profile', 'sessions_completed', 'avg_rating']
+        read_only_fields = ['profile', 'sessions_completed', 'avg_rating',
+                            'bookings_used', 'bookings_left']
 
     def create(self, validated_data):
         request = self.context.get('request', None)
@@ -36,13 +52,24 @@ class PublicSkillSerializer(serializers.ModelSerializer):
     # Getting mentor's username and ID by traversing relationships
     mentor = serializers.CharField(source='profile.user.username', read_only=True)
     mentorId = serializers.IntegerField(source='profile.user.id', read_only=True)
+    # Null unless the coach capped this offering. The booking page uses it to say
+    # how many are left — and that none are — before anyone picks a time.
+    bookings_left = serializers.SerializerMethodField()
+    max_bookings_per_client = serializers.IntegerField(read_only=True)
+
+    def get_bookings_left(self, obj):
+        if obj.max_total_bookings is None:
+            return None
+        from bookings.services import skill_bookings_used
+        return max(0, obj.max_total_bookings - skill_bookings_used(obj))
 
     class Meta:
         model = Skill
         # Include all fields needed for the public skill card
         fields = [
             'id', 'title', 'price', 'description', 'category',
-            'level', 'rating', 'sessions', 'mentor', 'mentorId', 'tags' # Include tags here too
+            'level', 'rating', 'sessions', 'mentor', 'mentorId', 'tags', # Include tags here too
+            'duration_minutes', 'bookings_left', 'max_bookings_per_client',
         ]
 
 # --- Serializer for Mentor's Availability Management ---

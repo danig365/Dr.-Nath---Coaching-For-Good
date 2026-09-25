@@ -74,6 +74,47 @@ def open_start_slots(open_slots, duration_minutes):
     return valid
 
 
+# A booking that no longer stands — cancelled or refused — frees its place in a
+# limited offering's allocation again.
+SPENT_BOOKING_STATUSES = ('pending', 'accepted', 'completed', 'held_offline', 'no_show')
+
+
+def skill_bookings_used(skill, learner=None):
+    """How many of a limited offering's sessions are spoken for.
+
+    Counts live bookings only: a cancelled or declined one gives its place back.
+    Pass `learner` for that one client's share.
+    """
+    from .models import SessionBooking
+    qs = SessionBooking.objects.filter(skill=skill, status__in=SPENT_BOOKING_STATUSES)
+    if learner is not None:
+        qs = qs.filter(learner=learner)
+    return qs.count()
+
+
+def skill_cap_message(skill, learner):
+    """Why this client can't book this offering right now, or None if they can.
+
+    Two caps, both optional: a total allocation (e.g. 20 free sessions for one
+    clinic) and a per-client share of it (e.g. 4 each).
+    """
+    if skill is None:
+        return None
+    per_client = skill.max_bookings_per_client
+    if per_client and learner is not None:
+        mine = skill_bookings_used(skill, learner=learner)
+        if mine >= per_client:
+            return (f"You've already booked {mine} of these sessions, which is the maximum "
+                    f"of {per_client} for this offering.")
+    total = skill.max_total_bookings
+    if total:
+        used = skill_bookings_used(skill)
+        if used >= total:
+            return ("All of the sessions offered here have now been taken. "
+                    "Please contact us if you'd like to be told when more open up.")
+    return None
+
+
 def min_notice_message(coach, *, audience='client'):
     """Why a time inside the notice window can't be used, in words.
 

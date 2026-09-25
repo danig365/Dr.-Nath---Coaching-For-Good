@@ -1520,10 +1520,15 @@ class ConfirmBookingPaymentView(APIView):
                     )
 
                 # E2: a programme-locked client may only book their offering.
-                from .services import program_lock_error
+                from .services import program_lock_error, skill_cap_message
                 lock_err = program_lock_error(request.user, skill)
                 if lock_err:
                     return Response({'error': lock_err}, status=status.HTTP_403_FORBIDDEN)
+                # A limited offering (e.g. an allocation of free sessions for one
+                # clinic, capped per patient) refuses here, in words.
+                cap_err = skill_cap_message(skill, request.user)
+                if cap_err:
+                    return Response({'error': cap_err}, status=status.HTTP_400_BAD_REQUEST)
 
                 # Lock the slot and verify it is still ours to book.
                 slot = TimeSlot.objects.select_for_update().get(id=slot_id)
@@ -1697,10 +1702,15 @@ class ConfirmFreeBookingView(APIView):
                 mentor_profile = skill.profile
 
                 # E2: a programme-locked client may only book their offering.
-                from .services import program_lock_error
+                from .services import program_lock_error, skill_cap_message
                 lock_err = program_lock_error(request.user, skill)
                 if lock_err:
                     return Response({'error': lock_err}, status=status.HTTP_403_FORBIDDEN)
+                # A limited offering (e.g. an allocation of free sessions for one
+                # clinic, capped per patient) refuses here, in words.
+                cap_err = skill_cap_message(skill, request.user)
+                if cap_err:
+                    return Response({'error': cap_err}, status=status.HTTP_400_BAD_REQUEST)
 
                 slot = TimeSlot.objects.select_for_update().get(id=slot_id)
                 if slot.status == 'booked':
@@ -1852,6 +1862,10 @@ class ChemistryBookView(APIView):
                     return Response({'detail': 'That time was just booked. Please pick another.'}, status=status.HTTP_409_CONFLICT)
                 if slot.status == 'held' and slot.held_by_id and slot.held_by_id != user.id:
                     return Response({'detail': 'That time is reserved. Please pick another.'}, status=status.HTTP_409_CONFLICT)
+                from .services import skill_cap_message
+                cap_err = skill_cap_message(skill, user)
+                if cap_err:
+                    return Response({'detail': cap_err}, status=status.HTTP_400_BAD_REQUEST)
                 duration = skill.duration_minutes or slot.duration_minutes
                 try:
                     _consume_covering_slots(coach, slot, duration, user)

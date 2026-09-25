@@ -62,6 +62,8 @@ const EditSkill = () => {
   const [form, setForm] = useState({
     name: "", description: "", level: "intermediate",
     category: "", price: "", tags: [], currentTag: "", is_chemistry: false, duration_minutes: 60,
+    max_total_bookings: "",
+    max_bookings_per_client: "",
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -82,6 +84,8 @@ const EditSkill = () => {
           currentTag: "",
           is_chemistry: !!s.is_chemistry,
           duration_minutes: s.duration_minutes || 60,
+          max_total_bookings: s.max_total_bookings ?? "",
+          max_bookings_per_client: s.max_bookings_per_client ?? "",
         });
       } catch (err) {
         toast.error("Failed to load skill.");
@@ -116,6 +120,9 @@ const EditSkill = () => {
         tags: form.tags,
         is_chemistry: form.is_chemistry,
         duration_minutes: Number(form.duration_minutes) || 60,
+        // Blank means no limit, which the API stores as null.
+        max_total_bookings: form.max_total_bookings === "" ? null : Number(form.max_total_bookings),
+        max_bookings_per_client: form.max_bookings_per_client === "" ? null : Number(form.max_bookings_per_client),
       });
       toast.success("Skill updated successfully!");
       navigate("/my-skills");
@@ -309,6 +316,31 @@ const EditSkill = () => {
                 className="w-full sm:w-40 px-4 py-3 rounded-xl text-sm focus:outline-none"
                 style={{ background: "white", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }} />
               <p className="text-xs mt-1.5" style={{ color: "rgba(74,85,104,0.6)" }}>How long one session runs (e.g. 30 for a chemistry call, 60 for a full session).</p>
+            </div>
+
+            {/* Limited allocation (optional) */}
+            <div className="p-4 rounded-xl" style={{ background: "rgba(200,169,81,0.06)", border: "1px solid rgba(200,169,81,0.2)" }}>
+              <FieldLabel icon={FiLayers}>Limit this offering (optional)</FieldLabel>
+              <p className="text-xs mb-3" style={{ color: "rgba(74,85,104,0.7)" }}>
+                For a fixed allocation — e.g. 20 free sessions for one clinic's patients, no more than 4 each.
+                Leave both blank for no limit.
+              </p>
+              <div className="flex flex-wrap gap-4">
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: "#4A5568" }}>Total sessions offered</label>
+                  <input type="number" min="1" name="max_total_bookings" value={form.max_total_bookings}
+                    onChange={handleChange} placeholder="No limit"
+                    className="w-40 px-4 py-3 rounded-xl text-sm focus:outline-none"
+                    style={{ background: "white", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: "#4A5568" }}>Maximum per client</label>
+                  <input type="number" min="1" name="max_bookings_per_client" value={form.max_bookings_per_client}
+                    onChange={handleChange} placeholder="No limit"
+                    className="w-40 px-4 py-3 rounded-xl text-sm focus:outline-none"
+                    style={{ background: "white", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }} />
+                </div>
+              </div>
             </div>
 
             {/* Chemistry session toggle */}

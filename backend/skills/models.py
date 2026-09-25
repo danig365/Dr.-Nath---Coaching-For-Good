@@ -20,6 +20,17 @@ class Skill(models.Model):
     # How long one session of this skill runs, in minutes. Lets the coach offer a
     # short (e.g. 30-min) chemistry call alongside longer programmes.
     duration_minutes = models.PositiveIntegerField(default=60)
+    # Caps for a limited offering — e.g. an allocation of 20 free 30-minute
+    # sessions for one clinic's patients, no more than 4 each. Null means no
+    # limit, which is what every ordinary offering uses.
+    max_total_bookings = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Stop accepting bookings once this many have been made. Blank = no limit.",
+    )
+    max_bookings_per_client = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="How many sessions of this offering one client may book. Blank = no limit.",
+    )
     # sessions_completed and avg_rating are often calculated, but can be stored if you need to manually set them
     sessions_completed = models.PositiveIntegerField(default=0)        # Total sessions mentored for this skill
     avg_rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True) # Average rating for this skill
