@@ -79,9 +79,13 @@ class RegisterSerializer(serializers.ModelSerializer):
     # Required, with no default: registration must state a role explicitly.
     # A silent default ('client') meant a request that omitted the field still
     # created an account — the choice should always be deliberate, on the API too.
+    # write_only, like every field below that lives on the PROFILE, not the
+    # user: rendering the reply read them back off CustomUser, which has no such
+    # attributes, so a successful registration answered with a 500 — the account
+    # existed but the person was told it had failed.
     role = serializers.ChoiceField(
         choices=[('coach', 'Coach'), ('client', 'Client')],
-        required=True, allow_blank=False,
+        required=True, allow_blank=False, write_only=True,
         error_messages={
             'required': 'Please choose whether you are registering as a client or a coach.',
             'invalid_choice': 'Please choose either client or coach.',
@@ -91,16 +95,20 @@ class RegisterSerializer(serializers.ModelSerializer):
     first_name = serializers.CharField(required=False, allow_blank=True, default='')
     last_name = serializers.CharField(required=False, allow_blank=True, default='')
     # Coach fields
-    specialties = serializers.ListField(child=serializers.CharField(), required=False, default=list)
-    certifications = serializers.ListField(child=serializers.CharField(), required=False, default=list)
-    hourly_rate = serializers.DecimalField(max_digits=8, decimal_places=2, required=False, allow_null=True)
-    years_experience = serializers.IntegerField(required=False, allow_null=True)
-    languages = serializers.ListField(child=serializers.CharField(), required=False, default=list)
-    industries = serializers.ListField(child=serializers.CharField(), required=False, default=list)
-    bio = serializers.CharField(required=False, allow_blank=True, default='')
+    specialties = serializers.ListField(child=serializers.CharField(), required=False, default=list, write_only=True)
+    certifications = serializers.ListField(child=serializers.CharField(), required=False, default=list, write_only=True)
+    hourly_rate = serializers.DecimalField(max_digits=8, decimal_places=2, required=False, allow_null=True, write_only=True)
+    years_experience = serializers.IntegerField(required=False, allow_null=True, write_only=True)
+    languages = serializers.ListField(child=serializers.CharField(), required=False, default=list, write_only=True)
+    industries = serializers.ListField(child=serializers.CharField(), required=False, default=list, write_only=True)
+    bio = serializers.CharField(required=False, allow_blank=True, default='', write_only=True)
     # Client fields
-    organisation = serializers.CharField(required=False, allow_blank=True, default='')
-    job_title = serializers.CharField(required=False, allow_blank=True, default='')
+    organisation = serializers.CharField(required=False, allow_blank=True, default='', write_only=True)
+    job_title = serializers.CharField(required=False, allow_blank=True, default='', write_only=True)
+    # Partner-organisation campaign (October Health Month): the code a practice
+    # gives the patients it nominates.
+    participation_code = serializers.CharField(required=False, allow_blank=True, default='', write_only=True)
+    share_with_organisation = serializers.BooleanField(required=False, default=False, write_only=True)
 
     class Meta:
         model = CustomUser
@@ -109,7 +117,8 @@ class RegisterSerializer(serializers.ModelSerializer):
             'first_name', 'last_name',
             'bio', 'specialties', 'certifications', 'hourly_rate',
             'years_experience', 'languages', 'industries',
-            'organisation', 'job_title'
+            'organisation', 'job_title',
+            'participation_code', 'share_with_organisation',
         )
 
     def validate_username(self, value):
@@ -137,6 +146,22 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(list(exc.messages))
         return value
 
+    def validate_participation_code(self, value):
+        value = (value or '').strip().upper()
+        if not value:
+            return ''
+        from .models import ParticipationCode
+        code = ParticipationCode.objects.filter(code=value).first()
+        if code is None:
+            raise serializers.ValidationError(
+                "We don't recognise that participation code. Please check it with your practice, "
+                "or leave it blank to register without one."
+            )
+        window = code.window_error()
+        if window:
+            raise serializers.ValidationError(window)
+        return value
+
     def validate(self, attrs):
         if attrs['password'] != attrs['password2']:
             raise serializers.ValidationError({"password2": "The two passwords don't match."})
@@ -158,6 +183,8 @@ class RegisterSerializer(serializers.ModelSerializer):
             'organisation': validated_data.pop('organisation', ''),
             'job_title': validated_data.pop('job_title', ''),
         }
+        code_value = validated_data.pop('participation_code', '')
+        shares = validated_data.pop('share_with_organisation', False)
         user = CustomUser.objects.create_user(**validated_data)
         user.set_password(password)
         user.save()
@@ -165,6 +192,16 @@ class RegisterSerializer(serializers.ModelSerializer):
         profile.role = role
         # Coaches start as pending approval, clients are auto-approved
         profile.approval_status = 'pending' if role == 'coach' else 'approved'
+        # A code only means anything for a client, and it names the practice
+        # whose allocation their sessions come from.
+        if code_value and role == 'client':
+            from .models import ParticipationCode
+            code = ParticipationCode.objects.filter(code=code_value).first()
+            if code:
+                profile.participation_code = code
+                profile.share_with_organisation = bool(shares)
+                if not profile_fields.get('organisation'):
+                    profile_fields['organisation'] = code.organisation
         for attr, value in profile_fields.items():
             setattr(profile, attr, value)
         profile.save()

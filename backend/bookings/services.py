@@ -92,13 +92,79 @@ def skill_bookings_used(skill, learner=None):
     return qs.count()
 
 
+def code_bookings_used(code, learner=None):
+    """Sessions drawn from one organisation's allocation.
+
+    Counts every live booking of the code's offering made by a client who
+    registered with that code — so several practices can run side by side, each
+    spending only its own 20.
+    """
+    from .models import SessionBooking
+    qs = SessionBooking.objects.filter(
+        status__in=SPENT_BOOKING_STATUSES,
+        learner__profile__participation_code=code,
+    )
+    if code.skill_id:
+        qs = qs.filter(skill_id=code.skill_id)
+    if learner is not None:
+        qs = qs.filter(learner=learner)
+    return qs.count()
+
+
+def participation_cap_message(skill, learner, when=None):
+    """The code side of "can this client book this offering?".
+
+    Returns a sentence to show the client, or None. Covers three cases: an
+    offering reserved for nominated patients that this client has no code for,
+    a code outside its campaign window, and an allocation that is used up.
+    """
+    profile = getattr(learner, 'profile', None)
+    code = getattr(profile, 'participation_code', None) if profile else None
+
+    if getattr(skill, 'requires_participation_code', False):
+        if code is None or (code.skill_id and code.skill_id != skill.id):
+            return ("These sessions are for patients nominated by a participating practice. "
+                    "Please register with the participation code your practice gave you, "
+                    "or contact us at query@dr-nath.com.")
+    if code is None or (code.skill_id and code.skill_id != skill.id):
+        return None
+
+    window = code.window_error(when)
+    if window:
+        return window
+    if code.max_per_client:
+        mine = code_bookings_used(code, learner=learner)
+        if mine >= code.max_per_client:
+            return (f"You've booked {mine} of these sessions, which is the maximum of "
+                    f"{code.max_per_client} for patients of {code.organisation}.")
+    if code.total_sessions:
+        used = code_bookings_used(code)
+        if used >= code.total_sessions:
+            return (f"All {code.total_sessions} complimentary sessions allocated to "
+                    f"{code.organisation} have now been booked. Please contact your practice.")
+    return None
+
+
 def skill_cap_message(skill, learner):
     """Why this client can't book this offering right now, or None if they can.
 
     Two caps, both optional: a total allocation (e.g. 20 free sessions for one
-    clinic) and a per-client share of it (e.g. 4 each).
+    clinic) and a per-client share of it (e.g. 4 each). An organisation's
+    participation code carries its own pair, checked first.
     """
     if skill is None:
+        return None
+
+    coded = participation_cap_message(skill, learner)
+    if coded:
+        return coded
+
+    # A client booking against an organisation's allocation is governed by that
+    # allocation alone. Applying the offering's own caps as well would make the
+    # first practice to book use up every other practice's sessions.
+    profile = getattr(learner, 'profile', None)
+    code = getattr(profile, 'participation_code', None) if profile else None
+    if code is not None and (not code.skill_id or code.skill_id == skill.id):
         return None
     per_client = skill.max_bookings_per_client
     if per_client and learner is not None:

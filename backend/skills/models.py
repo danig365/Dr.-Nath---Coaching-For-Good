@@ -23,6 +23,10 @@ class Skill(models.Model):
     # Caps for a limited offering — e.g. an allocation of 20 free 30-minute
     # sessions for one clinic's patients, no more than 4 each. Null means no
     # limit, which is what every ordinary offering uses.
+    # When set, only clients who registered with a participation code covering
+    # this offering may book it — the October campaign, where practices nominate
+    # their own patients.
+    requires_participation_code = models.BooleanField(default=False)
     max_total_bookings = models.PositiveIntegerField(
         null=True, blank=True,
         help_text="Stop accepting bookings once this many have been made. Blank = no limit.",

@@ -1,4 +1,7 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+
+from .participation import ParticipationCodeViewSet, ParticipationCodeCheckView
 from .views import (
     RegisterView, CustomTokenObtainPairView, CustomTokenRefreshView,
     CurrentUserProfileView, CoachDirectoryView,
@@ -8,7 +11,13 @@ from .views import (
     PasswordResetRequestView, PasswordResetConfirmView, RegisterCheckView,
     PreRegisterClientsView, AdminUserManageView,
 )
+router = DefaultRouter()
+router.register(r'participation-codes', ParticipationCodeViewSet, basename='participation-code')
+
 urlpatterns = [
+    path('', include(router.urls)),
+    path('participation-code/check/', ParticipationCodeCheckView.as_view(),
+         name='participation-code-check'),
     path('register/', RegisterView.as_view(), name='register'),
     path('register/check/', RegisterCheckView.as_view(), name='register-check'),
     path('login/', CustomTokenObtainPairView.as_view(), name='login'),

@@ -69,6 +69,16 @@ class UserProfile(models.Model):
 
     # Client-specific
     organisation = models.CharField(max_length=255, blank=True, null=True)
+    # Set when a client registers with a partner organisation's participation
+    # code (October Health Month). Their sessions draw on that organisation's
+    # allocation, and they count towards its per-patient limit.
+    participation_code = models.ForeignKey(
+        'profiles.ParticipationCode', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='clients',
+    )
+    # Whether this client agreed that their practice may see their participation
+    # in the anonymised report. Coaching content is never shared either way.
+    share_with_organisation = models.BooleanField(default=False)
     job_title = models.CharField(max_length=255, blank=True, null=True)
     coaching_goals = models.JSONField(default=list, blank=True)  # from quiz
 
@@ -101,3 +111,63 @@ def create_or_update_user_profile(sender, instance, created, **kwargs):
         UserProfile.objects.create(user=instance)
     else:
         instance.profile.save()
+
+class ParticipationCode(models.Model):
+    """A partner organisation's allocation of sessions — the October Health Month
+    campaign, where each practice gets 20 complimentary sessions for patients it
+    nominates, capped at 4 per patient.
+
+    Patients enter the code when registering. From then on their bookings of the
+    campaign offering draw down THIS organisation's allocation, which is what
+    lets several practices run in parallel without sharing one pool.
+    """
+    code = models.CharField(max_length=32, unique=True)
+    organisation = models.CharField(max_length=200)
+    # Where the practice's summary report goes.
+    contact_name = models.CharField(max_length=150, blank=True)
+    contact_email = models.EmailField(blank=True)
+
+    # The offering this allocation pays for. Null = any offering the coach runs.
+    skill = models.ForeignKey(
+        'skills.Skill', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='participation_codes',
+    )
+    coach = models.ForeignKey(
+        UserProfile, on_delete=models.CASCADE, related_name='participation_codes',
+        limit_choices_to={'role': 'coach'},
+    )
+
+    total_sessions = models.PositiveIntegerField(default=20)
+    max_per_client = models.PositiveIntegerField(default=4)
+    # The campaign window. Sessions must START inside it.
+    valid_from = models.DateField(null=True, blank=True)
+    valid_until = models.DateField(null=True, blank=True)
+    active = models.BooleanField(default=True)
+
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['organisation']
+
+    def __str__(self):
+        return f"{self.code} — {self.organisation}"
+
+    def save(self, *args, **kwargs):
+        # Codes are read off a letter and typed by patients: store one canonical
+        # form so 'keagan', 'Keagan ' and 'KEAGAN' are the same code.
+        self.code = (self.code or '').strip().upper()
+        return super().save(*args, **kwargs)
+
+    def window_error(self, when=None):
+        """Why this code can't be used (now, or for a session on `when`)."""
+        from django.utils import timezone as dj_tz
+        if not self.active:
+            return "That participation code is no longer active."
+        day = when or dj_tz.now().date()
+        if self.valid_from and day < self.valid_from:
+            return f"This offer opens on {self.valid_from:%-d %B %Y}."
+        if self.valid_until and day > self.valid_until:
+            return f"This offer closed on {self.valid_until:%-d %B %Y}."
+        return None

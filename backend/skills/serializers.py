@@ -25,6 +25,7 @@ class SkillSerializer(serializers.ModelSerializer):
             'category', 'level', 'description', 'tags', 'active', 'is_chemistry',
             'duration_minutes', 'sessions_completed', 'avg_rating',
             'max_total_bookings', 'max_bookings_per_client', 'bookings_used', 'bookings_left',
+            'requires_participation_code',
         ]
         # 'profile' is set by the view's perform_create/update
         # 'sessions_completed' and 'avg_rating' are typically calculated/aggregated, not directly set by mentor
