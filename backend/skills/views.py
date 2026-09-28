@@ -122,6 +122,24 @@ class PublicSkillListView(generics.ListAPIView):
             active=True, profile__approval_status='approved', profile__user__is_active=True,
         ).select_related('profile__user')
         user = self.request.user
+
+        # A campaign offering belongs to the patients a practice nominated, not
+        # to the public browse list — showing "free coaching" to everyone would
+        # collect people who can only be turned away at the booking step. It
+        # stays visible to the patients whose code covers it, which is what the
+        # booking page reads.
+        from django.db.models import Q
+        code = None
+        if user.is_authenticated:
+            profile = getattr(user, 'profile', None)
+            code = getattr(profile, 'participation_code', None) if profile else None
+        if code is None:
+            qs = qs.filter(requires_participation_code=False)
+        elif code.skill_id:
+            qs = qs.filter(Q(requires_participation_code=False) | Q(id=code.skill_id))
+        else:
+            qs = qs.filter(Q(requires_participation_code=False) | Q(profile=code.coach))
+
         if user.is_authenticated:
             from bookings.services import locked_skill_id
             locked = locked_skill_id(user)
