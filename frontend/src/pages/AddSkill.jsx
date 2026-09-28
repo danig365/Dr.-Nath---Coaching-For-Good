@@ -81,6 +81,7 @@ const AddSkill = () => {
     duration_minutes: 60,
     max_total_bookings: "",
     max_bookings_per_client: "",
+    requires_participation_code: false,
   });
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -118,6 +119,7 @@ const AddSkill = () => {
         // Blank means no limit, which the API stores as null.
         max_total_bookings: form.max_total_bookings === "" ? null : Number(form.max_total_bookings),
         max_bookings_per_client: form.max_bookings_per_client === "" ? null : Number(form.max_bookings_per_client),
+        requires_participation_code: !!form.requires_participation_code,
       });
       toast.success("Skill added successfully!");
       navigate("/my-skills");
@@ -318,6 +320,19 @@ const AddSkill = () => {
                 style={{ background: "white", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }} />
               <p className="text-xs mt-1.5" style={{ color: "rgba(74,85,104,0.6)" }}>How long one session runs (e.g. 30 for a chemistry call, 60 for a full session).</p>
             </div>
+
+            {/* Nominated patients only */}
+            <label className="flex items-start gap-3 p-4 rounded-xl cursor-pointer" style={{ background: "rgba(200,169,81,0.06)", border: "1px solid rgba(200,169,81,0.2)" }}>
+              <input type="checkbox" checked={form.requires_participation_code}
+                onChange={e => setForm(f => ({ ...f, requires_participation_code: e.target.checked }))} className="mt-0.5" />
+              <span>
+                <span className="block text-sm font-semibold" style={{ color: "#1B2B4A" }}>Only for patients with a participation code</span>
+                <span className="block text-xs mt-0.5" style={{ color: "rgba(74,85,104,0.7)" }}>
+                  For partner campaigns: only clients who registered with a code from a participating
+                  organisation can book. Manage codes under Clients → Partner Organisations.
+                </span>
+              </span>
+            </label>
 
             {/* Limited allocation (optional) */}
             <div className="p-4 rounded-xl" style={{ background: "rgba(200,169,81,0.06)", border: "1px solid rgba(200,169,81,0.2)" }}>
