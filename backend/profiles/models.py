@@ -160,14 +160,25 @@ class ParticipationCode(models.Model):
         self.code = (self.code or '').strip().upper()
         return super().save(*args, **kwargs)
 
-    def window_error(self, when=None):
-        """Why this code can't be used (now, or for a session on `when`)."""
+    def window_error(self, when=None, *, registering=False):
+        """Why this code can't be used (now, or for a session on `when`).
+
+        `registering=True` allows someone to join BEFORE the campaign opens —
+        the practice's letter asks patients to register and then book, so
+        refusing them in September would have been the wrong end to enforce.
+        Only the booking itself has to fall inside the window.
+        """
         from django.utils import timezone as dj_tz
         if not self.active:
             return "That participation code is no longer active."
         day = when or dj_tz.now().date()
-        if self.valid_from and day < self.valid_from:
-            return f"This offer opens on {self.valid_from:%-d %B %Y}."
+        if not registering and self.valid_from and day < self.valid_from:
+            return f"These sessions can be booked from {self.valid_from:%-d %B %Y}."
         if self.valid_until and day > self.valid_until:
             return f"This offer closed on {self.valid_until:%-d %B %Y}."
         return None
+
+    def opens_later(self):
+        """True while the campaign is still ahead of us."""
+        from django.utils import timezone as dj_tz
+        return bool(self.valid_from and dj_tz.now().date() < self.valid_from)

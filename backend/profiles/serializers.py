@@ -157,7 +157,7 @@ class RegisterSerializer(serializers.ModelSerializer):
                 "We don't recognise that participation code. Please check it with your practice, "
                 "or leave it blank to register without one."
             )
-        window = code.window_error()
+        window = code.window_error(registering=True)
         if window:
             raise serializers.ValidationError(window)
         return value

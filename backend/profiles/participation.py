@@ -140,8 +140,10 @@ class ParticipationCodeCheckView(APIView):
         if code is None:
             return Response({'valid': False,
                              'detail': "We don't recognise that code. Please check it with your practice."})
-        window = code.window_error()
+        window = code.window_error(registering=True)
         if window:
             return Response({'valid': False, 'detail': window})
-        return Response({'valid': True, 'organisation': code.organisation,
-                         'detail': f"Recognised — {code.organisation}."})
+        detail = f"Recognised — {code.organisation}."
+        if code.opens_later():
+            detail += f" Sessions can be booked from {code.valid_from:%-d %B %Y}."
+        return Response({'valid': True, 'organisation': code.organisation, 'detail': detail})
