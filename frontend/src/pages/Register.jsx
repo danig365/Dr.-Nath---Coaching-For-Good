@@ -109,6 +109,7 @@ export default function Register() {
     specialties: [], certifications: [], hourly_rate: null,
     years_experience: null, languages: [], industries: [],
     organisation: "", job_title: "",
+    participation_code: "", share_with_organisation: false,
   }));
   const navigate = useNavigate();
   // Shown inline right by the submit button so it's never missed — a top toast
@@ -173,6 +174,20 @@ export default function Register() {
     }
     handleSubmit(e);
   };
+
+  // Partner-organisation code (e.g. October Health Month): confirm it as soon
+  // as it's typed, and name the practice back to the patient.
+  const [codeState, setCodeState] = useState({ valid: null, detail: "" });
+  useEffect(() => {
+    const value = form.participation_code.trim();
+    if (!value) { setCodeState({ valid: null, detail: "" }); return undefined; }
+    const t = setTimeout(() => {
+      api.get(`/participation-code/check/?code=${encodeURIComponent(value)}`)
+        .then((res) => setCodeState({ valid: !!res.data.valid, detail: res.data.detail || "" }))
+        .catch(() => setCodeState({ valid: null, detail: "" }));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [form.participation_code]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -464,6 +479,31 @@ export default function Register() {
                         <div>
                           <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "rgba(200,169,81,0.8)" }}>Job Title</label>
                           <FloatingInput name="job_title" placeholder="e.g. Product Manager" icon={IdentificationIcon} value={form.job_title} onChange={handleChange} />
+                        </div>
+
+                        {/* Participation code — a patient nominated by a partner
+                            practice enters the code from their invitation. */}
+                        <div>
+                          <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "rgba(200,169,81,0.8)" }}>
+                            Participation Code <span style={{ color: "rgba(200,169,81,0.4)" }}>(Optional)</span>
+                          </label>
+                          <FloatingInput name="participation_code" placeholder="From your doctor or organisation"
+                            icon={IdentificationIcon} value={form.participation_code} onChange={handleChange} />
+                          {codeState.detail && (
+                            <p className="text-xs mt-1.5" style={{ color: codeState.valid ? "#7BC47F" : "#F8B4B4" }}>
+                              {codeState.detail}
+                            </p>
+                          )}
+                          {codeState.valid && (
+                            <label className="flex items-start gap-2 mt-2 cursor-pointer">
+                              <input type="checkbox" className="mt-0.5" checked={form.share_with_organisation}
+                                onChange={e => setForm({ ...form, share_with_organisation: e.target.checked })} />
+                              <span className="text-xs" style={{ color: "rgba(243,233,205,0.75)" }}>
+                                I agree that my practice may be told I took part, as part of an
+                                anonymised summary. What I discuss in coaching is never shared.
+                              </span>
+                            </label>
+                          )}
                         </div>
                       </>
                     )}

@@ -112,6 +112,7 @@ const Navbar = () => {
     ]},
     { label: "Clients", items: [
       { to: "/clients", label: "My Clients" },
+      { to: "/partner-codes", label: "Partner Organisations" },
       { to: "/coaches", label: "Coaches" },
     ]},
     { label: "Offerings", items: [

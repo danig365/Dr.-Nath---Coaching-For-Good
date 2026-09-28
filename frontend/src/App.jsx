@@ -40,6 +40,7 @@ import GroupChatPage from "./pages/GroupChatPage";
 import ResourcesManage from "./pages/ResourcesManage";
 import MyResources from "./pages/MyResources";
 import CoachClients from "./pages/CoachClients";
+import PartnerCodes from "./pages/PartnerCodes";
 import Contact from "./pages/Contact";
 import CompleteProfilePage from "./pages/CompleteProfilePage";
 import MagicJoin from "./pages/MagicJoin";
@@ -129,6 +130,7 @@ export default function App() {
               </>
             )}
             <Route path="/clients" element={<CoachClients />} />
+            <Route path="/partner-codes" element={<PartnerCodes />} />
             <Route path="/my-resources" element={<ResourcesManage />} />
             <Route path="/resources" element={<MyResources />} />
           </Route>
