@@ -125,7 +125,12 @@ class ParticipationCode(models.Model):
     organisation = models.CharField(max_length=200)
     # Where the practice's summary report goes.
     contact_name = models.CharField(max_length=150, blank=True)
-    contact_email = models.EmailField(blank=True)
+    # One practice usually means several people — the doctor, the practice
+    # manager, reception. Comma-separated, so the invitation reaches all of them.
+    contact_email = models.CharField(max_length=500, blank=True)
+    # When the invitation was last sent from the platform, and to how many.
+    invite_sent_at = models.DateTimeField(null=True, blank=True)
+    invite_sent_count = models.PositiveIntegerField(default=0)
 
     # The offering this allocation pays for. Null = any offering the coach runs.
     skill = models.ForeignKey(
@@ -159,6 +164,11 @@ class ParticipationCode(models.Model):
         # form so 'keagan', 'Keagan ' and 'KEAGAN' are the same code.
         self.code = (self.code or '').strip().upper()
         return super().save(*args, **kwargs)
+
+    def contact_emails(self):
+        """The practice's addresses as a list, however they were typed in."""
+        import re
+        return [e.strip() for e in re.split(r'[;,\n]+', self.contact_email or '') if e.strip()]
 
     def window_error(self, when=None, *, registering=False):
         """Why this code can't be used (now, or for a session on `when`).

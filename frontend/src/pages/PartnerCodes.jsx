@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "react-toastify";
-import { FiPlus, FiCopy, FiUsers, FiCalendar, FiEdit2, FiBarChart2, FiX } from "react-icons/fi";
+import { FiPlus, FiCopy, FiUsers, FiCalendar, FiEdit2, FiBarChart2, FiX, FiSend, FiCheck } from "react-icons/fi";
 
 import { api } from "../utils/auth";
 import { useAccessGuard } from "../utils/accessGuard";
@@ -67,6 +67,10 @@ export default function PartnerCodes() {
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [report, setReport] = useState(null); // { code, ...report }
+  // The invitation being written: the practice it's for, plus the draft the
+  // server filled in, which she can edit before it goes.
+  const [invite, setInvite] = useState(null);
+  const [sending, setSending] = useState(false);
 
   const load = useCallback(async () => {
     if (requireCoach()) return;
@@ -144,6 +148,43 @@ export default function PartnerCodes() {
       toast.error(data?.code?.[0] || data?.detail || "Couldn't save the code.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openInvite = async (c) => {
+    try {
+      const res = await api.get(`/participation-codes/${c.id}/invitation/`);
+      setInvite({
+        id: c.id,
+        organisation: c.organisation,
+        code: c.code,
+        to: (res.data.to || []).join(", "),
+        subject: res.data.subject || "",
+        body: res.data.body || "",
+        sent_at: res.data.sent_at,
+        sent_count: res.data.sent_count,
+      });
+    } catch {
+      toast.error("Couldn't prepare the invitation.");
+    }
+  };
+
+  const sendInvite = async () => {
+    if (!invite.to.trim()) { toast.error("Add at least one email address."); return; }
+    setSending(true);
+    try {
+      const res = await api.post(`/participation-codes/${invite.id}/invitation/`, {
+        to: invite.to, subject: invite.subject, body: invite.body,
+      });
+      const { sent, failed } = res.data;
+      if (sent) toast.success(`Invitation sent to ${sent} recipient${sent === 1 ? "" : "s"}.`);
+      if (failed?.length) toast.error(`Couldn't send to: ${failed.join(", ")}`);
+      setInvite(null);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Couldn't send the invitation.");
+    } finally {
+      setSending(false);
     }
   };
 
@@ -226,8 +267,9 @@ export default function PartnerCodes() {
                   onChange={e => setForm(f => ({ ...f, contact_name: e.target.value }))}
                   placeholder="Dr Keagan" />
               </Field>
-              <Field label="Contact email" hint="Where their summary report goes.">
-                <input type="email" className={inputCls} style={inputStyle} value={form.contact_email}
+              <Field label="Contact emails" hint="Separate several with commas — the doctor, the practice manager, reception.">
+                <input className={inputCls} style={inputStyle} value={form.contact_email}
+                  placeholder="doctor@practice.co.za, reception@practice.co.za"
                   onChange={e => setForm(f => ({ ...f, contact_email: e.target.value }))} />
               </Field>
               <Field label="Offering" hint="The sessions this allocation pays for.">
@@ -305,6 +347,12 @@ export default function PartnerCodes() {
                         )}
                       </div>
                       <p className="text-lg font-normal mt-1.5" style={{ ...serif, color: NAVY }}>{c.organisation}</p>
+                      {c.invite_sent_at && (
+                        <p className="text-xs mt-1 flex items-center gap-1.5" style={{ color: "#2E7D32" }}>
+                          <FiCheck size={12} /> Invitation sent {new Date(c.invite_sent_at).toLocaleDateString()}
+                          {c.invite_sent_count > 1 ? ` · ${c.invite_sent_count} emails` : ""}
+                        </p>
+                      )}
                       <p className="text-xs" style={{ color: "rgba(74,85,104,0.7)" }}>
                         {c.skill_name || "Any offering"}
                         {c.valid_from && c.valid_until && ` · ${c.valid_from} → ${c.valid_until}`}
@@ -312,6 +360,11 @@ export default function PartnerCodes() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
+                      <button onClick={() => openInvite(c)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
+                        style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: NAVY }}>
+                        <FiSend size={13} /> {c.invite_sent_count ? "Send again" : "Send invitation"}
+                      </button>
                       <button onClick={() => openReport(c)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
                         style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.25)" }}>
@@ -345,6 +398,56 @@ export default function PartnerCodes() {
           </div>
         )}
       </div>
+
+      {invite && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" style={{ background: "rgba(27,43,74,0.55)" }}
+          onClick={() => !sending && setInvite(null)}>
+          <div className="w-full max-w-2xl rounded-2xl p-6 max-h-[90vh] overflow-y-auto" style={{ background: "white" }}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-1">
+              <h2 className="text-2xl font-normal" style={{ ...serif, color: NAVY }}>Invite {invite.organisation}</h2>
+              <button onClick={() => !sending && setInvite(null)} style={{ color: SLATE }}><FiX size={20} /></button>
+            </div>
+            <p className="text-xs mb-5" style={{ color: "rgba(74,85,104,0.7)" }}>
+              Code {invite.code} — already written into the message. Edit anything before you send;
+              each person gets their own copy.
+              {invite.sent_count > 0 && ` Previously sent to ${invite.sent_count} recipient${invite.sent_count === 1 ? "" : "s"}.`}
+            </p>
+
+            <div className="space-y-4">
+              <Field label="To" hint="Separate several addresses with commas.">
+                <input className={inputCls} style={inputStyle} value={invite.to}
+                  onChange={e => setInvite(v => ({ ...v, to: e.target.value }))}
+                  placeholder="doctor@practice.co.za, reception@practice.co.za" />
+              </Field>
+              <Field label="Subject">
+                <input className={inputCls} style={inputStyle} value={invite.subject}
+                  onChange={e => setInvite(v => ({ ...v, subject: e.target.value }))} />
+              </Field>
+              <Field label="Message">
+                <textarea rows={16} className={inputCls} style={{ ...inputStyle, lineHeight: 1.6 }} value={invite.body}
+                  onChange={e => setInvite(v => ({ ...v, body: e.target.value }))} />
+              </Field>
+            </div>
+
+            <div className="flex items-center gap-3 mt-5">
+              <button onClick={sendInvite} disabled={sending}
+                className="flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-bold disabled:opacity-60"
+                style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: NAVY }}>
+                <FiSend size={15} /> {sending ? "Sending…" : "Send invitation"}
+              </button>
+              <button onClick={() => setInvite(null)} disabled={sending}
+                className="px-5 py-2.5 rounded-full text-sm font-semibold"
+                style={{ background: "rgba(27,43,74,0.06)", color: SLATE }}>
+                Cancel
+              </button>
+            </div>
+            <p className="text-xs mt-3" style={{ color: "rgba(74,85,104,0.6)" }}>
+              Sent from dr-nath.com. Replies come back to your enquiries inbox.
+            </p>
+          </div>
+        </div>
+      )}
 
       {report && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" style={{ background: "rgba(27,43,74,0.55)" }}
