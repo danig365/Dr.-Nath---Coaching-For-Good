@@ -142,6 +142,14 @@ class ParticipationCode(models.Model):
         limit_choices_to={'role': 'coach'},
     )
 
+    AUDIENCE_CHOICES = (
+        ('patients', 'Patients'),
+        ('employees', 'Employees'),
+        ('clients', 'Clients'),
+    )
+    # A medical practice nominates patients; a company nominates employees. The
+    # invitation says whichever this organisation uses.
+    audience = models.CharField(max_length=12, choices=AUDIENCE_CHOICES, default='patients')
     total_sessions = models.PositiveIntegerField(default=20)
     max_per_client = models.PositiveIntegerField(default=4)
     # The campaign window. Sessions must START inside it.

@@ -29,6 +29,7 @@ const emptyForm = {
   contact_name: "",
   contact_email: "",
   skill: "",
+  audience: "patients",
   total_sessions: 20,
   max_per_client: 4,
   valid_from: "",
@@ -111,6 +112,7 @@ export default function PartnerCodes() {
     setForm({
       code: c.code, organisation: c.organisation, contact_name: c.contact_name || "",
       contact_email: c.contact_email || "", skill: c.skill || "",
+      audience: c.audience || "patients",
       total_sessions: c.total_sessions, max_per_client: c.max_per_client,
       valid_from: c.valid_from || "", valid_until: c.valid_until || "",
       active: c.active, notes: c.notes || "",
@@ -271,6 +273,14 @@ export default function PartnerCodes() {
                 <input className={inputCls} style={inputStyle} value={form.contact_email}
                   placeholder="doctor@practice.co.za, reception@practice.co.za"
                   onChange={e => setForm(f => ({ ...f, contact_email: e.target.value }))} />
+              </Field>
+              <Field label="They nominate" hint="A practice nominates patients; a company nominates employees. The invitation follows.">
+                <select className={inputCls} style={inputStyle} value={form.audience}
+                  onChange={e => setForm(f => ({ ...f, audience: e.target.value }))}>
+                  <option value="patients">Patients</option>
+                  <option value="employees">Employees</option>
+                  <option value="clients">Clients</option>
+                </select>
               </Field>
               <Field label="Offering" hint="The sessions this allocation pays for.">
                 <select className={inputCls} style={inputStyle} value={form.skill}

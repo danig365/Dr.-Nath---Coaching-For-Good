@@ -27,7 +27,7 @@ class ParticipationCodeSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'code', 'organisation', 'contact_name', 'contact_email',
             'skill', 'skill_name', 'total_sessions', 'max_per_client',
-            'valid_from', 'valid_until', 'active', 'notes',
+            'valid_from', 'valid_until', 'active', 'notes', 'audience',
             'clients_registered', 'sessions_used', 'sessions_left', 'created_at',
             'invite_sent_at', 'invite_sent_count',
         ]
@@ -146,7 +146,8 @@ class ParticipationCodeViewSet(viewsets.ModelViewSet):
             ok = send_email(
                 to=email, subject=subject, template='partner_invite',
                 context={
-                    'body': body, 'subject': subject, 'code': code.code,
+                    'body': body, 'body_html': body_to_html(body),
+                    'subject': subject, 'code': code.code,
                     'total_sessions': code.total_sessions,
                     'max_per_client': code.max_per_client,
                     'window': window, 'site_url': settings.SITE_URL,
@@ -216,11 +217,81 @@ class ParticipationCodeViewSet(viewsets.ModelViewSet):
         })
 
 
+def body_to_html(text):
+    """Turn the coach's plain-text message into the email's HTML body.
+
+    She writes it as she would in Word — paragraphs separated by blank lines,
+    '-' for bullets, '1.' for steps, a short line on its own as a heading — and
+    this renders exactly that, in the order she wrote it. Everything is escaped
+    first: her words are content, never markup.
+    """
+    import html
+    import re
+
+    P = 'margin:0 0 14px; font-size:15px; line-height:1.65; color:#4A5568; font-family:Arial, sans-serif;'
+    LI = 'margin:0 0 7px; font-size:15px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;'
+    LIST = 'margin:0 0 16px; padding-left:22px;'
+    H = ("margin:22px 0 10px; font-size:17px; font-weight:bold; color:#1B2B4A; "
+         "font-family:Georgia,'Times New Roman',serif;")
+
+    BULLET = re.compile(r'^[-\u2022*]\s+(.*)$')
+    NUMBER = re.compile(r'^\d+[.)]\s+(.*)$')
+
+    out = []
+    pending_para = []      # consecutive plain lines
+    pending_list = []      # consecutive bullet/number lines
+    list_tag = 'ul'
+
+    def flush_para():
+        if pending_para:
+            body = '<br>'.join(html.escape(ln) for ln in pending_para)
+            out.append(f'<p style="{P}">{body}</p>')
+            pending_para.clear()
+
+    def flush_list():
+        if pending_list:
+            items = ''.join(f'<li style="{LI}">{html.escape(i)}</li>' for i in pending_list)
+            out.append(f'<{list_tag} style="{LIST}">{items}</{list_tag}>')
+            pending_list.clear()
+
+    for raw in (text or '').strip().split('\n'):
+        line = raw.strip()
+        if not line:
+            flush_para()
+            flush_list()
+            continue
+
+        bullet = BULLET.match(line)
+        number = NUMBER.match(line)
+        if bullet or number:
+            tag = 'ol' if number else 'ul'
+            if pending_list and tag != list_tag:
+                flush_list()
+            list_tag = tag
+            flush_para()
+            pending_list.append((number or bullet).group(1).strip())
+            continue
+
+        flush_list()
+        # A short line on its own reads as a heading — "How it works",
+        # "What we need from you".
+        if not pending_para and len(line) < 60 and not line.endswith(('.', ',', ':', '?', '!')):
+            out.append(f'<p style="{H}">{html.escape(line)}</p>')
+            continue
+        pending_para.append(line)
+
+    flush_para()
+    flush_list()
+    return ''.join(out)
+
+
 def default_invite_subject(code):
     year = code.valid_from.year if code.valid_from else ''
     month = f"{code.valid_from:%B}" if code.valid_from else ''
     when = f" — {month} {year}".rstrip()
-    return f"{code.total_sessions} complimentary coaching sessions for your patients{when}"
+    audience = code.get_audience_display().lower()
+    return (f"{code.total_sessions} complimentary health and wellness coaching sessions "
+            f"for your {audience}{when}")
 
 
 def default_invite_body(code, user):
@@ -232,6 +303,8 @@ def default_invite_body(code, user):
     from django.conf import settings
 
     practice = code.organisation or 'your practice'
+    who = code.get_audience_display().lower()          # patients / employees / clients
+    person = who[:-1] if who.endswith('s') else who    # patient / employee / client
     greeting = f"Dear {code.contact_name}," if code.contact_name else "Dear Doctor,"
     if code.valid_from and code.valid_until:
         window = f"{code.valid_from:%-d %B} to {code.valid_until:%-d %B %Y}"
@@ -242,23 +315,23 @@ def default_invite_body(code, user):
 
     return f"""{greeting}
 
-In celebration of Health Month, we invite {practice} to partner with dr-nath.com in helping your patients turn sound medical advice into sustainable, everyday habits.
+In celebration of Health Month, we invite {practice} to partner with dr-nath.com in helping your {who} turn sound health advice into sustainable, everyday habits.
 
-From {window} we are offering your practice {code.total_sessions} complimentary 30-minute health and wellness coaching sessions for patients you nominate. Coaching complements clinical care: it helps patients translate the goals you agree with them into practical routines, keeps them accountable, and sustains change between appointments.
+From {window} we are offering your practice {code.total_sessions} complimentary 30-minute health and wellness coaching sessions for {who} you nominate. Coaching complements the care you already give: it helps people translate agreed goals into practical routines, keeps them accountable, and sustains change between appointments.
 
 How it works
-- Each nominated patient books a 30-minute session on the secure dr-nath.com platform, at a date and time that suits them.
-- A patient may use up to {code.max_per_client} sessions during this period, ideally one a week.
-- Your practice's participation code is {code.code}. Patients enter it in the Participation Code box when they register, so their sessions draw on your practice's allocation.
+- Each nominated {person} books a 30-minute session on the secure dr-nath.com platform, at a date and time that suits them.
+- One {person} may use up to {code.max_per_client} sessions during this period, ideally one a week.
+- Your participation code is {code.code}. They enter it in the Participation Code box when they register, so their sessions draw on your allocation.
 
 What we need from you
 1. Confirm your participation by replying to this email.
-2. Share the code {code.code} with the patients you nominate.
+2. Share the code {code.code} with the {who} you nominate.
 3. Ask them to register at {settings.SITE_URL} — they can do this now — and book their sessions from {book_from}.
 
 What your practice gains
-- Continuity of care between consultations, reinforcing the goals you have already agreed.
-- Stronger patient engagement through structured accountability.
+- Continuity of care between appointments, reinforcing the goals you have already agreed.
+- Stronger engagement through structured encouragement and accountability.
 - An anonymised summary report on participation and progress, within applicable privacy safeguards.
 - Visibility in our newsletter and on our website for three months.
 
