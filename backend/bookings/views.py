@@ -423,6 +423,18 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
         if booking.learner_id != request.user.id:
             return Response({'detail': 'Only the client requests admission.'}, status=HTTP_403_FORBIDDEN)
         from .livekit_views import coach_in_room
+        from .services import booking_is_joinable
+
+        # Already let in once for this session? Then a drop — a flaky line, a
+        # closed laptop lid, a browser reload — puts them straight back in. Dr
+        # Nath's 30 Sept session lost several minutes to the client asking and
+        # the coach admitting FIVE times for one hour of conversation.
+        if booking.client_joined_at and booking_is_joinable(booking):
+            booking.client_admit_status = 'admitted'
+            booking.save(update_fields=['client_admit_status'])
+            return Response({'status': 'admitted', 'coach_present': coach_in_room(booking),
+                             'rejoined': True})
+
         booking.client_admit_status = 'requested'
         booking.save(update_fields=['client_admit_status'])
         return Response({'status': 'requested', 'coach_present': coach_in_room(booking)})

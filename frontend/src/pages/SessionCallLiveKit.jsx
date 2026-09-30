@@ -32,17 +32,17 @@ function formatTime(seconds) {
 
 // Turn a getUserMedia / device error into plain, actionable guidance a
 // non-technical client can follow. They stay connected either way.
-function describeMediaError(err) {
+function describeMediaError(err, device = "camera or microphone") {
   const name = err?.name || "";
   if (name === "NotAllowedError" || name === "PermissionDeniedError" || name === "SecurityError")
-    return "Your camera & microphone are blocked. Click the camera icon in your browser's address bar, choose “Allow”, then tap Retry.";
+    return `Your ${device} is blocked. Click the camera icon in your browser's address bar, choose “Allow”, then tap Retry.`;
   if (name === "NotFoundError" || name === "DevicesNotFoundError")
-    return "No camera or microphone was found on this device. You can still see and hear your coach — plug one in and tap Retry to turn yours on.";
+    return `No ${device} was found on this device. You can still see and hear your coach — plug one in and tap Retry to turn yours on.`;
   if (name === "NotReadableError" || name === "TrackStartError")
-    return "Your camera or microphone is being used by another app (Zoom, Teams, FaceTime…). Close it, then tap Retry.";
+    return `Your ${device} is being used by another app (Zoom, Teams, FaceTime…). Close it, then tap Retry.`;
   if (name === "NotSupportedError" || (typeof window !== "undefined" && !window.isSecureContext))
-    return "This browser is blocking camera access. Please open the session in Chrome or Safari, then tap Retry.";
-  return "We couldn't turn on your camera/microphone. You're still connected — check your browser's camera permission and tap Retry.";
+    return `This browser is blocking access to your ${device}. Please open the session in Chrome or Safari, then tap Retry.`;
+  return `We couldn't turn on your ${device}. You're still connected — check your browser's permissions and tap Retry.`;
 }
 
 export default function SessionCallLiveKit() {
@@ -462,34 +462,44 @@ export default function SessionCallLiveKit() {
   const enableMedia = useCallback(async () => {
     const room = roomRef.current;
     if (!room) return;
+    // The two devices are acquired SEPARATELY. They used to share one try/catch,
+    // so a camera held by another app (Zoom, Teams) reported the microphone as
+    // failed as well — the coach saw "camera/microphone off" while her mic was
+    // in fact live and publishing. A camera problem is a camera problem.
+    const problems = [];
+
+    // Deterministic order: the MICROPHONE is acquired first and on its own, so
+    // WebRTC's capture is the first client to open the audio device and is the
+    // one that installs echo cancellation / noise suppression / AGC on it.
     try {
-      // Deterministic order: the MICROPHONE is acquired first and on its own, so
-      // WebRTC's capture is the first client to open the audio device and is the
-      // one that installs echo cancellation / noise suppression / AGC on it.
-      // Only after it is publishing does browser transcription (a second capture
-      // client) get to attach — see the transcriber effect above.
       await logAudioDevices("before mic acquire");
       await room.localParticipant.setMicrophoneEnabled(micWantRef.current);
       const micPub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
       logMicTrackSettings(micPub?.track?.mediaStreamTrack, "after acquire");
       setMicLive(!!micPub?.track && micPub.track.mediaStreamTrack?.readyState === "live");
+      setMicOn(micWantRef.current);
+    } catch (err) {
+      diag("mic", "microphone failed", { name: err?.name, message: err?.message });
+      setMicOn(false);
+      setMicLive(false);
+      problems.push(describeMediaError(err, "microphone"));
+    }
 
-      // Camera second — a failing/slow camera must never delay or disturb the
-      // audio capture that the whole call depends on.
+    // Camera second — a failing/slow camera must never delay or disturb the
+    // audio capture that the whole call depends on.
+    try {
       await room.localParticipant.setCameraEnabled(camWantRef.current);
       const camPub = room.localParticipant.getTrackPublication(Track.Source.Camera);
       localVideoTrackRef.current = camPub?.track || null;
       camPub?.track?.attach(localVideoRef.current);
       setCamOn(camWantRef.current);
-      setMicOn(micWantRef.current);
-      setMediaError("");
     } catch (err) {
-      diag("mic", "enableMedia failed", { name: err?.name, message: err?.message });
+      diag("cam", "camera failed", { name: err?.name, message: err?.message });
       setCamOn(false);
-      setMicOn(false);
-      setMicLive(false);
-      setMediaError(describeMediaError(err));
+      problems.push(describeMediaError(err, "camera"));
     }
+
+    setMediaError(problems.join(" "));
   }, []);
 
   // ── Join — connect to the LiveKit room, then publish media (fail-soft) ───────
