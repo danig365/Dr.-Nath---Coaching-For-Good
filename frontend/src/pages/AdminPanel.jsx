@@ -178,7 +178,7 @@ export default function AdminPanel() {
   const [messages, setMessages] = useState([]);
   const [newsletters, setNewsletters] = useState([]);
   const [subscriberInfo, setSubscriberInfo] = useState({ total: 0, active: 0, subscribers: [] });
-  const [compose, setCompose] = useState({ id: null, subject: "", body_html: "" });
+  const [compose, setCompose] = useState({ id: null, subject: "", edition: "", body_html: "" });
   const [composeSaving, setComposeSaving] = useState(false);
   const [sendModal, setSendModal] = useState({ open: false, newsletter: null });
   const [previewModal, setPreviewModal] = useState({ open: false, newsletter: null });
@@ -245,8 +245,8 @@ export default function AdminPanel() {
     } catch { /* non-critical */ }
   }, []);
 
-  const editDraft = (n) => setCompose({ id: n.id, subject: n.subject, body_html: n.body_html });
-  const resetCompose = () => setCompose({ id: null, subject: "", body_html: "" });
+  const editDraft = (n) => setCompose({ id: n.id, subject: n.subject, edition: n.edition || "", body_html: n.body_html });
+  const resetCompose = () => setCompose({ id: null, subject: "", edition: "", body_html: "" });
 
   const saveDraft = async (e) => {
     e.preventDefault();
@@ -256,7 +256,7 @@ export default function AdminPanel() {
     }
     setComposeSaving(true);
     try {
-      const payload = { subject: compose.subject, body_html: compose.body_html };
+      const payload = { subject: compose.subject, edition: compose.edition, body_html: compose.body_html };
       if (compose.id) {
         await api.patch(`/newsletter/admin/newsletters/${compose.id}/`, payload);
         toast.success("Draft updated.");
@@ -1483,6 +1483,10 @@ export default function AdminPanel() {
                   onChange={(e) => setCompose({ ...compose, subject: e.target.value })}
                   className="w-full px-4 py-2.5 rounded-xl text-sm focus:outline-none"
                   style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }} />
+                <input type="text" placeholder="Edition label, e.g. 2nd Edition (optional)" value={compose.edition}
+                  onChange={(e) => setCompose({ ...compose, edition: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl text-sm focus:outline-none"
+                  style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }} />
                 <textarea placeholder="Body (HTML allowed)…" value={compose.body_html} rows={12}
                   onChange={(e) => setCompose({ ...compose, body_html: e.target.value })}
                   className="w-full resize-y px-4 py-3 rounded-xl text-sm font-mono focus:outline-none"
@@ -1864,8 +1868,12 @@ export default function AdminPanel() {
                     </div>
                     <div style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "3px", color: "#C8A951", marginTop: "4px" }}>Coaching for Impact</div>
                   </div>
-                  <div style={{ background: "linear-gradient(90deg,#C8A951,#F0D98C)", padding: "10px 32px", textAlign: "center" }}>
-                    <span style={{ fontSize: "12px", fontWeight: "bold", letterSpacing: "3px", textTransform: "uppercase", color: "#14213D", fontFamily: "Arial, sans-serif" }}>1st Edition</span>
+                  <div style={{ background: "linear-gradient(90deg,#C8A951,#F0D98C)", padding: previewModal.newsletter?.edition ? "10px 32px" : "2px", textAlign: "center" }}>
+                    {previewModal.newsletter?.edition && (
+                      <span style={{ fontSize: "12px", fontWeight: "bold", letterSpacing: "3px", textTransform: "uppercase", color: "#14213D", fontFamily: "Arial, sans-serif" }}>
+                        {previewModal.newsletter.edition}
+                      </span>
+                    )}
                   </div>
                   <div style={{ padding: "32px" }}>
                     <p style={{ margin: "0 0 18px", fontSize: "15px", lineHeight: 1.6, color: "#4A5568", fontFamily: "Arial, sans-serif" }}>Hi <span style={{ color: "#A9863A" }}>[First name]</span>,</p>

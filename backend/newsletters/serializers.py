@@ -28,7 +28,7 @@ class NewsletterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Newsletter
         fields = [
-            'id', 'subject', 'body_html', 'status',
+            'id', 'subject', 'edition', 'body_html', 'status',
             'sent_at', 'sent_count', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'status', 'sent_at', 'sent_count', 'created_at', 'updated_at']

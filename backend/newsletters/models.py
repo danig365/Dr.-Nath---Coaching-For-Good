@@ -49,6 +49,9 @@ class Newsletter(models.Model):
     ]
 
     subject = models.CharField(max_length=255)
+    # The ribbon under the masthead: "1st Edition", "2nd Edition", "Spring 2026".
+    # Set per issue — it was hard-coded, so every issue called itself the first.
+    edition = models.CharField(max_length=60, blank=True, default='')
     body_html = models.TextField(help_text="Newsletter body (HTML, authored by admin).")
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_DRAFT)
     sent_at = models.DateTimeField(null=True, blank=True)

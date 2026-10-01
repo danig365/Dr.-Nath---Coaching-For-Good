@@ -144,6 +144,7 @@ class NewsletterViewSet(viewsets.ModelViewSet):
                 template='newsletter',
                 context={
                     'subject': newsletter.subject,
+                    'edition': newsletter.edition,
                     'first_name': sub.first_name,
                     'body_html': newsletter.body_html,
                     'unsubscribe_url': unsubscribe_url,

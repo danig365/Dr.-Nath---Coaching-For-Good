@@ -2,7 +2,7 @@
 
 {% block title %}{{ subject }}{% endblock %}
 {% block brand %}<a href="https://www.dr-nath.com" style="color:#ffffff; text-decoration:none;">dr-nath.com Newsletter</a>{% endblock %}
-{% block goldrule %}<tr><td style="background:linear-gradient(90deg,#C8A951,#F0D98C); padding:10px 32px; text-align:center;"><span style="font-size:12px; font-weight:bold; letter-spacing:3px; text-transform:uppercase; color:#14213D; font-family:Arial, sans-serif;">1st Edition</span></td></tr>{% endblock %}
+{% block goldrule %}<tr><td style="background:linear-gradient(90deg,#C8A951,#F0D98C); padding:{% if edition %}10px 32px{% else %}0{% endif %}; text-align:center; {% if not edition %}height:4px;{% endif %}">{% if edition %}<span style="font-size:12px; font-weight:bold; letter-spacing:3px; text-transform:uppercase; color:#14213D; font-family:Arial, sans-serif;">{{ edition }}</span>{% endif %}</td></tr>{% endblock %}
 
 {% block content %}
   {% if first_name %}
