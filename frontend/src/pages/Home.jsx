@@ -339,23 +339,15 @@ const Home = () => {
 
             <motion.div
               initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.4 }}
-              className="flex flex-col sm:flex-row gap-4"
+              className="flex flex-col gap-4"
             >
+              <div className="flex flex-col sm:flex-row gap-4">
               <Link
                 to="/register"
                 className="px-8 py-4 rounded-full text-center font-semibold text-base inline-flex items-center justify-center gap-2 transition-all duration-300 hover:-translate-y-0.5"
                 style={{ background: "#F5EEC9", color: NAVY }}
               >
                 Do you have a code? Book your session <ArrowRightIcon className="w-5 h-5" />
-              </Link>
-              {/* The other half of the audience: no code, so the free
-                  discovery call is their way in. */}
-              <Link
-                to="/chemistry"
-                className="px-8 py-4 rounded-full text-center font-semibold text-base inline-flex items-center justify-center gap-2 border transition-all duration-300 hover:-translate-y-0.5"
-                style={{ borderColor: "rgba(245,238,201,0.6)", color: "#F5EEC9", background: "rgba(245,238,201,0.06)" }}
-              >
-                No code? Proceed here <ArrowRightIcon className="w-5 h-5" />
               </Link>
               <a
                 href="#offerings"
@@ -364,6 +356,17 @@ const Home = () => {
               >
                 Explore Offerings <ArrowRightIcon className="w-5 h-5" />
               </a>
+              </div>
+
+              {/* The other half of the audience: no code, so the free discovery
+                  call is their way in — underneath, on its own line. */}
+              <Link
+                to="/chemistry"
+                className="px-8 py-4 rounded-full text-center font-semibold text-base inline-flex items-center justify-center gap-2 border transition-all duration-300 hover:-translate-y-0.5 sm:self-start"
+                style={{ borderColor: "rgba(245,238,201,0.6)", color: "#F5EEC9", background: "rgba(245,238,201,0.06)" }}
+              >
+                No code? Proceed here <ArrowRightIcon className="w-5 h-5" />
+              </Link>
             </motion.div>
           </div>
         </div>
