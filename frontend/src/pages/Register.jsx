@@ -334,6 +334,30 @@ export default function Register() {
                 {step === 0 && (
                   <motion.div key="step0" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={{ duration: 0.3 }} className="space-y-4">
 
+                    {/* The code comes first: a patient arriving from a practice's
+                        invitation should see where it goes before anything else,
+                        not discover the box on the last step. */}
+                    <div className="p-3.5 rounded-xl" style={{ background: "rgba(200,169,81,0.08)", border: "1px solid rgba(200,169,81,0.25)" }}>
+                      <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "rgba(200,169,81,0.9)" }}>
+                        Participation Code <span style={{ color: "rgba(200,169,81,0.5)" }}>(Optional)</span>
+                      </label>
+                      <FloatingInput name="participation_code" placeholder="From your doctor or organisation"
+                        icon={IdentificationIcon} value={form.participation_code} onChange={handleChange} />
+                      <p className="text-xs mt-1.5" style={{ color: codeState.detail ? (codeState.valid ? "#7BC47F" : "#F8B4B4") : "rgba(243,233,205,0.55)" }}>
+                        {codeState.detail || "Referred by a practice or company? Enter their code here."}
+                      </p>
+                      {codeState.valid && (
+                        <label className="flex items-start gap-2 mt-2 cursor-pointer">
+                          <input type="checkbox" className="mt-0.5" checked={form.share_with_organisation}
+                            onChange={e => setForm({ ...form, share_with_organisation: e.target.checked })} />
+                          <span className="text-xs" style={{ color: "rgba(243,233,205,0.75)" }}>
+                            I agree that my practice may be told I took part, as part of an
+                            anonymised summary. What I discuss in coaching is never shared.
+                          </span>
+                        </label>
+                      )}
+                    </div>
+
                     <div>
                       <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "rgba(200,169,81,0.8)" }}>Username</label>
                       <FloatingInput id="username" name="username" placeholder="Choose a username" icon={UserIcon} value={form.username} onChange={handleChange} required />
@@ -485,30 +509,6 @@ export default function Register() {
                           <FloatingInput name="phone" placeholder="+27 83 123 4567" icon={IdentificationIcon} value={form.phone} onChange={handleChange} />
                         </div>
 
-                        {/* Participation code — a patient nominated by a partner
-                            practice enters the code from their invitation. */}
-                        <div>
-                          <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "rgba(200,169,81,0.8)" }}>
-                            Participation Code <span style={{ color: "rgba(200,169,81,0.4)" }}>(Optional)</span>
-                          </label>
-                          <FloatingInput name="participation_code" placeholder="From your doctor or organisation"
-                            icon={IdentificationIcon} value={form.participation_code} onChange={handleChange} />
-                          {codeState.detail && (
-                            <p className="text-xs mt-1.5" style={{ color: codeState.valid ? "#7BC47F" : "#F8B4B4" }}>
-                              {codeState.detail}
-                            </p>
-                          )}
-                          {codeState.valid && (
-                            <label className="flex items-start gap-2 mt-2 cursor-pointer">
-                              <input type="checkbox" className="mt-0.5" checked={form.share_with_organisation}
-                                onChange={e => setForm({ ...form, share_with_organisation: e.target.checked })} />
-                              <span className="text-xs" style={{ color: "rgba(243,233,205,0.75)" }}>
-                                I agree that my practice may be told I took part, as part of an
-                                anonymised summary. What I discuss in coaching is never shared.
-                              </span>
-                            </label>
-                          )}
-                        </div>
                       </>
                     )}
 
