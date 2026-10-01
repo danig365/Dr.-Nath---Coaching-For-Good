@@ -1877,7 +1877,7 @@ export default function AdminPanel() {
                   </div>
                   <div style={{ padding: "32px" }}>
                     <p style={{ margin: "0 0 18px", fontSize: "15px", lineHeight: 1.6, color: "#4A5568", fontFamily: "Arial, sans-serif" }}>Hi <span style={{ color: "#A9863A" }}>[First name]</span>,</p>
-                    <div style={{ fontSize: "15px", lineHeight: 1.7, color: "#1B2B4A", fontFamily: "Arial, sans-serif" }}
+                    <div style={{ fontSize: "15px", lineHeight: 1.7, color: "#1B2B4A", fontFamily: "Arial, sans-serif", textAlign: "justify" }}
                       dangerouslySetInnerHTML={{ __html: previewModal.newsletter?.body_html || "" }} />
                     <div style={{ margin: "30px 0 4px", paddingTop: "24px", borderTop: "1px solid rgba(200,169,81,0.35)", textAlign: "center" }}>
                       <p style={{ margin: "0 0 14px", fontSize: "17px", fontWeight: "bold", color: "#1B2B4A", fontFamily: "Georgia, 'Times New Roman', serif" }}>
