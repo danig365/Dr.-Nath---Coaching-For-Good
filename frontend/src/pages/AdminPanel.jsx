@@ -1887,7 +1887,7 @@ export default function AdminPanel() {
                         Book a Session
                       </span>
                     </div>
-                    <p style={{ margin: "28px 0 0", fontSize: "12px", lineHeight: 1.6, color: "#9aa3b0", fontFamily: "Arial, sans-serif" }}>
+                    <p style={{ margin: "28px 0 0", fontSize: "12px", lineHeight: 1.6, color: "#9aa3b0", fontFamily: "Arial, sans-serif", textAlign: "center" }}>
                       You're receiving this because you subscribed at dr-nath.com. <span style={{ color: "#A9863A" }}>Unsubscribe</span>.
                     </p>
                   </div>
