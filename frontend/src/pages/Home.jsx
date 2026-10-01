@@ -348,6 +348,15 @@ const Home = () => {
               >
                 Do you have a code? Book your session <ArrowRightIcon className="w-5 h-5" />
               </Link>
+              {/* The other half of the audience: no code, so the free
+                  discovery call is their way in. */}
+              <Link
+                to="/chemistry"
+                className="px-8 py-4 rounded-full text-center font-semibold text-base inline-flex items-center justify-center gap-2 border transition-all duration-300 hover:-translate-y-0.5"
+                style={{ borderColor: "rgba(245,238,201,0.6)", color: "#F5EEC9", background: "rgba(245,238,201,0.06)" }}
+              >
+                No code? Proceed here <ArrowRightIcon className="w-5 h-5" />
+              </Link>
               <a
                 href="#offerings"
                 className="px-8 py-4 rounded-full text-center font-semibold text-base inline-flex items-center justify-center gap-2 border transition-all duration-300 hover:-translate-y-0.5"
