@@ -322,23 +322,24 @@ const Home = () => {
               initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.32 }}
               className="mb-9"
             >
-              <a href="#offerings" className="block group">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] mb-3 transition-colors group-hover:text-white" style={{ color: GOLD }}>
-                  Offerings
-                </p>
-                <ul className="space-y-1.5">
-                  {[
-                    "Health and Wellness Coaching",
-                    "Executive and Leadership Coaching",
-                    "Business and Entrepreneurship Coaching",
-                    "Leadership and Management Program",
-                  ].map((item) => (
-                    <li key={item} className="flex items-center gap-2 text-base transition-colors group-hover:text-white" style={{ color: "rgba(245,238,201,0.85)" }}>
-                      <span style={{ color: GOLD }}>•</span> <span className="group-hover:underline">{item}</span>
-                    </li>
-                  ))}
-                </ul>
+              {/* Only the heading is the link — the list underneath is prose. */}
+              <a href="#offerings"
+                className="inline-block text-xs font-semibold uppercase tracking-[0.2em] mb-3 hover:underline transition-colors hover:text-white"
+                style={{ color: GOLD }}>
+                Offerings
               </a>
+              <ul className="space-y-1.5">
+                {[
+                  "Health and Wellness Coaching",
+                  "Executive and Leadership Coaching",
+                  "Business and Entrepreneurship Coaching",
+                  "Leadership and Management Program",
+                ].map((item) => (
+                  <li key={item} className="flex items-center gap-2 text-base" style={{ color: "rgba(245,238,201,0.85)" }}>
+                    <span style={{ color: GOLD }}>•</span> {item}
+                  </li>
+                ))}
+              </ul>
             </motion.div>
 
             <motion.div
