@@ -1891,7 +1891,9 @@ export default function AdminPanel() {
                       </a>
                     </div>
                     <p style={{ margin: "28px 0 0", fontSize: "12px", lineHeight: 1.6, color: "#9aa3b0", fontFamily: "Arial, sans-serif", textAlign: "center" }}>
-                      You're receiving this newsletter because you subscribed to https://www.dr-nath.com. <span style={{ color: "#A9863A" }}>Unsubscribe</span>.
+                      You're receiving this newsletter because you subscribed to{" "}
+                      <a href="https://www.dr-nath.com" target="_blank" rel="noopener noreferrer" style={{ color: "#A9863A" }}>https://www.dr-nath.com</a>.{" "}
+                      <span style={{ color: "#A9863A" }}>Unsubscribe</span>.
                     </p>
                   </div>
                   <div style={{ background: "#FAF6EC", padding: "20px 32px", textAlign: "center", borderTop: "1px solid rgba(200,169,81,0.25)" }}>
