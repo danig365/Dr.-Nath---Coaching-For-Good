@@ -7,7 +7,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
         fields = [
             'role', 'bio', 'photo', 'specialties', 'certifications',
             'hourly_rate', 'years_experience', 'languages', 'industries', 'linkedin_url',
-            'approval_status', 'is_verified', 'organisation', 'job_title',
+            'approval_status', 'is_verified', 'organisation', 'job_title', 'phone',
             'coaching_goals', 'timezone', 'booking_horizon_days', 'min_notice_hours',
             'restricted_to_skill',
         ]
@@ -107,6 +107,7 @@ class RegisterSerializer(serializers.ModelSerializer):
     job_title = serializers.CharField(required=False, allow_blank=True, default='', write_only=True)
     # Partner-organisation campaign (October Health Month): the code a practice
     # gives the patients it nominates.
+    phone = serializers.CharField(required=False, allow_blank=True, default='', write_only=True)
     participation_code = serializers.CharField(required=False, allow_blank=True, default='', write_only=True)
     share_with_organisation = serializers.BooleanField(required=False, default=False, write_only=True)
 
@@ -117,7 +118,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             'first_name', 'last_name',
             'bio', 'specialties', 'certifications', 'hourly_rate',
             'years_experience', 'languages', 'industries',
-            'organisation', 'job_title',
+            'organisation', 'job_title', 'phone',
             'participation_code', 'share_with_organisation',
         )
 
@@ -182,6 +183,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             'industries': validated_data.pop('industries', []),
             'organisation': validated_data.pop('organisation', ''),
             'job_title': validated_data.pop('job_title', ''),
+            'phone': validated_data.pop('phone', ''),
         }
         code_value = validated_data.pop('participation_code', '')
         shares = validated_data.pop('share_with_organisation', False)

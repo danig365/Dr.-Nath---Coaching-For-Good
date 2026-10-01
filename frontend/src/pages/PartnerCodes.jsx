@@ -71,6 +71,7 @@ export default function PartnerCodes() {
   // The invitation being written: the practice it's for, plus the draft the
   // server filled in, which she can edit before it goes.
   const [invite, setInvite] = useState(null);
+  const [patients, setPatients] = useState(null); // who registered under one code
   const [sending, setSending] = useState(false);
 
   const load = useCallback(async () => {
@@ -187,6 +188,16 @@ export default function PartnerCodes() {
       toast.error(err.response?.data?.detail || "Couldn't send the invitation.");
     } finally {
       setSending(false);
+    }
+  };
+
+  const openPatients = async (c) => {
+    if (!c.clients_registered) return;
+    try {
+      const res = await api.get(`/participation-codes/${c.id}/patients/`);
+      setPatients(res.data);
+    } catch {
+      toast.error("Couldn't load the patient list.");
     }
   };
 
@@ -389,9 +400,14 @@ export default function PartnerCodes() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-4 text-sm" style={{ color: SLATE }}>
-                    <span className="flex items-center gap-1.5"><FiUsers size={14} style={{ color: "#C8A951" }} />
+                    <button onClick={() => openPatients(c)} disabled={!c.clients_registered}
+                      className="flex items-center gap-1.5 disabled:cursor-default"
+                      style={{ color: c.clients_registered ? "#A9863A" : SLATE,
+                               textDecoration: c.clients_registered ? "underline" : "none" }}
+                      title={c.clients_registered ? "See who registered with this code" : "Nobody has registered with this code yet"}>
+                      <FiUsers size={14} style={{ color: "#C8A951" }} />
                       {c.clients_registered} patient{c.clients_registered === 1 ? "" : "s"}
-                    </span>
+                    </button>
                     <span className="flex items-center gap-1.5"><FiCalendar size={14} style={{ color: "#C8A951" }} />
                       max {c.max_per_client} each
                     </span>
@@ -455,6 +471,48 @@ export default function PartnerCodes() {
             <p className="text-xs mt-3" style={{ color: "rgba(74,85,104,0.6)" }}>
               Sent from dr-nath.com. Replies come back to your enquiries inbox.
             </p>
+          </div>
+        </div>
+      )}
+
+      {patients && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" style={{ background: "rgba(27,43,74,0.55)" }}
+          onClick={() => setPatients(null)}>
+          <div className="w-full max-w-2xl rounded-2xl p-6 max-h-[85vh] overflow-y-auto" style={{ background: "white" }}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-1">
+              <h2 className="text-2xl font-normal" style={{ ...serif, color: NAVY }}>{patients.organisation}</h2>
+              <button onClick={() => setPatients(null)} style={{ color: SLATE }}><FiX size={20} /></button>
+            </div>
+            <p className="text-xs mb-5" style={{ color: "rgba(74,85,104,0.7)" }}>
+              {patients.patients.length} registered with code {patients.code}. Contact details are yours only —
+              the practice's report shows counts, never names.
+            </p>
+
+            {patients.patients.length === 0 ? (
+              <p className="text-sm py-6 text-center" style={{ color: SLATE }}>Nobody has registered with this code yet.</p>
+            ) : (
+              <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(200,169,81,0.2)" }}>
+                <div className="grid text-[11px] font-semibold uppercase tracking-wider px-4 py-2.5"
+                  style={{ gridTemplateColumns: "1.4fr 1.8fr 1.2fr 0.8fr", background: "#FAF6EC", color: "rgba(74,85,104,0.6)" }}>
+                  <span>Name</span><span>Email</span><span>Phone</span><span className="text-center">Sessions</span>
+                </div>
+                {patients.patients.map((p, i) => (
+                  <div key={p.id} className="grid items-center px-4 py-3 text-sm"
+                    style={{ gridTemplateColumns: "1.4fr 1.8fr 1.2fr 0.8fr",
+                             borderTop: i === 0 ? "none" : "1px solid rgba(200,169,81,0.12)", color: SLATE }}>
+                    <span className="font-semibold truncate" style={{ color: NAVY }}>{p.name}</span>
+                    <a href={`mailto:${p.email}`} className="truncate hover:underline" style={{ color: "#A9863A" }}>{p.email}</a>
+                    {p.phone
+                      ? <a href={`tel:${p.phone}`} className="truncate hover:underline" style={{ color: "#A9863A" }}>{p.phone}</a>
+                      : <span style={{ color: "rgba(74,85,104,0.45)" }}>Not given</span>}
+                    <span className="text-center font-semibold" style={{ color: NAVY }}>
+                      {p.sessions_booked} / {patients.max_per_client || "—"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

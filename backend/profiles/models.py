@@ -69,6 +69,9 @@ class UserProfile(models.Model):
 
     # Client-specific
     organisation = models.CharField(max_length=255, blank=True, null=True)
+    # Optional. Collected so a coach can reach a client when the platform can't —
+    # a call that won't connect, a session nobody turned up to.
+    phone = models.CharField(max_length=32, blank=True, default='')
     # Set when a client registers with a partner organisation's participation
     # code (October Health Month). Their sessions draw on that organisation's
     # allocation, and they count towards its per-patient limit.

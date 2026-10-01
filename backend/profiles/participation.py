@@ -168,6 +168,34 @@ class ParticipationCodeViewSet(viewsets.ModelViewSet):
                          'sent_count': code.invite_sent_count})
 
     @action(detail=True, methods=['get'])
+    def patients(self, request, pk=None):
+        """The people who registered with this code — the coach's own view.
+
+        Names and contact details, so she can reach someone whose session went
+        wrong. This is hers alone: the practice's report (above) is counts only.
+        """
+        from bookings.services import code_bookings_used
+
+        code = self.get_object()
+        rows = []
+        for profile in (UserProfile.objects
+                        .filter(participation_code=code)
+                        .select_related('user')
+                        .order_by('user__first_name', 'user__username')):
+            user = profile.user
+            rows.append({
+                'id': user.id,
+                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'email': user.email,
+                'phone': profile.phone or '',
+                'sessions_booked': code_bookings_used(code, learner=user),
+                'joined': user.date_joined,
+                'shares_with_organisation': profile.share_with_organisation,
+            })
+        return Response({'organisation': code.organisation, 'code': code.code,
+                         'max_per_client': code.max_per_client, 'patients': rows})
+
+    @action(detail=True, methods=['get'])
     def report(self, request, pk=None):
         """The practice's anonymised report: numbers only, never coaching content.
 

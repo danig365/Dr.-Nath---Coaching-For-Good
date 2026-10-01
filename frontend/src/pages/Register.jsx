@@ -108,7 +108,7 @@ export default function Register() {
     bio: "",
     specialties: [], certifications: [], hourly_rate: null,
     years_experience: null, languages: [], industries: [],
-    organisation: "", job_title: "",
+    organisation: "", job_title: "", phone: "",
     participation_code: "", share_with_organisation: false,
   }));
   const navigate = useNavigate();
@@ -479,6 +479,10 @@ export default function Register() {
                         <div>
                           <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "rgba(200,169,81,0.8)" }}>Job Title</label>
                           <FloatingInput name="job_title" placeholder="e.g. Product Manager" icon={IdentificationIcon} value={form.job_title} onChange={handleChange} />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "rgba(200,169,81,0.8)" }}>Phone <span style={{ color: "rgba(200,169,81,0.4)" }}>(Optional)</span></label>
+                          <FloatingInput name="phone" placeholder="+27 83 123 4567" icon={IdentificationIcon} value={form.phone} onChange={handleChange} />
                         </div>
 
                         {/* Participation code — a patient nominated by a partner

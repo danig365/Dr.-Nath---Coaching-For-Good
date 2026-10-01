@@ -88,6 +88,7 @@ const ProfilePage = () => {
         is_verified: d.profile.is_verified,
         organisation: d.profile.organisation,
         job_title: d.profile.job_title,
+        phone: d.profile.phone || "",
         coaching_goals: d.profile.coaching_goals || [],
       };
       setProfile(p);
@@ -101,6 +102,7 @@ const ProfilePage = () => {
         years_experience: p.years_experience ?? "",
         organisation: p.organisation || "",
         job_title: p.job_title || "",
+        phone: p.phone || "",
         // Arrays are edited as comma-separated text; joined here, split on save.
         specialties: (p.specialties || []).join(", "),
         certifications: (p.certifications || []).join(", "),
@@ -131,6 +133,7 @@ const ProfilePage = () => {
         linkedin_url: formData.linkedin_url,
         organisation: formData.organisation,
         job_title: formData.job_title,
+        phone: formData.phone,
         specialties: toList(formData.specialties),
         certifications: toList(formData.certifications),
         industries: toList(formData.industries),
@@ -161,6 +164,7 @@ const ProfilePage = () => {
         years_experience: rp.years_experience,
         organisation: rp.organisation,
         job_title: rp.job_title,
+        phone: rp.phone || "",
         specialties: rp.specialties || [],
         certifications: rp.certifications || [],
         industries: rp.industries || [],
@@ -492,6 +496,9 @@ const ProfilePage = () => {
                     onChange={v => setFormData(f => ({ ...f, organisation: v }))} placeholder="Acme Ltd" />
                   <EditField label="Job title" value={formData.job_title}
                     onChange={v => setFormData(f => ({ ...f, job_title: v }))} placeholder="Product Manager" />
+                  <EditField label="Phone" value={formData.phone}
+                    onChange={v => setFormData(f => ({ ...f, phone: v }))} placeholder="+27 83 123 4567"
+                    hint="So your coach can reach you if a session won't connect." />
                   <div className="sm:col-span-2">
                     <EditField label="Coaching goals" value={formData.coaching_goals}
                       onChange={v => setFormData(f => ({ ...f, coaching_goals: v }))}
@@ -510,6 +517,12 @@ const ProfilePage = () => {
                     <div className="flex items-center gap-2 text-sm mb-4" style={{ color: "#4A5568" }}>
                       <FiAward size={13} style={{ color: "#C8A951" }} />
                       <span><span className="font-medium text-[#1B2B4A]">Job Title:</span> {profile.job_title}</span>
+                    </div>
+                  )}
+                  {profile.phone && (
+                    <div className="flex items-center gap-2 text-sm mb-4" style={{ color: "#4A5568" }}>
+                      <FiBriefcase size={13} style={{ color: "#C8A951" }} />
+                      <span><span className="font-medium text-[#1B2B4A]">Phone:</span> {profile.phone}</span>
                     </div>
                   )}
                   {profile.coaching_goals?.length > 0 && (
