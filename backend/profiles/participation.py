@@ -84,7 +84,7 @@ class ParticipationCodeViewSet(viewsets.ModelViewSet):
     def _profile(self):
         profile = getattr(self.request.user, 'profile', None)
         if profile is None or profile.role not in ('coach', 'admin'):
-            raise serializers.ValidationError("Only coaches manage participation codes.")
+            raise serializers.ValidationError("Only coaches manage coaching codes.")
         return profile
 
     def get_queryset(self):
@@ -350,7 +350,7 @@ From {window} we are offering your practice {code.total_sessions} complimentary 
 How it works
 - Each nominated {person} books a 30-minute session on the secure dr-nath.com platform, at a date and time that suits them.
 - One {person} may use up to {code.max_per_client} sessions during this period, ideally one a week.
-- Your participation code is {code.code}. They enter it in the Participation Code box when they register, so their sessions draw on your allocation.
+- Your coaching code is {code.code}. They enter it in the Coaching Code box when they register, so their sessions draw on your allocation.
 
 What we need from you
 1. Confirm your participation by replying to this email.

@@ -191,7 +191,7 @@ class ParticipationCode(models.Model):
         """
         from django.utils import timezone as dj_tz
         if not self.active:
-            return "That participation code is no longer active."
+            return "That coaching code is no longer active."
         day = when or dj_tz.now().date()
         if not registering and self.valid_from and day < self.valid_from:
             return f"These sessions can be booked from {self.valid_from:%-d %B %Y}."

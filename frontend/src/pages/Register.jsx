@@ -339,7 +339,7 @@ export default function Register() {
                         not discover the box on the last step. */}
                     <div className="p-3.5 rounded-xl" style={{ background: "rgba(200,169,81,0.08)", border: "1px solid rgba(200,169,81,0.25)" }}>
                       <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "rgba(200,169,81,0.9)" }}>
-                        Participation Code <span style={{ color: "rgba(200,169,81,0.5)" }}>(Optional)</span>
+                        Coaching Code <span style={{ color: "rgba(200,169,81,0.5)" }}>(Optional)</span>
                       </label>
                       <FloatingInput name="participation_code" placeholder="From your doctor or organisation"
                         icon={IdentificationIcon} value={form.participation_code} onChange={handleChange} />

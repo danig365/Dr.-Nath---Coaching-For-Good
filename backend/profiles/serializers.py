@@ -155,7 +155,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         code = ParticipationCode.objects.filter(code=value).first()
         if code is None:
             raise serializers.ValidationError(
-                "We don't recognise that participation code. Please check it with your practice, "
+                "We don't recognise that coaching code. Please check it with your practice, "
                 "or leave it blank to register without one."
             )
         window = code.window_error(registering=True)

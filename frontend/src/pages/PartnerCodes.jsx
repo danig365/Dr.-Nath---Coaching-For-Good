@@ -85,7 +85,7 @@ export default function PartnerCodes() {
       setCodes(Array.isArray(c.data) ? c.data : c.data.results || []);
       setSkills(Array.isArray(s.data) ? s.data : s.data.results || []);
     } catch {
-      toast.error("Couldn't load participation codes.");
+      toast.error("Couldn't load coaching codes.");
     } finally {
       setLoading(false);
     }
@@ -256,7 +256,7 @@ export default function PartnerCodes() {
             className="rounded-2xl p-6 mb-8 space-y-4" style={card}>
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-normal" style={{ ...serif, color: NAVY }}>
-                {editingId ? "Edit code" : "New participation code"}
+                {editingId ? "Edit code" : "New coaching code"}
               </h2>
               <button type="button" onClick={() => { setShowForm(false); setEditingId(null); }}
                 className="p-1.5 rounded-lg" style={{ color: SLATE }}>

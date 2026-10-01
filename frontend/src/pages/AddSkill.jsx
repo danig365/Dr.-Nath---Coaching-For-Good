@@ -326,7 +326,7 @@ const AddSkill = () => {
               <input type="checkbox" checked={form.requires_participation_code}
                 onChange={e => setForm(f => ({ ...f, requires_participation_code: e.target.checked }))} className="mt-0.5" />
               <span>
-                <span className="block text-sm font-semibold" style={{ color: "#1B2B4A" }}>Only for patients with a participation code</span>
+                <span className="block text-sm font-semibold" style={{ color: "#1B2B4A" }}>Only for patients with a coaching code</span>
                 <span className="block text-xs mt-0.5" style={{ color: "rgba(74,85,104,0.7)" }}>
                   For partner campaigns: only clients who registered with a code from a participating
                   organisation can book. Manage codes under Clients → Partner Organisations.

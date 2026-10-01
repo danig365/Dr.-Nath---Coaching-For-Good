@@ -124,7 +124,7 @@ def participation_cap_message(skill, learner, when=None):
     if getattr(skill, 'requires_participation_code', False):
         if code is None or (code.skill_id and code.skill_id != skill.id):
             return ("These sessions are for patients nominated by a participating practice. "
-                    "Please register with the participation code your practice gave you, "
+                    "Please register with the coaching code your practice gave you, "
                     "or contact us at query@dr-nath.com.")
     if code is None or (code.skill_id and code.skill_id != skill.id):
         return None
