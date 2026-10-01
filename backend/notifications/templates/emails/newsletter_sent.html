@@ -14,9 +14,15 @@
     <div style="background:linear-gradient(135deg,#1B2B4A,#14213D); padding:16px; text-align:center;">
       <div style="font-size:18px; font-weight:bold; color:#ffffff;">dr-nath.com Newsletter</div>
     </div>
+    {% if edition %}
+    <div style="background:linear-gradient(90deg,#C8A951,#F0D98C); padding:8px 16px; text-align:center;">
+      <span style="font-size:11px; font-weight:bold; letter-spacing:3px; text-transform:uppercase; color:#14213D; font-family:Arial, sans-serif;">{{ edition }}</span>
+    </div>
+    {% else %}
     <div style="height:3px; background:linear-gradient(90deg,#C8A951,#F0D98C);"></div>
-    <div style="padding:20px; font-size:15px; line-height:1.7; color:#1B2B4A; font-family:Arial, sans-serif;">
-      {{ body_html|safe }}
+    {% endif %}
+    <div style="padding:20px;">
+      {% include "emails/_newsletter_body.html" %}
     </div>
   </div>
 {% endblock %}

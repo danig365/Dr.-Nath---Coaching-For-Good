@@ -5,27 +5,5 @@
 {% block goldrule %}<tr><td style="background:linear-gradient(90deg,#C8A951,#F0D98C); padding:{% if edition %}10px 32px{% else %}0{% endif %}; text-align:center; {% if not edition %}height:4px;{% endif %}">{% if edition %}<span style="font-size:12px; font-weight:bold; letter-spacing:3px; text-transform:uppercase; color:#14213D; font-family:Arial, sans-serif;">{{ edition }}</span>{% endif %}</td></tr>{% endblock %}
 
 {% block content %}
-  {% if first_name %}
-  <p style="margin:0 0 18px; font-size:15px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;">
-    Hi {{ first_name }},
-  </p>
-  {% endif %}
-
-  <div style="font-size:15px; line-height:1.7; color:#1B2B4A; font-family:Arial, sans-serif; text-align:justify;">
-    {{ body_html|safe }}
-  </div>
-
-  {# The point of the letter: an easy way to act on it while it is still open. #}
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:30px 0 4px; border-top:1px solid rgba(200,169,81,0.35);"><tr><td style="padding:24px 0 4px; text-align:center; font-family:Arial, sans-serif;">
-    <p style="margin:0 0 14px; font-size:17px; font-weight:bold; color:#1B2B4A; font-family:Georgia,'Times New Roman',serif;">Book your session with Dr Nath</p>
-    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;"><tr><td align="center" style="border-radius:999px; background:linear-gradient(135deg,#C8A951,#F0D98C);">
-      <a href="{{ site_url }}/skills" style="display:inline-block; color:#14213D; text-decoration:none; font-weight:bold; font-size:15px; padding:13px 32px; font-family:Arial, sans-serif;">Book a Session</a>
-    </td></tr></table>
-  </td></tr></table>
-
-  <p style="margin:28px 0 0; font-size:12px; line-height:1.6; color:#9aa3b0; font-family:Arial, sans-serif; text-align:center;">
-    You're receiving this newsletter because you subscribed to
-    <a href="https://www.dr-nath.com" style="color:#A9863A;">https://www.dr-nath.com</a>.
-    <a href="{{ unsubscribe_url }}" style="color:#A9863A;">Unsubscribe</a>.
-  </p>
+  {% include "emails/_newsletter_body.html" %}
 {% endblock %}

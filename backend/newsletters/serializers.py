@@ -24,6 +24,11 @@ class SubscriberSerializer(serializers.ModelSerializer):
 
 
 class NewsletterSerializer(serializers.ModelSerializer):
+    def validate_body_html(self, value):
+        # Clean on the way in, so what is stored is what can safely be sent.
+        from .htmlclean import clean_newsletter_html
+        return clean_newsletter_html(value)
+
     """Admin CRUD for newsletter issues. Status/send metadata are server-managed."""
     class Meta:
         model = Newsletter

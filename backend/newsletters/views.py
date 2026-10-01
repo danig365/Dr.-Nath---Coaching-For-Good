@@ -6,6 +6,8 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
+
+from .htmlclean import clean_newsletter_html
 from rest_framework.views import APIView
 
 from .models import Newsletter, NewsletterSubscriber
@@ -146,7 +148,7 @@ class NewsletterViewSet(viewsets.ModelViewSet):
                     'subject': newsletter.subject,
                     'edition': newsletter.edition,
                     'first_name': sub.first_name,
-                    'body_html': newsletter.body_html,
+                    'body_html': clean_newsletter_html(newsletter.body_html),
                     'unsubscribe_url': unsubscribe_url,
                 },
                 scheduled_for=now,
@@ -181,7 +183,12 @@ class NewsletterViewSet(viewsets.ModelViewSet):
                 template='newsletter_sent',
                 context={
                     'subject': newsletter.subject,
-                    'body_html': newsletter.body_html,
+                    'edition': newsletter.edition,
+                    'body_html': clean_newsletter_html(newsletter.body_html),
+                    # The copy shows the greeting as subscribers saw it, with the
+                    # placeholder each of them had filled in with their own name.
+                    'placeholder_name': True,
+                    'unsubscribe_url': f"{settings.SITE_URL}/newsletter",
                     'recipient_count': count,
                     'audience_label': audience_label,
                     'sent_when': now.strftime('%d %b %Y, %H:%M UTC'),
