@@ -23,6 +23,16 @@ const card = {
   boxShadow: "0 8px 30px rgba(27,43,74,0.06)",
 };
 
+// A practice nominates patients, a company employees, a coach's partner clients.
+// Every label that names them reads from here, so the form speaks the language
+// of the organisation it is describing.
+const AUDIENCE_WORDS = {
+  patients: { one: "patient", many: "patients" },
+  employees: { one: "employee", many: "employees" },
+  clients: { one: "client", many: "clients" },
+};
+const words = (audience) => AUDIENCE_WORDS[audience] || AUDIENCE_WORDS.patients;
+
 const emptyForm = {
   code: "",
   organisation: "",
@@ -197,7 +207,7 @@ export default function PartnerCodes() {
       const res = await api.get(`/participation-codes/${c.id}/patients/`);
       setPatients(res.data);
     } catch {
-      toast.error("Couldn't load the patient list.");
+      toast.error("Couldn't load the list of people.");
     }
   };
 
@@ -245,7 +255,7 @@ export default function PartnerCodes() {
         {codes.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
             <Stat label="Practices" value={totals.practices} />
-            <Stat label="Patients" value={totals.patients} />
+            <Stat label="People" value={totals.patients} />
             <Stat label="Sessions used" value={totals.used} tone="#2E7D32" />
             <Stat label="Allocated" value={totals.allocated} />
           </div>
@@ -265,7 +275,7 @@ export default function PartnerCodes() {
             </div>
 
             <div className="grid sm:grid-cols-2 gap-4">
-              <Field label="Code" hint="What patients type when registering. Short and easy to read.">
+              <Field label="Code" hint={`What ${words(form.audience).many} type when registering. Short and easy to read.`}>
                 <input className={inputCls} style={inputStyle} value={form.code}
                   onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))}
                   placeholder="KEAGAN" />
@@ -305,7 +315,7 @@ export default function PartnerCodes() {
                   <input type="number" min="1" className={inputCls} style={inputStyle} value={form.total_sessions}
                     onChange={e => setForm(f => ({ ...f, total_sessions: e.target.value }))} />
                 </Field>
-                <Field label="Per patient">
+                <Field label={`Per ${words(form.audience).one}`}>
                   <input type="number" min="1" className={inputCls} style={inputStyle} value={form.max_per_client}
                     onChange={e => setForm(f => ({ ...f, max_per_client: e.target.value }))} />
                 </Field>
@@ -328,7 +338,7 @@ export default function PartnerCodes() {
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={form.active}
                 onChange={e => setForm(f => ({ ...f, active: e.target.checked }))} />
-              <span className="text-sm" style={{ color: SLATE }}>Active — patients can register with this code</span>
+              <span className="text-sm" style={{ color: SLATE }}>Active — {words(form.audience).many} can register with this code</span>
             </label>
 
             <button type="submit" disabled={saving}
@@ -406,7 +416,7 @@ export default function PartnerCodes() {
                                textDecoration: c.clients_registered ? "underline" : "none" }}
                       title={c.clients_registered ? "See who registered with this code" : "Nobody has registered with this code yet"}>
                       <FiUsers size={14} style={{ color: "#C8A951" }} />
-                      {c.clients_registered} patient{c.clients_registered === 1 ? "" : "s"}
+                      {c.clients_registered} {c.clients_registered === 1 ? words(c.audience).one : words(c.audience).many}
                     </button>
                     <span className="flex items-center gap-1.5"><FiCalendar size={14} style={{ color: "#C8A951" }} />
                       max {c.max_per_client} each
@@ -486,7 +496,7 @@ export default function PartnerCodes() {
             </div>
             <p className="text-xs mb-5" style={{ color: "rgba(74,85,104,0.7)" }}>
               {patients.patients.length} registered with code {patients.code}. Contact details are yours only —
-              the practice's report shows counts, never names.
+              the organisation's report shows counts, never names.
             </p>
 
             {patients.patients.length === 0 ? (
