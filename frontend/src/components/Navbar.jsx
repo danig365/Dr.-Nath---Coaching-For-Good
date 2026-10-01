@@ -194,6 +194,16 @@ const Navbar = () => {
                 via /home instead of being bounced to their dashboard). */}
             <Link
               to={isAuthenticated ? "/home" : "/"}
+              onClick={() => {
+                // Already on this page with a #section in the URL? A Link to the
+                // same path does nothing, so the logo appeared dead. Take them
+                // back to the top and clear the anchor.
+                const home = isAuthenticated ? "/home" : "/";
+                if (location.pathname === home) {
+                  window.history.replaceState(null, "", home);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }
+              }}
               className="flex items-center gap-3 group"
             >
               <img

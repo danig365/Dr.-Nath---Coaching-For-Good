@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowRightIcon,
   AcademicCapIcon,
-  CalendarIcon,
   ChartBarIcon,
   SparklesIcon,
   UsersIcon,
@@ -500,37 +499,6 @@ const Home = () => {
                 >
                   {o.cta} <ArrowRightIcon className="w-4 h-4" />
                 </Link>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── HOW IT WORKS ───────────────────────────────────── */}
-      <section className="py-24 px-6" style={{ background: CREAM }}>
-        <div className="max-w-6xl mx-auto">
-          <motion.div className="text-center mb-16" initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] mb-4" style={{ color: GOLD_DEEP }}>The Process</p>
-            <h2 className="text-4xl md:text-6xl font-normal leading-tight" style={{ color: NAVY, fontFamily: serif }}>How coaching <em>works</em></h2>
-          </motion.div>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              { num: "01", icon: <AcademicCapIcon className="w-9 h-9" />, title: "Discover Your Goals", desc: "We start by exploring your vision, your values and what you would like to move forward." },
-              { num: "02", icon: <CalendarIcon className="w-9 h-9" />, title: "Book Your Sessions", desc: "Schedule focused 1-on-1 coaching sessions." },
-              { num: "03", icon: <ChartBarIcon className="w-9 h-9" />, title: "Grow & Track Impact", desc: "Apply tailored frameworks, track real progress and become who you're meant to be." },
-            ].map((step, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 25 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
-                transition={{ delay: i * 0.15 }} whileHover={{ y: -4 }}
-                className="p-8 rounded-3xl bg-white transition-all duration-300 hover:shadow-md"
-                style={{ border: "1px solid rgba(27,43,74,0.1)" }}
-              >
-                <span className="text-6xl font-normal" style={{ color: "rgba(200,169,81,0.35)", fontFamily: serif }}>{step.num}</span>
-                <div className="mt-4 mb-3" style={{ color: GOLD_DEEP }}>{step.icon}</div>
-                <h3 className="text-2xl font-normal mb-3" style={{ color: NAVY, fontFamily: serif }}>{step.title}</h3>
-                <p className="leading-relaxed" style={{ color: SLATE }}>{step.desc}</p>
               </motion.div>
             ))}
           </div>
