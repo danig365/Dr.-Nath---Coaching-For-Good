@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
   FiCalendar, FiClock, FiMessageSquare, FiX,
@@ -83,18 +84,51 @@ const OUTCOME_OPTIONS = [
 
 const OutcomeMenu = ({ current, onPick }) => {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null); // {top, right} in viewport coordinates
+  const btnRef = useRef(null);
+
+  // The session card clips its contents (rounded corners, overflow-hidden), so a
+  // menu positioned inside it opened INVISIBLY: the button appeared to do
+  // nothing. It is drawn in a portal above the page instead, as the admin
+  // row menu is.
+  const place = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const width = 256;
+    const spaceBelow = window.innerHeight - r.bottom;
+    setPos({
+      top: spaceBelow > 230 ? r.bottom + 6 : Math.max(8, r.top - 230),
+      right: Math.max(8, window.innerWidth - Math.max(r.right, width + 8)),
+    });
+  };
+
+  const toggle = () => { if (!open) place(); setOpen(o => !o); };
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = () => setOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [open]);
+
   return (
-    <div className="relative">
-      <button type="button" onClick={() => setOpen(o => !o)}
+    <>
+      <button ref={btnRef} type="button" onClick={toggle}
         className="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap shrink-0 transition-all"
         style={{ background: "rgba(200,169,81,0.1)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.25)" }}>
         <FiEdit2 size={13} /> Correct outcome
       </button>
-      {open && (
+      {open && pos && createPortal(
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 mt-1 z-20 w-64 rounded-xl overflow-hidden shadow-xl"
-            style={{ background: "white", border: "1px solid rgba(200,169,81,0.25)" }}>
+          <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
+          <div className="fixed z-[91] w-64 rounded-xl overflow-hidden shadow-xl"
+            style={{ top: pos.top, right: pos.right, background: "white", border: "1px solid rgba(200,169,81,0.25)" }}>
+            <p className="px-3.5 py-2 text-[11px] font-semibold uppercase tracking-wider"
+              style={{ background: "#FAF6EC", color: "#A9863A" }}>What happened?</p>
             {OUTCOME_OPTIONS.map(o => (
               <button key={o.value} type="button"
                 onClick={() => { setOpen(false); if (o.value !== current) onPick(o.value); }}
@@ -105,9 +139,10 @@ const OutcomeMenu = ({ current, onPick }) => {
               </button>
             ))}
           </div>
-        </>
+        </>,
+        document.body,
       )}
-    </div>
+    </>
   );
 };
 
