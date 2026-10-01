@@ -20,16 +20,28 @@ export default function CoachClients() {
       .finally(() => setLoading(false));
   }, [requireCoach]);
 
+  // Someone referred by a partner practice or company is a different
+  // relationship from a client who found Dr Nath themselves — she asked to be
+  // able to tell them apart at a glance.
+  const [source, setSource] = useState("all"); // all | partner | direct
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return clients;
-    return clients.filter(
-      (c) =>
+    return clients.filter((c) => {
+      if (source === "partner" && !c.partner) return false;
+      if (source === "direct" && c.partner) return false;
+      if (!q) return true;
+      return (
         (c.name || "").toLowerCase().includes(q) ||
         (c.email || "").toLowerCase().includes(q) ||
-        (c.organisation || "").toLowerCase().includes(q)
-    );
-  }, [clients, query]);
+        (c.organisation || "").toLowerCase().includes(q) ||
+        (c.partner?.organisation || "").toLowerCase().includes(q) ||
+        (c.partner?.code || "").toLowerCase().includes(q)
+      );
+    });
+  }, [clients, query, source]);
+
+  const partnerCount = useMemo(() => clients.filter((c) => c.partner).length, [clients]);
 
   const fmtDate = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—");
 
@@ -51,13 +63,26 @@ export default function CoachClients() {
             <FiSearch size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "#C8A951" }} />
             <input
               type="text"
-              placeholder="Search by name, email or organisation…"
+              placeholder="Search by name, email, organisation or code…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-3 rounded-xl text-sm focus:outline-none"
               style={{ background: "white", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }}
             />
           </div>
+          {partnerCount > 0 && (
+            <div className="flex items-center gap-1.5">
+              {[["all", `All (${clients.length})`], ["partner", `Referred (${partnerCount})`], ["direct", `Direct (${clients.length - partnerCount})`]].map(([key, label]) => (
+                <button key={key} onClick={() => setSource(key)}
+                  className="px-3.5 py-2 rounded-full text-xs font-semibold transition-all"
+                  style={source === key
+                    ? { background: "#1B2B4A", color: "#FAF6EC" }
+                    : { background: "white", color: "#4A5568", border: "1px solid rgba(27,43,74,0.12)" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           <span className="text-xs font-semibold uppercase tracking-wider px-3 py-2 rounded-full" style={{ background: "rgba(200,169,81,0.12)", color: "#A9863A" }}>
             <FiUsers size={12} className="inline mr-1" /> {filtered.length} {filtered.length === 1 ? "client" : "clients"}
           </span>
@@ -82,19 +107,36 @@ export default function CoachClients() {
             {filtered.map((c, i) => (
               <div key={c.user_id}
                 className="grid grid-cols-1 md:grid-cols-[1.6fr_1.4fr_0.9fr_0.9fr] gap-1 md:gap-4 px-5 py-3.5 items-center"
-                style={{ borderBottom: i < filtered.length - 1 ? "1px solid rgba(200,169,81,0.1)" : "none" }}>
+                style={{
+                  borderBottom: i < filtered.length - 1 ? "1px solid rgba(200,169,81,0.1)" : "none",
+                  borderLeft: c.partner ? "3px solid #C8A951" : "3px solid transparent",
+                  background: c.partner ? "rgba(200,169,81,0.04)" : "transparent",
+                }}>
                 {/* Client */}
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "#C8A951", color: "#14213D" }}>
                     {(c.name || "?").charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-[#1B2B4A] truncate">{c.name}</p>
-                    {(c.organisation || c.job_title) && (
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="text-sm font-semibold text-[#1B2B4A] truncate">{c.name}</p>
+                      {c.partner && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0"
+                          style={{ background: "rgba(200,169,81,0.18)", color: "#A9863A", border: "1px solid rgba(200,169,81,0.35)" }}
+                          title={`Referred by ${c.partner.organisation} · code ${c.partner.code}`}>
+                          {c.partner.code}
+                        </span>
+                      )}
+                    </div>
+                    {c.partner ? (
+                      <p className="text-xs truncate" style={{ color: "#A9863A" }}>
+                        via {c.partner.organisation}
+                      </p>
+                    ) : (c.organisation || c.job_title) ? (
                       <p className="text-xs truncate" style={{ color: "rgba(74,85,104,0.7)" }}>
                         {[c.job_title, c.organisation].filter(Boolean).join(" · ")}
                       </p>
-                    )}
+                    ) : null}
                   </div>
                 </div>
                 {/* Email */}

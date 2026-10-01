@@ -553,7 +553,7 @@ class CoachClientsView(APIView):
 
         clients = (
             UserProfile.objects.filter(role='client')
-            .select_related('user')
+            .select_related('user', 'participation_code')
             .order_by('-user__date_joined')
         )
         result = []
@@ -571,6 +571,15 @@ class CoachClientsView(APIView):
                 'joined': u.date_joined.strftime('%Y-%m-%d'),
                 'organisation': c.organisation or '',
                 'job_title': c.job_title or '',
+                'phone': c.phone or '',
+                # Someone a partner practice or company sent, and which one —
+                # a referred patient is a different relationship from a client
+                # who found Dr Nath themselves.
+                'partner': ({
+                    'code': c.participation_code.code,
+                    'organisation': c.participation_code.organisation,
+                    'audience': c.participation_code.get_audience_display(),
+                } if c.participation_code_id else None),
                 'bookings_with_me': mine,
                 'total_bookings': all_bookings.count(),
                 'last_session': last.session_date.strftime('%Y-%m-%d') if last and last.session_date else None,
