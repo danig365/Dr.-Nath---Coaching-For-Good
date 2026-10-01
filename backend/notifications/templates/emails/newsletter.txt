@@ -9,5 +9,5 @@ BOOK YOUR SESSION WITH DR NATH
 {{ site_url }}/skills
 
 --------------------------------------------------------------
-You're receiving this newsletter because you subscribed at dr-nath.com.
+You're receiving this newsletter because you subscribed to https://www.dr-nath.com.
 Unsubscribe: {{ unsubscribe_url }}{% endblock %}
