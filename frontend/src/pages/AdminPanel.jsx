@@ -1879,6 +1879,14 @@ export default function AdminPanel() {
                     <p style={{ margin: "0 0 18px", fontSize: "15px", lineHeight: 1.6, color: "#4A5568", fontFamily: "Arial, sans-serif" }}>Hi <span style={{ color: "#A9863A" }}>[First name]</span>,</p>
                     <div style={{ fontSize: "15px", lineHeight: 1.7, color: "#1B2B4A", fontFamily: "Arial, sans-serif" }}
                       dangerouslySetInnerHTML={{ __html: previewModal.newsletter?.body_html || "" }} />
+                    <div style={{ margin: "30px 0 4px", paddingTop: "24px", borderTop: "1px solid rgba(200,169,81,0.35)", textAlign: "center" }}>
+                      <p style={{ margin: "0 0 14px", fontSize: "17px", fontWeight: "bold", color: "#1B2B4A", fontFamily: "Georgia, 'Times New Roman', serif" }}>
+                        Book your session with Dr Nath
+                      </p>
+                      <span style={{ display: "inline-block", borderRadius: "999px", background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D", fontWeight: "bold", fontSize: "15px", padding: "13px 32px", fontFamily: "Arial, sans-serif" }}>
+                        Book a Session
+                      </span>
+                    </div>
                     <p style={{ margin: "28px 0 0", fontSize: "12px", lineHeight: 1.6, color: "#9aa3b0", fontFamily: "Arial, sans-serif" }}>
                       You're receiving this because you subscribed at dr-nath.com. <span style={{ color: "#A9863A" }}>Unsubscribe</span>.
                     </p>

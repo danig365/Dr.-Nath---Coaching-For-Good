@@ -5,5 +5,9 @@
 {% endif %}{{ body_html|striptags }}
 
 --------------------------------------------------------------
+BOOK YOUR SESSION WITH DR NATH
+{{ site_url }}/skills
+
+--------------------------------------------------------------
 You're receiving this because you subscribed at dr-nath.com.
 Unsubscribe: {{ unsubscribe_url }}{% endblock %}
