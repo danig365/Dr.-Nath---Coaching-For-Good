@@ -663,7 +663,10 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
             if new_slot.coach_id != booking.mentor_id:
                 return Response({'detail': 'That time belongs to another coach.'},
                                 status=HTTP_400_BAD_REQUEST)
-            if new_slot.start_datetime <= dj_tz.now():
+            # A time that has just begun is allowed: "move it to now" is what a
+            # coach starting early actually wants. Anything older than the start
+            # of the hour before now is a mistake.
+            if new_slot.start_datetime <= dj_tz.now() - timedelta(minutes=60):
                 return Response({'detail': 'Choose a time in the future.'}, status=HTTP_400_BAD_REQUEST)
             if new_slot.status != 'open':
                 return Response({'detail': 'That time is no longer available — please pick another.'},
