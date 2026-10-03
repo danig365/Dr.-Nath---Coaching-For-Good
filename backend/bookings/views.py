@@ -621,6 +621,87 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(booking)
         return Response(serializer.data, status=HTTP_200_OK)
 
+    @action(detail=True, methods=['patch'], url_path='reschedule')
+    def reschedule(self, request, pk=None):
+        """Coach moves a confirmed session to a different time.
+
+        Until now the only way to change a time was to cancel and ask the client
+        to book again — which loses the session, the chat and the link, and takes
+        two people to do. Dr Nath hit this with a session agreed by WhatsApp for
+        an hour earlier than the booking.
+
+        The same booking keeps its id, so the joining link both parties already
+        have still works. The old slot goes back on sale, the new one is taken,
+        reminders are rebuilt around the new time and both sides are told.
+
+        Body: {slot_id} — one of this coach's own open slots.
+        """
+        booking = self.get_object()
+        user = request.user
+
+        if getattr(getattr(user, 'profile', None), 'role', None) != 'coach':
+            return Response({'detail': 'Only a coach can move a session.'}, status=HTTP_403_FORBIDDEN)
+        if booking.mentor != user.profile:
+            return Response({'detail': 'You can only move your own sessions.'}, status=HTTP_403_FORBIDDEN)
+        if booking.status not in ('pending', 'accepted'):
+            return Response({'detail': 'Only an upcoming session can be moved.'}, status=HTTP_400_BAD_REQUEST)
+
+        slot_id = request.data.get('slot_id')
+        if not slot_id:
+            return Response({'detail': 'Choose a new time.'}, status=HTTP_400_BAD_REQUEST)
+
+        from .notifications import (cancel_booking_notifications, schedule_booking_notifications,
+                                    send_booking_moved, session_start_utc)
+        old_start = session_start_utc(booking)
+
+        with transaction.atomic():
+            try:
+                new_slot = TimeSlot.objects.select_for_update().get(id=slot_id)
+            except TimeSlot.DoesNotExist:
+                return Response({'detail': 'That time is no longer on the calendar.'},
+                                status=status.HTTP_404_NOT_FOUND)
+            if new_slot.coach_id != booking.mentor_id:
+                return Response({'detail': 'That time belongs to another coach.'},
+                                status=HTTP_400_BAD_REQUEST)
+            if new_slot.start_datetime <= dj_tz.now():
+                return Response({'detail': 'Choose a time in the future.'}, status=HTTP_400_BAD_REQUEST)
+            if new_slot.status != 'open':
+                return Response({'detail': 'That time is no longer available — please pick another.'},
+                                status=HTTP_400_BAD_REQUEST)
+
+            # Free the slots the session currently holds, so the old time goes
+            # back on sale rather than staying blocked.
+            released = TimeSlot.objects.select_for_update().filter(
+                coach=booking.mentor, status='booked',
+                start_datetime__gte=booking.slot.start_datetime,
+                start_datetime__lt=booking.slot.start_datetime + timedelta(minutes=booking.duration or 60),
+            ) if booking.slot_id else TimeSlot.objects.none()
+            for s in released:
+                s.status = 'open'
+                s.held_until = None
+                s.held_by = None
+                s.save(update_fields=['status', 'held_until', 'held_by', 'updated_at'])
+
+            # Note: the coach's minimum notice is deliberately NOT applied here.
+            # It protects her diary from last-minute bookings by clients; moving
+            # a session she has already agreed to is her decision to make.
+            try:
+                _consume_covering_slots(booking.mentor, new_slot, booking.duration, booking.learner)
+            except ValueError as err:
+                return Response({'detail': str(err)}, status=status.HTTP_409_CONFLICT)
+
+            booking.slot = new_slot
+            booking.session_date = new_slot.start_datetime.date()
+            booking.session_time = new_slot.start_datetime.time()
+            booking.save(update_fields=['slot', 'session_date', 'session_time'])
+
+        # Reminders belong to the old time: drop the pending ones and rebuild.
+        cancel_booking_notifications(booking)
+        schedule_booking_notifications(booking, confirmation=False)
+        send_booking_moved(booking, old_start=old_start, moved_by=user)
+
+        return Response(self.get_serializer(booking).data)
+
     @action(detail=True, methods=['patch'], url_path='change-program')
     def change_program(self, request, pk=None):
         """Coach reassigns a booking to a different offering (program/service).

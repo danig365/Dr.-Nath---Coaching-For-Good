@@ -466,11 +466,15 @@ def send_session_thankyou(booking):
         booking.save(update_fields=['thankyou_sent'])
 
 
-def schedule_booking_notifications(booking):
+def schedule_booking_notifications(booking, *, confirmation=True):
     """
     Queue notifications for a new booking: an immediate confirmation to both
     parties, plus the reminder ladder (1 day / 1 hour / 30 min / at-start).
     Safe to call more than once — dedupe keys prevent duplicates.
+
+    `confirmation=False` queues only the reminders — used when a session is
+    MOVED, where "Booking confirmed" would be the wrong thing to say and the
+    move email has already gone out.
     """
     start_utc = session_start_utc(booking)
     if not start_utc:
@@ -510,7 +514,7 @@ def schedule_booking_notifications(booking):
         logger.warning("Booking %s: .ics generation failed: %s", booking.id, cal_err)
 
     # 1) Confirmation — due now, sent immediately for instant feedback.
-    for r in recipients:
+    for r in recipients if confirmation else []:
         if not r['email']:
             continue
         note = ScheduledNotification.queue(
@@ -553,8 +557,50 @@ def schedule_booking_notifications(booking):
                 context=_context(booking, r, start_utc, reminder_label=label),
                 scheduled_for=fire_at,
                 related=booking,
-                dedupe_key=f"booking:{booking.id}:{kind}:{r['role']}",
+                dedupe_key=f"booking:{booking.id}:{kind}:{r['role']}:{start_utc:%Y%m%d%H%M}",
             )
+
+
+def send_booking_moved(booking, old_start=None, moved_by=None):
+    """Tell both parties a session has moved, with the old time and the new one.
+
+    Sent immediately — a time change is useless late — and best-effort: a failed
+    email must never undo the move itself. The joining link is unchanged, which
+    the email says, because people keep the old one.
+    """
+    new_start = session_start_utc(booking)
+    if not new_start:
+        logger.warning("Booking %s has no resolvable start time; skipping move emails.", booking.id)
+        return
+
+    skill_name = booking.skill.name if booking.skill else 'your session'
+    mover = _display_name(moved_by) if moved_by else 'Your coach'
+
+    for r in _recipients(booking):
+        if not r['email']:
+            continue
+        ctx = _context(booking, r, new_start)
+        ctx.update({
+            'old_when': _fmt_when(old_start, r['tz']) if old_start else '',
+            'moved_by': mover,
+            'moved_by_you': bool(moved_by and r['user'] and moved_by.id == r['user'].id),
+        })
+        try:
+            note = ScheduledNotification.queue(
+                kind='booking_moved',
+                recipient_email=r['email'],
+                recipient_user=r['user'],
+                subject=f"New time — {skill_name}",
+                template='booking_moved',
+                context=ctx,
+                scheduled_for=dj_tz.now(),
+                related=booking,
+                dedupe_key=f"booking:{booking.id}:moved:{new_start:%Y%m%d%H%M}:{r['role']}",
+            )
+            if note and note.status == ScheduledNotification.STATUS_PENDING:
+                note.send()
+        except Exception as err:  # noqa: BLE001 — never block a move on email
+            logger.warning("Booking %s: move email to %s failed: %s", booking.id, r['email'], err)
 
 
 def send_booking_cancelled(booking, start_utc=None, cancelled_by=None):

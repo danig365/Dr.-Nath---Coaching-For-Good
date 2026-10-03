@@ -1,0 +1,17 @@
+{% extends "emails/base.html" %}
+{% block title %}Your session has a new time{% endblock %}
+{% block content %}
+  <h1 style="margin:0 0 8px; font-size:22px; font-weight:normal; color:#1B2B4A;">Your session has a new time</h1>
+  <p style="margin:0 0 18px; font-size:15px; line-height:1.6; color:#4A5568; font-family:Arial, sans-serif;">
+    Hi {{ recipient_name }}, {% if moved_by_you %}you moved{% else %}<strong>{{ moved_by }}</strong> has moved{% endif %} this session. Nothing else changes — your joining link is the same.
+  </p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#FAF6EC; border:1px solid rgba(200,169,81,0.3); border-radius:12px; margin-bottom:24px;"><tr><td style="padding:18px 20px; font-family:Arial, sans-serif;">
+    <p style="margin:0 0 10px; font-size:16px; font-weight:bold; color:#1B2B4A;">{{ skill_name }}</p>
+    {% if old_when %}<p style="margin:0 0 4px; font-size:14px; color:#9aa3b0;"><span style="text-decoration:line-through;">{{ old_when }}</span></p>{% endif %}
+    <p style="margin:0; font-size:16px; font-weight:bold; color:#1B2B4A;">{{ session_when }}</p>
+    <p style="margin:6px 0 0; font-size:13px; color:#4A5568;">{{ duration }} minutes</p>
+  </td></tr></table>
+  <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;"><tr><td align="center" style="border-radius:999px; background:linear-gradient(135deg,#C8A951,#F0D98C);">
+    <a href="{{ join_link }}" style="display:inline-block; color:#14213D; text-decoration:none; font-weight:bold; font-size:15px; padding:13px 32px; font-family:Arial, sans-serif;">Join the session</a>
+  </td></tr></table>
+{% endblock %}

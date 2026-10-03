@@ -178,7 +178,7 @@ const ActionBtn = ({ onClick, icon: Icon, label, badge, variant = "default" }) =
 };
 
 // ─── Session Card (compact) ────────────────────────────────────────────────────
-const SessionCard = ({ session, activeTab, onCancel, onChangeProgram, onNudge, onSetMeetingLink, onUploadNotes, onReflect, onSummary, onSetOutcome, onJoin, navigate, index }) => {
+const SessionCard = ({ session, activeTab, onCancel, onChangeProgram, onReschedule, onNudge, onSetMeetingLink, onUploadNotes, onReflect, onSummary, onSetOutcome, onJoin, navigate, index }) => {
   const { timezone } = useAuth(); // viewer's display timezone (coach's set zone)
   // Absolute UTC start, rendered in the viewer's timezone. slot_start is the
   // source of truth; fall back to session_date/time treated as UTC ("Z").
@@ -279,6 +279,7 @@ const SessionCard = ({ session, activeTab, onCancel, onChangeProgram, onNudge, o
                     <ActionBtn onClick={() => {}} icon={FiVideo} label="Pending" variant="default" />
                   )}
                   {!expired && <ActionBtn onClick={() => onCancel(session)} icon={FiX} label="Cancel" variant="danger" />}
+                  {!expired && <ActionBtn onClick={() => onReschedule(session)} icon={FiClock} label="Reschedule" />}
                   {!expired && <ActionBtn onClick={() => onChangeProgram(session)} icon={FiRepeat} label="Change Program" />}
                   {session.status === "accepted" && canNudge && (
                     <ActionBtn onClick={() => onNudge(session)} icon={FiBell} label="Remind to join" />
@@ -545,6 +546,12 @@ const MySessions = () => {
   // any the coach explicitly marked as "did not take place".
   const noShowSessions = sessions.filter(s => s.status === "no_show" || s.status === "not_held");
 
+  const [rescheduleTarget, setRescheduleTarget] = useState(null);
+  const [openSlots, setOpenSlots] = useState([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [newSlotId, setNewSlotId] = useState("");
+  const [rescheduling, setRescheduling] = useState(false);
+
   // Coach's own offerings, for the "Change Program" picker.
   const [mySkills, setMySkills] = useState([]);
   useEffect(() => {
@@ -555,6 +562,45 @@ const MySessions = () => {
   const [changeSkillId, setChangeSkillId] = useState("");
   const [changingProgram, setChangingProgram] = useState(false);
   const openChangeProgram = (s) => { setChangeTarget(s); setChangeSkillId(String(s.skill || "")); };
+
+  // ── Move a session to another time ──────────────────────────────────────────
+  // Until now a time change meant cancelling and asking the client to book
+  // again. The coach picks from her own open times; the booking, its chat and
+  // its joining link all stay as they are.
+  const openReschedule = async (s) => {
+    setRescheduleTarget(s);
+    setNewSlotId("");
+    setSlotsLoading(true);
+    try {
+      const res = await api.get("/bookings/slots/");
+      const all = Array.isArray(res.data) ? res.data : res.data.results || [];
+      setOpenSlots(
+        all
+          .filter(sl => sl.status === "open" && new Date(sl.start_datetime) > new Date())
+          .sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime))
+      );
+    } catch {
+      toast.error("Couldn't load your available times.");
+      setOpenSlots([]);
+    } finally {
+      setSlotsLoading(false);
+    }
+  };
+
+  const confirmReschedule = async () => {
+    if (!newSlotId) { toast.error("Choose a new time."); return; }
+    setRescheduling(true);
+    try {
+      const res = await api.patch(`/bookings/${rescheduleTarget.id}/reschedule/`, { slot_id: Number(newSlotId) });
+      setSessions(prev => prev.map(x => (x.id === rescheduleTarget.id ? { ...x, ...res.data } : x)));
+      toast.success("Session moved. Both of you have been emailed the new time.");
+      setRescheduleTarget(null);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Couldn't move the session.");
+    } finally {
+      setRescheduling(false);
+    }
+  };
   const handleNudge = async (session) => {
     try {
       const res = await api.post(`/bookings/${session.id}/nudge/`);
@@ -898,6 +944,7 @@ const MySessions = () => {
                   activeTab={activeTab}
                   onCancel={setCancelTarget}
                   onChangeProgram={openChangeProgram}
+                  onReschedule={openReschedule}
                   onNudge={handleNudge}
                   onSetMeetingLink={(s) => { setMeetingTarget(s); setMeetingLink(s.meeting_link || ""); }}
                   onUploadNotes={handleUploadNotes}
@@ -980,6 +1027,70 @@ const MySessions = () => {
                 </button>
                 <button onClick={handleSaveMeetingLink} className="flex-1 gold-btn py-2.5 rounded-full text-sm font-bold">
                   Save Link
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Reschedule Modal ─────────────────────────────── */}
+      <AnimatePresence>
+        {rescheduleTarget && (
+          <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !rescheduling && setRescheduleTarget(null)} />
+            <motion.div
+              className="relative rounded-2xl p-8 w-full max-w-md z-10"
+              style={{ background: "#FAF6EC", border: "1px solid rgba(200,169,81,0.2)" }}
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ background: "rgba(200,169,81,0.15)" }}>
+                <FiClock size={20} style={{ color: "#C8A951" }} />
+              </div>
+              <h3 className="text-xl font-normal text-[#1B2B4A] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>Move this session</h3>
+              <p className="text-sm text-[#4A5568] mb-1">
+                Choose a new time for your session with{" "}
+                <span className="font-semibold">{rescheduleTarget.learner_name || rescheduleTarget.learner_username}</span>.
+              </p>
+              <p className="text-xs mb-5" style={{ color: "rgba(74,85,104,0.7)" }}>
+                The joining link stays the same. Both of you are emailed the new time, and the old time goes back on your calendar.
+              </p>
+
+              {slotsLoading ? (
+                <p className="text-sm py-4 text-center" style={{ color: "#4A5568" }}>Loading your available times…</p>
+              ) : openSlots.length === 0 ? (
+                <p className="text-sm py-4" style={{ color: "#B91C1C" }}>
+                  You have no open times. Add some under My Availability, then try again.
+                </p>
+              ) : (
+                <select value={newSlotId} onChange={e => setNewSlotId(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl text-sm mb-5 focus:outline-none"
+                  style={{ background: "white", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }}>
+                  <option value="">Choose a new time…</option>
+                  {openSlots.map(sl => (
+                    <option key={sl.id} value={sl.id}>
+                      {new Date(sl.start_datetime).toLocaleString(undefined, {
+                        weekday: "short", day: "numeric", month: "short",
+                        hour: "2-digit", minute: "2-digit",
+                      })}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              <div className="flex gap-3">
+                <button onClick={confirmReschedule} disabled={rescheduling || !newSlotId}
+                  className="flex-1 py-3 rounded-xl text-sm font-bold disabled:opacity-50"
+                  style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
+                  {rescheduling ? "Moving…" : "Move session"}
+                </button>
+                <button onClick={() => setRescheduleTarget(null)} disabled={rescheduling}
+                  className="flex-1 py-3 rounded-xl text-sm font-semibold"
+                  style={{ background: "rgba(27,43,74,0.06)", color: "#4A5568" }}>
+                  Cancel
                 </button>
               </div>
             </motion.div>

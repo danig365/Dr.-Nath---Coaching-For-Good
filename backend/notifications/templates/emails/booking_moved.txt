@@ -1,0 +1,13 @@
+{% extends "emails/base.txt" %}
+{% block content %}YOUR SESSION HAS A NEW TIME
+
+Hi {{ recipient_name }}, {% if moved_by_you %}you moved{% else %}{{ moved_by }} has moved{% endif %} this session.
+
+  {{ skill_name }}
+{% if old_when %}  Was:  {{ old_when }}
+{% endif %}  Now:  {{ session_when }}
+  Duration: {{ duration }} minutes
+
+The joining link has not changed:
+{{ join_link }}
+{% endblock %}
