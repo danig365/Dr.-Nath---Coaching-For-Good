@@ -1075,6 +1075,16 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
         if slot.start_datetime < min_notice_cutoff(slot.coach):
             return Response({'bookable': False, 'reason': min_notice_message(slot.coach)})
         if slot.status == 'booked':
+            # The coach opening her own invite link is usually asking "why doesn't
+            # this work?" — the answer is that the person she invited already took
+            # it. Tell her that, by name; everyone else just needs another time.
+            booking = getattr(slot, 'booking', None)
+            if booking and request.user.is_authenticated and slot.coach.user_id == request.user.id:
+                who = (f"{booking.learner.first_name} {booking.learner.last_name}".strip()
+                       or booking.learner.username)
+                return Response({'bookable': False,
+                                 'reason': f"{who} has already booked this time — the session is "
+                                           f"confirmed and nothing further is needed."})
             return Response({'bookable': False, 'reason': 'That time has already been booked.'})
         if slot.status == 'held' and slot.held_by_id != getattr(request.user, 'id', None):
             return Response({'bookable': False, 'reason': 'Someone else is booking that time right now.'})
