@@ -689,21 +689,51 @@ const MyAvailability = () => {
   };
 
   // ── Slots ──
+  // Deleting a time someone was INVITED to breaks the link in their invitation —
+  // the server refuses the first attempt and says who was invited, so the coach
+  // decides knowingly. Confirming sends those people a "pick another time" email.
   const deleteSlot = async (slot) => {
     try {
       await api.delete(`/bookings/slots/${slot.id}/`);
       setSlots((s) => s.filter((x) => x.id !== slot.id));
-    } catch (err) { toast.error(err.response?.data?.detail || "Cannot delete."); }
+    } catch (err) {
+      const detail = err.response?.data?.detail || err.response?.data?.[0];
+      if (detail && /invited/i.test(detail) && window.confirm(detail)) {
+        try {
+          await api.delete(`/bookings/slots/${slot.id}/?force=1`);
+          setSlots((s) => s.filter((x) => x.id !== slot.id));
+          toast.success("Time deleted — the people you invited have been emailed to pick another.");
+        } catch (e2) {
+          toast.error(e2.response?.data?.detail || "Cannot delete.");
+        }
+        return;
+      }
+      toast.error(detail || "Cannot delete.");
+    }
   };
 
   // ── Calendar slot actions ──
-  const setSlotStatus = async (slot, action) => {
-    const res = await api.patch(`/bookings/slots/${slot.id}/${action}/`);
+  const setSlotStatus = async (slot, action, body) => {
+    const res = await api.patch(`/bookings/slots/${slot.id}/${action}/`, body);
     setSlots((s) => s.map((x) => (x.id === slot.id ? res.data : x)));
   };
 
   const blockSlot = async (slot) => {
-    try { await setSlotStatus(slot, "block"); } catch (err) { toast.error(err.response?.data?.detail || "Action failed."); }
+    try {
+      await setSlotStatus(slot, "block");
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      if (detail && /invited/i.test(detail) && window.confirm(detail)) {
+        try {
+          await setSlotStatus(slot, "block", { force: true });
+          toast.success("Time closed — the people you invited have been emailed to pick another.");
+        } catch (e2) {
+          toast.error(e2.response?.data?.detail || "Action failed.");
+        }
+        return;
+      }
+      toast.error(detail || "Action failed.");
+    }
   };
   const unblockSlot = async (slot) => {
     try { await setSlotStatus(slot, "unblock"); } catch (err) { toast.error(err.response?.data?.detail || "Action failed."); }

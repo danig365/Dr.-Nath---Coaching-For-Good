@@ -561,6 +561,39 @@ def schedule_booking_notifications(booking, *, confirmation=True):
             )
 
 
+def send_slot_invite_withdrawn(slot, emails):
+    """Tell people invited to a time that it has gone, and where to pick another.
+
+    A deleted or blocked slot used to break the link in an invitation silently:
+    the invitee saw "no longer available" and the coach never knew. Best-effort —
+    the coach's change to her own calendar must never fail on an email.
+    """
+    from django.conf import settings
+    from notifications.services import send_email
+
+    coach_user = slot.coach.user
+    coach_name = _display_name(coach_user)
+    tzname = getattr(slot.coach, 'timezone', 'UTC')
+    when = _fmt_when(slot.start_datetime, tzname)
+
+    invite = slot.invites.exclude(skill=None).first()
+    skill_id = invite.skill_id if invite else None
+    link = f"{settings.SITE_URL}/book/{skill_id}" if skill_id else f"{settings.SITE_URL}/coaches"
+
+    for email in {e.strip() for e in emails if e and e.strip()}:
+        try:
+            send_email(
+                to=email,
+                subject=f"That time is no longer available — {coach_name}",
+                template='slot_invite_withdrawn',
+                context={'coach_name': coach_name, 'when': when, 'link': link},
+                reply_to=[coach_user.email] if coach_user.email else None,
+                bcc=[coach_user.email] if coach_user.email else None,
+            )
+        except Exception as err:  # noqa: BLE001 — never block a calendar edit
+            logger.warning("Slot %s: withdrawal email to %s failed: %s", slot.id, email, err)
+
+
 def send_booking_moved(booking, old_start=None, moved_by=None):
     """Tell both parties a session has moved, with the old time and the new one.
 

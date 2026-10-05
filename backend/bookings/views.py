@@ -857,6 +857,22 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
             raise DRFValidationError("You can only delete your own slots.")
         if instance.status in ('booked', 'held'):
             raise DRFValidationError("A booked or held slot cannot be deleted.")
+
+        # Someone is holding a link to this exact time. Deleting it silently is
+        # what left a Standard Bank invitee staring at "this time is no longer
+        # available" with no idea why, and the coach unaware anything had
+        # broken. Say who was invited; `?force=1` goes ahead and tells them.
+        invited = list(instance.invites.values_list('email', flat=True))
+        if invited and self.request.query_params.get('force') not in ('1', 'true', 'yes'):
+            who = ', '.join(invited[:3]) + (f" and {len(invited) - 3} more" if len(invited) > 3 else '')
+            raise DRFValidationError(
+                f"You invited {who} to this time. Deleting it breaks the link in their "
+                f"invitation. Delete it anyway and we'll email them to pick another time?"
+            )
+
+        if invited:
+            from .notifications import send_slot_invite_withdrawn
+            send_slot_invite_withdrawn(instance, invited)
         instance.delete()
 
     @action(detail=True, methods=['patch'])
@@ -865,6 +881,21 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
         slot = self.get_object()
         if slot.status not in ('open', 'blocked'):
             return Response({'detail': 'Only open slots can be blocked.'}, status=HTTP_400_BAD_REQUEST)
+
+        # Same courtesy as deleting: an invited time that quietly closes leaves
+        # someone holding a dead link.
+        invited = list(slot.invites.values_list('email', flat=True))
+        if invited and str(request.data.get('force', '')).lower() not in ('1', 'true', 'yes'):
+            who = ', '.join(invited[:3]) + (f" and {len(invited) - 3} more" if len(invited) > 3 else '')
+            return Response(
+                {'detail': f"You invited {who} to this time. Blocking it breaks the link in their "
+                           f"invitation. Block it anyway and we'll email them to pick another time?"},
+                status=HTTP_400_BAD_REQUEST,
+            )
+        if invited:
+            from .notifications import send_slot_invite_withdrawn
+            send_slot_invite_withdrawn(slot, invited)
+
         slot.status = 'blocked'
         slot.save(update_fields=['status', 'updated_at'])
         return Response(self.get_serializer(slot).data)
@@ -1034,7 +1065,9 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
         from .services import min_notice_cutoff, min_notice_message, coach_is_bookable
         slot = TimeSlot.objects.select_related('coach', 'coach__user').filter(pk=pk).first()
         if slot is None:
-            return Response({'bookable': False, 'reason': 'That time is no longer on the calendar.'})
+            return Response({'bookable': False,
+                             'reason': 'Your coach has changed that time, so the link in your '
+                                       'invitation no longer works.'})
         if not coach_is_bookable(slot.coach):
             return Response({'bookable': False, 'reason': 'This coach is not taking bookings at the moment.'})
         if slot.start_datetime <= dj_tz.now():

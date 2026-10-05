@@ -1,0 +1,12 @@
+{% extends "emails/base.txt" %}
+{% block content %}THAT TIME IS NO LONGER AVAILABLE
+
+{{ coach_name }} is no longer free at:
+
+  {{ when }}
+
+Please choose another time that suits you:
+{{ link }}
+
+Sorry for the inconvenience.
+{% endblock %}
