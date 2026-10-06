@@ -550,6 +550,10 @@ const MySessions = () => {
   const [openSlots, setOpenSlots] = useState([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [newSlotId, setNewSlotId] = useState("");
+  // Any time, typed — for a time agreed with a client that isn't on the
+  // calendar. Clients are still held to the notice window; this is the coach
+  // moving a session she has already agreed.
+  const [newSlotTime, setNewSlotTime] = useState("");
   const [rescheduling, setRescheduling] = useState(false);
 
   // Coach's own offerings, for the "Change Program" picker.
@@ -570,6 +574,7 @@ const MySessions = () => {
   const openReschedule = async (s) => {
     setRescheduleTarget(s);
     setNewSlotId("");
+    setNewSlotTime("");
     setSlotsLoading(true);
     try {
       const res = await api.get("/bookings/slots/");
@@ -588,10 +593,13 @@ const MySessions = () => {
   };
 
   const confirmReschedule = async () => {
-    if (!newSlotId) { toast.error("Choose a new time."); return; }
+    if (!newSlotId && !newSlotTime) { toast.error("Choose a new time."); return; }
     setRescheduling(true);
     try {
-      const res = await api.patch(`/bookings/${rescheduleTarget.id}/reschedule/`, { slot_id: Number(newSlotId) });
+      const body = newSlotTime
+        ? { start_datetime: new Date(newSlotTime).toISOString() }
+        : { slot_id: Number(newSlotId) };
+      const res = await api.patch(`/bookings/${rescheduleTarget.id}/reschedule/`, body);
       setSessions(prev => prev.map(x => (x.id === rescheduleTarget.id ? { ...x, ...res.data } : x)));
       toast.success("Session moved. Both of you have been emailed the new time.");
       setRescheduleTarget(null);
@@ -1062,11 +1070,11 @@ const MySessions = () => {
               {slotsLoading ? (
                 <p className="text-sm py-4 text-center" style={{ color: "#4A5568" }}>Loading your available times…</p>
               ) : openSlots.length === 0 ? (
-                <p className="text-sm py-4" style={{ color: "#B91C1C" }}>
-                  You have no open times. Add some under My Availability, then try again.
+                <p className="text-sm py-3" style={{ color: "rgba(74,85,104,0.8)" }}>
+                  You have no open times on your calendar — type one below instead.
                 </p>
               ) : (
-                <select value={newSlotId} onChange={e => setNewSlotId(e.target.value)}
+                <select value={newSlotId} onChange={e => { setNewSlotId(e.target.value); if (e.target.value) setNewSlotTime(""); }}
                   className="w-full px-4 py-3 rounded-xl text-sm mb-5 focus:outline-none"
                   style={{ background: "white", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }}>
                   <option value="">Choose a new time…</option>
@@ -1081,8 +1089,22 @@ const MySessions = () => {
                 </select>
               )}
 
+              {/* Or a time that isn't on the calendar at all. */}
+              <div className="mb-5">
+                <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#A9863A" }}>
+                  Or type any other time
+                </p>
+                <input type="datetime-local" value={newSlotTime}
+                  onChange={e => { setNewSlotTime(e.target.value); if (e.target.value) setNewSlotId(""); }}
+                  className="w-full px-4 py-3 rounded-xl text-sm focus:outline-none"
+                  style={{ background: "white", border: "1px solid rgba(200,169,81,0.3)", color: "#1B2B4A" }} />
+                <p className="text-xs mt-1" style={{ color: "rgba(74,85,104,0.7)" }}>
+                  In your own timezone. Use this for a time you've agreed with the client that isn't on your calendar.
+                </p>
+              </div>
+
               <div className="flex gap-3">
-                <button onClick={confirmReschedule} disabled={rescheduling || !newSlotId}
+                <button onClick={confirmReschedule} disabled={rescheduling || (!newSlotId && !newSlotTime)}
                   className="flex-1 py-3 rounded-xl text-sm font-bold disabled:opacity-50"
                   style={{ background: "linear-gradient(135deg,#C8A951,#F0D98C)", color: "#14213D" }}>
                   {rescheduling ? "Moving…" : "Move session"}

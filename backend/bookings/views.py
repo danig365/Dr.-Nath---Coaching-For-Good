@@ -647,8 +647,46 @@ class SessionBookingViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Only an upcoming session can be moved.'}, status=HTTP_400_BAD_REQUEST)
 
         slot_id = request.data.get('slot_id')
-        if not slot_id:
+        start_raw = request.data.get('start_datetime')
+        if not slot_id and not start_raw:
             return Response({'detail': 'Choose a new time.'}, status=HTTP_400_BAD_REQUEST)
+
+        # Any time, not only one already on the calendar. Dr Nath agreed 21:30
+        # with a client by message, had no slot there, and cancelled the session
+        # altogether because the picker had nothing to offer. The slot is created
+        # for this session alone — the notice window still governs what clients
+        # can book for themselves.
+        if not slot_id:
+            from django.utils.dateparse import parse_datetime
+            start = parse_datetime(start_raw)
+            if start is None:
+                return Response({'detail': "That time didn't make sense. Please pick again."},
+                                status=HTTP_400_BAD_REQUEST)
+            if dj_tz.is_naive(start):
+                start = dj_tz.make_aware(start, dj_tz.get_current_timezone())
+            minutes = booking.duration or 60
+            end = start + timedelta(minutes=minutes)
+            clash = TimeSlot.objects.filter(
+                coach=booking.mentor, status__in=('booked', 'held'),
+                start_datetime__lt=end, end_datetime__gt=start,
+            ).exclude(id=booking.slot_id).exists()
+            if clash:
+                return Response({'detail': 'You already have a session booked over that time.'},
+                                status=status.HTTP_409_CONFLICT)
+            existing = TimeSlot.objects.filter(coach=booking.mentor, start_datetime=start).first()
+            if existing and existing.status in ('booked', 'held') and existing.id != booking.slot_id:
+                return Response({'detail': 'That time is already taken.'}, status=status.HTTP_409_CONFLICT)
+            if existing:
+                existing.status = 'open'
+                existing.end_datetime = max(existing.end_datetime, end)
+                existing.save(update_fields=['status', 'end_datetime', 'updated_at'])
+                slot_id = existing.id
+            else:
+                slot_id = TimeSlot.objects.create(
+                    coach=booking.mentor, skill=booking.skill,
+                    start_datetime=start, end_datetime=end,
+                    status='open', source='manual',
+                ).id
 
         from .notifications import (cancel_booking_notifications, schedule_booking_notifications,
                                     send_booking_moved, session_start_utc)
