@@ -273,9 +273,14 @@ LIVEKIT_TOKEN_TTL = int(os.environ.get('LIVEKIT_TOKEN_TTL', '21600'))  # 6 hours
 # until a key is set; the browser MVP (Phase 2) keeps working regardless.
 TRANSCRIPTION_ENABLED = os.environ.get('TRANSCRIPTION_ENABLED', 'false').lower() == 'true'
 STT_PROVIDER = os.environ.get('STT_PROVIDER', 'deepgram').lower()  # 'deepgram' | 'openai'
-STT_LANGUAGE = os.environ.get('STT_LANGUAGE', 'en')                # e.g. 'en', 'fr'
+# 'multi' lets Deepgram's nova-3 recognise the language being spoken (and a
+# switch between languages mid-session) instead of forcing one. A session held
+# in French was transcribed as garbled English, and the summary of it was
+# worthless. Set a specific code ('en', 'fr') only to pin a single language.
+STT_LANGUAGE = os.environ.get('STT_LANGUAGE', 'multi')
 DEEPGRAM_API_KEY = os.environ.get('DEEPGRAM_API_KEY', '')
-DEEPGRAM_MODEL = os.environ.get('DEEPGRAM_MODEL', 'nova-2')
+# nova-3 is the model that supports multilingual recognition.
+DEEPGRAM_MODEL = os.environ.get('DEEPGRAM_MODEL', 'nova-3')
 # OpenAI Whisper STT reuses OPENAI_API_KEY (already read for the assistant).
 
 # ─── Google Calendar integration (OAuth 2.0) ──────────────────────────────────
