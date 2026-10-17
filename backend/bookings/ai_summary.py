@@ -40,6 +40,17 @@ def generate_and_store_summary(booking, transcript, *, min_chars=MIN_TRANSCRIPT_
     if existing and existing.transcript_chars >= len(transcript) and existing.summary:
         return existing
 
+    # A session that drops and resumes is transcribed in two goes. The first can
+    # be a couple of minutes of "can you hear me?", and its summary may already
+    # have been emailed by the time the real hour arrives. When a much longer
+    # transcript replaces it, the email has to go again — Dr Nath received a
+    # three-line summary of a 50-minute session that read as though nothing had
+    # been said.
+    supersedes_emailed = bool(
+        existing and existing.summary_email_sent
+        and len(transcript) >= max(existing.transcript_chars * 2, existing.transcript_chars + 2000)
+    )
+
     result = summarize_session(transcript)
     if not result:
         return None
@@ -53,6 +64,7 @@ def generate_and_store_summary(booking, transcript, *, min_chars=MIN_TRANSCRIPT_
             'reflection_points': result.get('reflection_points', []),
             'transcript_chars': len(transcript),
             'transcript_text': transcript[:100000],
+            **({'summary_email_sent': False} if supersedes_emailed else {}),
         },
     )
 
@@ -62,7 +74,7 @@ def generate_and_store_summary(booking, transcript, *, min_chars=MIN_TRANSCRIPT_
     try:
         booking.refresh_from_db(fields=['status'])
         from .notifications import send_session_summary_email
-        send_session_summary_email(booking)
+        send_session_summary_email(booking, updated=supersedes_emailed)
     except Exception:  # noqa: BLE001 — never break summary generation on email
         pass
 

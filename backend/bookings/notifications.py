@@ -316,7 +316,7 @@ def cancel_rebook_reminders(user):
     return n
 
 
-def send_session_summary_email(booking):
+def send_session_summary_email(booking, *, updated=False):
     """Email the AI summary of a finished session to BOTH parties, right after the
     summary is generated (so it lands within minutes of the session ending).
 
@@ -350,6 +350,7 @@ def send_session_summary_email(booking):
             'action_items': summ.action_items or [],
             'reflection_points': summ.reflection_points or [],
             'book_link': book_link,
+            'updated': updated,
         })
         # Only the client gets the "remind me to rebook" opt-in button.
         if r['role'] == 'client':
@@ -359,12 +360,13 @@ def send_session_summary_email(booking):
                 kind='session_summary',
                 recipient_email=r['email'],
                 recipient_user=r['user'],
-                subject=f"Your session summary — {skill_name}",
+                subject=(f"Updated session summary — {skill_name}" if updated
+                         else f"Your session summary — {skill_name}"),
                 template='session_summary',
                 context=ctx,
                 scheduled_for=dj_tz.now(),
                 related=booking,
-                dedupe_key=f"booking:{booking.id}:summary:{r['role']}",
+                dedupe_key=f"booking:{booking.id}:summary:{r['role']}:{summ.transcript_chars}",
             )
             if note and note.status == ScheduledNotification.STATUS_PENDING:
                 note.send()
