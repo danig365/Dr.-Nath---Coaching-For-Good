@@ -1560,14 +1560,24 @@ export default function SessionCallLiveKit() {
             {camOn ? <FiVideo size={18} className="text-white" /> : <FiVideoOff size={18} className="text-white" />}
           </button>
 
-          {canScreenShare && (
-            <button onClick={toggleScreenShare} disabled={screenBusy}
-              className="w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all disabled:opacity-50"
-              style={{ background: screenSharing ? "rgba(200,169,81,0.9)" : "rgba(255,255,255,0.1)" }}
-              title={screenSharing ? "Stop sharing your screen" : "Share your screen"}>
-              <FiMonitor size={18} style={{ color: screenSharing ? "#14213D" : "white" }} />
-            </button>
-          )}
+          {/* Shown even where it can't run. Hiding it made a client conclude the
+              feature doesn't exist, when the truth is that phone browsers don't
+              allow screen capture — which is worth saying out loud. */}
+          <button
+            onClick={canScreenShare
+              ? toggleScreenShare
+              : () => toast.info("Screen sharing needs a computer — phone and tablet browsers don't allow it. Join from a laptop to share your screen.")}
+            disabled={screenBusy}
+            className="w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all disabled:opacity-50"
+            style={{
+              background: screenSharing ? "rgba(200,169,81,0.9)" : "rgba(255,255,255,0.1)",
+              opacity: canScreenShare ? 1 : 0.55,
+            }}
+            title={!canScreenShare
+              ? "Screen sharing needs a computer — phone browsers don't allow it"
+              : screenSharing ? "Stop sharing your screen" : "Share your screen"}>
+            <FiMonitor size={18} style={{ color: screenSharing ? "#14213D" : "white" }} />
+          </button>
 
           {/* Invite a guest (N4) — coach only */}
           {isCoachUser && (
